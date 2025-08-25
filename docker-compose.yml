@@ -1,0 +1,69 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: zakupai-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zakupai}
+      POSTGRES_USER: ${POSTGRES_USER:-zakupai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zakupai}
+    ports:
+      - "5433:${POSTGRES_PORT:-5432}"   # host:container
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zakupai} -d ${POSTGRES_DB:-zakupai}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  calc-service:
+    build: ./services/calc-service
+    container_name: zakupai-calc
+    environment:
+      PORT: ${CALC_PORT:-8001}
+      API_KEY: ${API_KEY:-changeme}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+    ports:
+      - "${CALC_PORT:-8001}:${CALC_PORT:-8001}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  risk-engine:
+    build: ./services/risk-engine
+    container_name: zakupai-risk
+    environment:
+      PORT: ${RISK_PORT:-8002}
+      API_KEY: ${API_KEY:-changeme}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+    ports:
+      - "${RISK_PORT:-8002}:${RISK_PORT:-8002}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  doc-service:
+    build: ./services/doc-service
+    container_name: zakupai-doc
+    environment:
+      PORT: ${DOC_PORT:-8003}
+      API_KEY: ${API_KEY:-changeme}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+    ports:
+      - "${DOC_PORT:-8003}:${DOC_PORT:-8003}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  embedding-api:
+    build: ./services/embedding-api
+    container_name: zakupai-emb
+    environment:
+      PORT: ${EMB_PORT:-8004}
+      API_KEY: ${API_KEY:-changeme}
+    ports:
+      - "${EMB_PORT:-8004}:${EMB_PORT:-8004}"
+
+volumes:
+  pgdata:
