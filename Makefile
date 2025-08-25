@@ -1,4 +1,4 @@
-.PHONY: up down restart logs ps build test lint fmt dbsh smoke
+.PHONY: up down restart logs ps build test lint fmt dbsh smoke smoke-risk
 
 up:            ## build+up
 	docker compose up -d --build
@@ -32,3 +32,8 @@ fmt:           ## форматирование
 
 smoke:         ## run smoke tests
 	./scripts/smoke.sh
+
+smoke-risk:    ## test risk-engine only
+	curl -s -X POST http://localhost:8002/risk/score -H 'content-type: application/json' -d '{"lot_id":1}' | jq '.saved'
+	curl -s http://localhost:8002/risk/explain/1 | jq '.score'
+	docker exec zakupai-db psql -U zakupai -d zakupai -c "SELECT count(*) FROM risk_evaluations;"

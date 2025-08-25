@@ -34,12 +34,13 @@ services:
   risk-engine:
     build: ./services/risk-engine
     container_name: zakupai-risk
+    env_file: .env
     environment:
-      PORT: ${RISK_PORT:-8002}
+      PORT: 8000
       API_KEY: ${API_KEY:-changeme}
-      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@zakupai-db:5432/zakupai}
     ports:
-      - "${RISK_PORT:-8002}:${RISK_PORT:-8002}"
+      - "${RISK_PORT:-8002}:8000"
     depends_on:
       db:
         condition: service_healthy

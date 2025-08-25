@@ -22,14 +22,18 @@
 - [  ] Alembic миграции (инициализация, автогенерация)
 
 ## 2) Сервисы (FastAPI)
-
+  [x] calc-service: /calc/vat, /calc/margin, /calc/penalty
+  [x] calc-service: запись расчётов в finance_calcs
+  [x] risk-engine: /risk/score, /risk/explain/{lot_id}
+  [x] risk-engine: запись оценок в risk_evaluations
+  [ ] Тесты Pytest + примеры curl для обоих сервисов
 ### calc-service (8001)
 - [x] `/health`
-- [  ] `POST /calc/vat`
-- [  ] `POST /calc/margin`
-- [  ] `POST /calc/penalty`
-- [  ] Сохранение расчётов в `finance_calcs`
-- [  ] Pytest + curl-примеры
+- [x] `POST /calc/vat`
+- [x] `POST /calc/margin`
+- [x] `POST /calc/penalty`
+- [x] Сохранение расчётов в `finance_calcs`
+- [x] Pytest + curl-примеры
 
 ### risk-engine (8002)
 - [x] `/health`

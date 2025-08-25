@@ -2,11 +2,12 @@ import os
 import uuid
 import json
 import logging
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, Annotated
+from decimal import Decimal
 
 from fastapi import FastAPI, Request, Header, HTTPException
-from pydantic import BaseModel, Field, condecimal
+from pydantic import BaseModel, Field
 import psycopg2
 
 # ---------- минимальное JSON-логирование + request-id ----------
@@ -85,23 +86,23 @@ def info(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
 
 # ---------- схемы ----------
 class VatRequest(BaseModel):
-    amount: condecimal(ge=0)
-    vat_rate: condecimal(ge=0, le=100) = 12
+    amount: Annotated[Decimal, Field(ge=0)]
+    vat_rate: Annotated[Decimal, Field(ge=0, le=100)] = Decimal('12')
     include_vat: bool = True
     lot_id: Optional[int] = None
 
 class MarginRequest(BaseModel):
-    lot_price: condecimal(ge=0)
-    cost: condecimal(ge=0)
-    logistics: condecimal(ge=0) = 0
-    vat_rate: condecimal(ge=0, le=100) = 12
+    lot_price: Annotated[Decimal, Field(ge=0)]
+    cost: Annotated[Decimal, Field(ge=0)]
+    logistics: Annotated[Decimal, Field(ge=0)] = Decimal('0')
+    vat_rate: Annotated[Decimal, Field(ge=0, le=100)] = Decimal('12')
     price_includes_vat: bool = True
     lot_id: Optional[int] = None
 
 class PenaltyRequest(BaseModel):
-    contract_sum: condecimal(ge=0)
+    contract_sum: Annotated[Decimal, Field(ge=0)]
     days_overdue: int = Field(ge=0, default=0)
-    daily_rate_pct: condecimal(ge=0, le=100) = 0.1
+    daily_rate_pct: Annotated[Decimal, Field(ge=0, le=100)] = Decimal('0.1')
     lot_id: Optional[int] = None
 
 # ---------- эндпоинты ----------
@@ -124,7 +125,7 @@ def calc_vat(req: VatRequest, request: Request):
         "vat_rate": float(req.vat_rate),
         "include_vat": req.include_vat,
         "request_id": rid,
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
     }
     save_finance_calc(req.lot_id, req.model_dump(), result)
     return result
@@ -148,7 +149,7 @@ def calc_margin(req: MarginRequest, request: Request):
         "roi_pct": round(roi_pct, 2),
         "assumptions": {"price_includes_vat": req.price_includes_vat, "vat_rate": float(req.vat_rate)},
         "request_id": rid,
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
     }
     save_finance_calc(req.lot_id, req.model_dump(), result)
     return result
@@ -163,7 +164,7 @@ def calc_penalty(req: PenaltyRequest, request: Request):
         "daily_rate_pct": float(req.daily_rate_pct),
         "penalty": round(penalty, 2),
         "request_id": rid,
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
     }
     save_finance_calc(req.lot_id, req.model_dump(), result)
     return result
