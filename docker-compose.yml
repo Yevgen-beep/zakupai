@@ -20,10 +20,11 @@ services:
   calc-service:
     build: ./services/calc-service
     container_name: zakupai-calc
+    env_file: .env
     environment:
       PORT: ${CALC_PORT:-8001}
       API_KEY: ${API_KEY:-changeme}
-      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@zakupai-db:5432/zakupai}
     ports:
       - "${CALC_PORT:-8001}:${CALC_PORT:-8001}"
     depends_on:

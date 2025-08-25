@@ -1,4 +1,4 @@
-.PHONY: up down restart logs ps build test lint fmt dbsh
+.PHONY: up down restart logs ps build test lint fmt dbsh smoke
 
 up:            ## build+up
 	docker compose up -d --build
@@ -29,3 +29,6 @@ lint:          ## ruff/flake8/mypy при необходимости
 
 fmt:           ## форматирование
 	@echo "TODO: black/ruff format (optional)"
+
+smoke:         ## run smoke tests
+	./scripts/smoke.sh

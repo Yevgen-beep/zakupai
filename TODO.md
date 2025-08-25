@@ -1,7 +1,8 @@
 ## 0) Базовая инфраструктура (Спринт 0)
 - [x] Docker Compose: db, calc-service, risk-engine, doc-service, embedding-api
 - [x] Health-check `/health`, защищённый `/info` (X-API-Key)
-- [  ] CI: lint + build (GitHub Actions)
+- [x] [CI](https://github.com/Yevgen-beep/zakupai/actions/workflows/ci.yml/badge.svg)](https://github.com/Yevgen-beep/zakupai/actions/workflows/ci.yml)
+
 - [  ] Makefile: `make up/down/logs/test`
 - [  ] Логи JSON + кореляция `X-Request-Id` во всех сервисах
 - [  ] Pre-commit хуки (ruff/black/isort, yamllint, markdownlint)
