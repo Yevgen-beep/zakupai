@@ -58,3 +58,16 @@ jobs:
         with:
           context: ./${{ matrix.svc }}
           push: false
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start db + calc-service
+        run: docker compose up -d db calc-service
+      - name: Wait for calc-service
+        run: |
+          timeout 90 bash -c 'until curl -fsS http://localhost:8001/health; do sleep 3; done'
+      - name: Run smoke
+        run: bash scripts/smoke.sh
