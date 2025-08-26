@@ -75,6 +75,22 @@ services:
       db:
         condition: service_healthy
 
+  migrator:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@zakupai-db:5432/zakupai}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      bash -lc "pip install -r db/requirements.txt &&
+                alembic -c db/alembic.ini upgrade head"
+
   gateway:
     image: nginx:alpine
     container_name: zakupai-gateway

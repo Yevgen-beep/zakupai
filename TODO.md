@@ -2,25 +2,25 @@
 
 \[x\] Docker Compose: db, calc-service, risk-engine, doc-service, embedding-api
 \[x\] Health-check /health, защищённый /info (X-API-Key)
-\[ \] CI: lint + build (GitHub Actions)
+\[x\] CI: lint + build (GitHub Actions)
 \[x\] Makefile: make up/down/logs/test (+ smoke-\*)
-\[ \] Логи JSON + кореляция X-Request-Id во всех сервисах
+\[x\] Логи JSON + кореляция X-Request-Id во всех сервисах
 \[x\] Скрипт запуска scripts/bootstrap.sh
 \[x\] Удалить version: из docker-compose.yml (warning compose)
-\[ \] Reverse-proxy (traefik/nginx) + rate limits
-\[ \] Pre-commit хуки (ruff/black/isort, yamllint, markdownlint)
+\[x\] Reverse-proxy (nginx gateway) + rate limits (429)
+\[x\] Pre-commit хуки (ruff/black/isort, yamllint, mdformat, bandit)
 
 1. Данные и схема БД
 
 \[x\] Таблица lots(id, title, price) (миграция V1)
 \[x\] Миграция V2: lots(risk_score numeric, deadline date, customer_bin text, plan_id text)
 \[x\] Таблицы: suppliers(bin, name), prices(source, sku, price), lot_prices(lot_id, price_id, qty)
-\[ \] Индексы по customer_bin, deadline
-\[ \] Индексы: prices(sku), prices(captured_at)
-\[ \] Индексы: risk_evaluations(lot_id, created_at DESC)
-\[ \] FK политика: CASCADE для lot_prices.(lot_id, price_id)
-\[ \] Seeding: scripts/seed.sql + scripts/seed.sh
-\[ \] Alembic миграции (инициализация, автогенерация)
+\[x\] Индексы по customer_bin, deadline
+\[x\] Индексы: prices(sku), prices(captured_at)
+\[x\] Индексы: risk_evaluations(lot_id, created_at DESC)
+\[x\] FK политика: CASCADE для lot_prices.(lot_id, price_id)
+\[x\] Seeding: scripts/seed.sql + scripts/seed.sh
+\[x\] Alembic миграции (инициализация, автогенерация)
 
 2. Сервисы (FastAPI)
 
@@ -30,7 +30,7 @@
 \[x\] doc-service: экспорт HTML→PDF (/render/pdf)
 \[x\] embedding-api: /embed, /index, /search
 \[ \] doc-service: локализация ru-KZ
-\[ \] Pytest + curl-примеры для всех сервисов
+\[x\] Pytest + curl-примеры для всех сервисов
 
 3. Интеграции (n8n / Flowise)
 
@@ -54,14 +54,16 @@
 5. Безопасность и доступ
 
 \[x\] Единый X-API-Key (+ /info)
-\[ \] Rate limits (traefik/nginx)
+\[x\] Rate limits на внешних эндпоинтах (nginx gateway → 429)
 \[ \] Аудит-логи вызовов
 \[ \] CORS/CSRF политика для веб-панели
+\[x\] SAST: Bandit в pre-commit/CI
+\[ \] Валидация и санитизация всех входных данных (FastAPI deps) для защиты от инъекций
 
 6. DevOps / эксплуатация
 
 \[x\] Smoke для calc/risk/doc/emb (скрипт + Makefile)
-\[ \] Включить smoke-матрицу в CI по всем сервисам
+\[x\] Включить smoke-матрицу в CI по всем сервисам
 \[ \] Envs: .env.dev, .env.stage, .env.prod
 \[ \] Бэкапы БД (pg_dump + rclone в облако)
 \[ \] Prometheus + Grafana, алерты

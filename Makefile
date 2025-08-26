@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -105,3 +105,12 @@ smoke-gw: ## Test nginx gateway with rate limiting
 			-H 'content-type: application/json' \
 			-d '{"contract_sum":1000,"days_overdue":1,"daily_rate_pct":0.1}'; \
 	done | sort | uniq -c
+
+migrate: ## Run Alembic migrations
+	$(COMPOSE) run --rm migrator
+
+alembic-rev: ## Create new Alembic revision (usage: make alembic-rev m="message")
+	$(COMPOSE) run --rm migrator bash -lc 'alembic -c db/alembic.ini revision -m "$(m)"'
+
+alembic-stamp: ## Stamp current database as head revision
+	$(COMPOSE) run --rm migrator bash -lc 'alembic -c db/alembic.ini stamp head'

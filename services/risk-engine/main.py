@@ -33,10 +33,10 @@ def _rid(x: str | None) -> str:
 # ---------- DB ----------
 def _dsn(host: str) -> str:
     return (
-        f"host={host} port={os.getenv('DB_PORT','5432')}"
-        f" dbname={os.getenv('DB_NAME','zakupai')}"
-        f" user={os.getenv('DB_USER','zakupai')}"
-        f" password={os.getenv('DB_PASSWORD','zakupai')}"
+        f"host={host} port={os.getenv('DB_PORT', '5432')}"
+        f" dbname={os.getenv('DB_NAME', 'zakupai')}"
+        f" user={os.getenv('DB_USER', 'zakupai')}"
+        f" password={os.getenv('DB_PASSWORD', 'zakupai')}"
     )
 
 
