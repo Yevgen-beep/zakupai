@@ -12,7 +12,7 @@ MVP-платформа для автоматизации госзакупок Р
 
 ```bash
 # Установка pre-commit и зависимостей
-pip install pre-commit ruff black isort yamllint mdformat mdformat-gfm
+pip install pre-commit ruff black isort yamllint mdformat mdformat-gfm bandit
 
 # Установка хуков
 pre-commit install
@@ -27,3 +27,4 @@ pre-commit run --all-files
 - Проверка YAML файлов (yamllint)
 - Форматирование Markdown (mdformat)
 - Базовые проверки (trailing whitespace, large files)
+- Security checks for Python code (bandit)

@@ -35,3 +35,10 @@ repos:
     hooks:
       - id: mdformat
         additional_dependencies: [mdformat-gfm]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        args: ["-q"]
+        exclude: 'tests/'
