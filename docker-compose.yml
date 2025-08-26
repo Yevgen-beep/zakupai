@@ -48,12 +48,14 @@ services:
   doc-service:
     build: ./services/doc-service
     container_name: zakupai-doc
+    env_file: .env
     environment:
       PORT: ${DOC_PORT:-8003}
       API_KEY: ${API_KEY:-changeme}
-      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@zakupai-db:5432/zakupai}
+      DB_HOST: zakupai-db
     ports:
-      - "${DOC_PORT:-8003}:${DOC_PORT:-8003}"
+      - "8003:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -61,11 +63,30 @@ services:
   embedding-api:
     build: ./services/embedding-api
     container_name: zakupai-emb
+    env_file: .env
     environment:
       PORT: ${EMB_PORT:-8004}
       API_KEY: ${API_KEY:-changeme}
+      DB_URL: ${DB_URL:-postgresql://zakupai:zakupai@zakupai-db:5432/zakupai}
+      DB_HOST: zakupai-db
     ports:
-      - "${EMB_PORT:-8004}:${EMB_PORT:-8004}"
+      - "8004:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  gateway:
+    image: nginx:alpine
+    container_name: zakupai-gateway
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - calc-service
+      - risk-engine
+      - doc-service
+      - embedding-api
 
 volumes:
   pgdata:

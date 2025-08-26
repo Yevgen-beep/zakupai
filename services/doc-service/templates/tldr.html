@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TL;DR: {{ title }}</title>
+</head>
+<body>
+    <h2>{{ title }}</h2>
+    <ul>
+    {% for line in lines %}
+        <li>{{ line }}</li>
+    {% endfor %}
+    </ul>
+</body>
+</html>

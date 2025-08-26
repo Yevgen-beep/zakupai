@@ -1,8 +1,8 @@
 version: "1.0.0"
 weights:
-  short_deadline: 30     # дедлайн <= 3 дней
-  over_market:    25     # цена лота > 120% от ориентировочной суммы (prices*qty)
-  no_plan_id:     10     # нет плановой закупки
+  short_deadline: 30  # дедлайн <= 3 дней
+  over_market: 25  # цена лота > 120% от ориентировочной суммы (prices*qty)
+  no_plan_id: 10  # нет плановой закупки
 thresholds:
   deadline_days_hot: 3
   over_market_factor: 1.2
