@@ -1,6 +1,11 @@
+import os
+import sys
+
 from fastapi.testclient import TestClient
 
-from ..main import app
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from main import app
 
 client = TestClient(app)
 
@@ -23,7 +28,7 @@ def test_score_not_found():
 
 def test_audit_log_created():
     """Test that audit log is created after a request"""
-    from ..main import _get_conn_and_host
+    from main import _get_conn_and_host
 
     # Count before
     conn, _ = _get_conn_and_host()

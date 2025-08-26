@@ -1,6 +1,11 @@
+import os
+import sys
+
 from fastapi.testclient import TestClient
 
-from ..main import app
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from main import app
 
 client = TestClient(app)
 
@@ -41,7 +46,7 @@ def test_render_validation_large_list():
 
 def test_audit_log_created():
     """Test that audit log is created after a valid request"""
-    from ..main import get_conn
+    from main import get_conn
 
     # Count before
     with get_conn() as conn:

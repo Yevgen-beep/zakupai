@@ -100,12 +100,12 @@ def _save_audit_log(
     route: str,
     method: str,
     status: int,
-    req_id: str,
-    ip: str,
+    req_id: str | None,
+    ip: str | None,
     duration_ms: int,
-    payload_hash: str,
-    error: str = None,
-):
+    payload_hash: str | None,
+    error: str | None = None,
+) -> None:
     try:
         conn, _ = _get_conn_and_host()
         with conn, conn.cursor() as cur:
@@ -263,14 +263,17 @@ class AuditMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         # Get request info
-        req_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-        ip = request.headers.get("x-forwarded-for") or getattr(
-            request.client, "host", "unknown"
+        req_id = request.headers.get("x-request-id") or None
+        xff = request.headers.get("x-forwarded-for")
+        ip = (
+            xff.split(",")[0].strip()
+            if xff
+            else (request.client.host if request.client else None)
         )
 
         # Read body for hash
         body = await request.body()
-        payload_hash = hashlib.sha256(body[:8192]).hexdigest()[:16] if body else ""
+        payload_hash = hashlib.sha256(body[:8192]).hexdigest()[:16] if body else None
 
         # Process request
         error = None
@@ -313,7 +316,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             log.warning(f"audit log save failed: {e}")
 
-        response.headers["X-Request-Id"] = req_id
+        response.headers["X-Request-Id"] = req_id or str(uuid.uuid4())
         return response
 
 
