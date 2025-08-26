@@ -2,6 +2,9 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 DB_CONT := zakupai-db
+PYTHON_EXEC ?= python3
+DB_USER ?= ${POSTGRES_USER}
+DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
 .PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw
 
@@ -30,22 +33,25 @@ pull: ## Pull Docker images
 	$(COMPOSE) pull
 
 dbsh: ## Open psql shell in the DB container
-	docker exec -it $(DB_CONT) psql -U zakupai -d zakupai
+	docker exec -it $(DB_CONT) psql -U $(DB_USER) -d $(DB_NAME)
 
 test: ## Run pytest in all services
 	@echo "Running pytest in all services..."
 	@find services -maxdepth 2 -name "tests" -type d | while read dir; do \
 		service_dir=$$(dirname "$$dir"); \
 		echo "Testing $$service_dir"; \
-		cd "$$service_dir" && /home/mint/projects/claude_sandbox/zakupai/.venv/bin/python -m pytest -q tests/ || exit 1; \
+		cd "$$service_dir" && $(PYTHON_EXEC) -m pytest -q tests/ || exit 1; \
 		cd - >/dev/null; \
 	done
 
-lint: ## TODO: ruff/flake8/yamllint/markdownlint
-	@echo "TODO: implement linters"
+lint: ## Run ruff and yamllint
+	ruff check services
+	yamllint .
 
-fmt: ## TODO: black/ruff formatters
-	@echo "TODO: implement formatters"
+fmt: ## Run black, ruff format and isort
+	black services
+	ruff format services
+	isort services
 
 smoke: ## Run full smoke script
 	./scripts/smoke.sh
