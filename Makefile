@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -114,3 +114,12 @@ alembic-rev: ## Create new Alembic revision (usage: make alembic-rev m="message"
 
 alembic-stamp: ## Stamp current database as head revision
 	$(COMPOSE) run --rm migrator bash -lc 'alembic -c db/alembic.ini stamp head'
+
+test-sec: ## Run security validation tests only
+	@echo "Running security validation tests..."
+	@find services -path "*/tests/test_validation.py" -type f | while read file; do \
+		service_dir=$$(dirname $$(dirname "$$file")); \
+		echo "Testing validation in $$service_dir"; \
+		cd "$$service_dir" && $(PYTHON_EXEC) -m pytest -q tests/test_validation.py || exit 1; \
+		cd - >/dev/null; \
+	done

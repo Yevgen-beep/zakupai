@@ -1,6 +1,8 @@
+import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -9,6 +11,8 @@ from typing import Annotated
 import psycopg2
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
@@ -53,6 +57,66 @@ def get_conn():
     raise last_err or RuntimeError("DB connection failed")
 
 
+def ensure_audit_schema():
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id bigserial PRIMARY KEY,
+                        service text NOT NULL,
+                        route text NOT NULL,
+                        method text NOT NULL,
+                        status int NOT NULL,
+                        req_id text,
+                        ip text,
+                        duration_ms int,
+                        payload_hash text,
+                        error text,
+                        created_at timestamp DEFAULT now()
+                    );
+                """
+                )
+    except Exception as e:
+        log.warning(f"audit schema setup failed: {e}")
+
+
+def save_audit_log(
+    service: str,
+    route: str,
+    method: str,
+    status: int,
+    req_id: str,
+    ip: str,
+    duration_ms: int,
+    payload_hash: str,
+    error: str = None,
+):
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs(service, route, method, status, req_id, ip, duration_ms, payload_hash, error)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        service,
+                        route,
+                        method,
+                        status,
+                        req_id,
+                        ip,
+                        duration_ms,
+                        payload_hash,
+                        error,
+                    ),
+                )
+    except Exception as e:
+        log.warning(f"audit_logs insert failed: {e}")
+
+
 def save_finance_calc(lot_id: int | None, input_payload: dict, results: dict):
     try:
         with get_conn() as conn:
@@ -72,8 +136,79 @@ def save_finance_calc(lot_id: int | None, input_payload: dict, results: dict):
         log.warning(f"finance_calcs insert failed: {e}")
 
 
+class AuditMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        start_time = time.perf_counter()
+
+        # Get request info
+        req_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        ip = request.headers.get("x-forwarded-for") or getattr(
+            request.client, "host", "unknown"
+        )
+
+        # Read body for hash
+        body = await request.body()
+        payload_hash = hashlib.sha256(body[:8192]).hexdigest()[:16] if body else ""
+
+        # Process request
+        error = None
+        try:
+            response = await call_next(request)
+            status = response.status_code
+        except HTTPException as e:
+            status = e.status_code
+            error = str(e.detail)
+            response = Response(
+                content=json.dumps({"detail": e.detail}),
+                status_code=status,
+                media_type="application/json",
+            )
+        except Exception as e:
+            status = 500
+            error = str(e)
+            response = Response(
+                content=json.dumps({"detail": "Internal server error"}),
+                status_code=status,
+                media_type="application/json",
+            )
+
+        # Calculate duration
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Save audit log in background
+        try:
+            save_audit_log(
+                service="calc-service",
+                route=request.url.path,
+                method=request.method,
+                status=status,
+                req_id=req_id,
+                ip=ip,
+                duration_ms=duration_ms,
+                payload_hash=payload_hash,
+                error=error,
+            )
+        except Exception as e:
+            log.warning(f"audit log save failed: {e}")
+
+        response.headers["X-Request-Id"] = req_id
+        return response
+
+
 # ---------- FastAPI ----------
 app = FastAPI(title="ZakupAI calc-service", version="0.1.1")
+
+# Add audit middleware
+app.add_middleware(AuditMiddleware)
+
+
+# Ensure audit schema on startup
+@app.on_event("startup")
+def startup_event():
+    ensure_audit_schema()
 
 
 @app.middleware("http")
@@ -81,7 +216,6 @@ async def add_request_id_and_log(request: Request, call_next):
     rid = get_request_id(request.headers.get("X-Request-Id"))
     request.state.rid = rid
     response = await call_next(request)
-    response.headers["X-Request-Id"] = rid
     return response
 
 
@@ -99,26 +233,26 @@ def info(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
 
 # ---------- схемы ----------
 class VatRequest(BaseModel):
-    amount: Annotated[Decimal, Field(ge=0)]
-    vat_rate: Annotated[Decimal, Field(ge=0, le=100)] = Decimal("12")
+    amount: Annotated[Decimal, Field(gt=0)]
+    vat_rate: Annotated[Decimal, Field(ge=0, le=20)] = Decimal("12")
     include_vat: bool = True
-    lot_id: int | None = None
+    lot_id: Annotated[int, Field(ge=1)] | None = None
 
 
 class MarginRequest(BaseModel):
     lot_price: Annotated[Decimal, Field(ge=0)]
     cost: Annotated[Decimal, Field(ge=0)]
     logistics: Annotated[Decimal, Field(ge=0)] = Decimal("0")
-    vat_rate: Annotated[Decimal, Field(ge=0, le=100)] = Decimal("12")
+    vat_rate: Annotated[Decimal, Field(ge=0, le=20)] = Decimal("12")
     price_includes_vat: bool = True
-    lot_id: int | None = None
+    lot_id: Annotated[int, Field(ge=1)] | None = None
 
 
 class PenaltyRequest(BaseModel):
     contract_sum: Annotated[Decimal, Field(ge=0)]
-    days_overdue: int = Field(ge=0, default=0)
-    daily_rate_pct: Annotated[Decimal, Field(ge=0, le=100)] = Decimal("0.1")
-    lot_id: int | None = None
+    days_overdue: Annotated[int, Field(ge=0)] = 0
+    daily_rate_pct: Annotated[Decimal, Field(ge=0, le=5)] = Decimal("0.1")
+    lot_id: Annotated[int, Field(ge=1)] | None = None
 
 
 # ---------- эндпоинты ----------

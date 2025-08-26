@@ -1,6 +1,8 @@
+import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
@@ -8,7 +10,9 @@ from typing import Any
 import psycopg2
 import yaml
 from fastapi import FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 try:
     from typing import Annotated  # py>=3.9
@@ -69,8 +73,61 @@ def _ensure_schema():
               created_at TIMESTAMPTZ DEFAULT now()
             );"""
             )
+            # Also ensure audit_logs table
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    id bigserial PRIMARY KEY,
+                    service text NOT NULL,
+                    route text NOT NULL,
+                    method text NOT NULL,
+                    status int NOT NULL,
+                    req_id text,
+                    ip text,
+                    duration_ms int,
+                    payload_hash text,
+                    error text,
+                    created_at timestamp DEFAULT now()
+                );
+            """
+            )
     except Exception as e:
         log.warning(f"_ensure_schema failed: {e}")
+
+
+def _save_audit_log(
+    service: str,
+    route: str,
+    method: str,
+    status: int,
+    req_id: str,
+    ip: str,
+    duration_ms: int,
+    payload_hash: str,
+    error: str = None,
+):
+    try:
+        conn, _ = _get_conn_and_host()
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO audit_logs(service, route, method, status, req_id, ip, duration_ms, payload_hash, error)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    service,
+                    route,
+                    method,
+                    status,
+                    req_id,
+                    ip,
+                    duration_ms,
+                    payload_hash,
+                    error,
+                ),
+            )
+    except Exception as e:
+        log.warning(f"audit_logs insert failed: {e}")
 
 
 def _dump(obj) -> str:
@@ -198,8 +255,73 @@ def _save_eval(
         return False
 
 
+class AuditMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == "/health":
+            return await call_next(request)
+
+        start_time = time.perf_counter()
+
+        # Get request info
+        req_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        ip = request.headers.get("x-forwarded-for") or getattr(
+            request.client, "host", "unknown"
+        )
+
+        # Read body for hash
+        body = await request.body()
+        payload_hash = hashlib.sha256(body[:8192]).hexdigest()[:16] if body else ""
+
+        # Process request
+        error = None
+        try:
+            response = await call_next(request)
+            status = response.status_code
+        except HTTPException as e:
+            status = e.status_code
+            error = str(e.detail)
+            response = Response(
+                content=json.dumps({"detail": e.detail}),
+                status_code=status,
+                media_type="application/json",
+            )
+        except Exception as e:
+            status = 500
+            error = str(e)
+            response = Response(
+                content=json.dumps({"detail": "Internal server error"}),
+                status_code=status,
+                media_type="application/json",
+            )
+
+        # Calculate duration
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Save audit log
+        try:
+            _save_audit_log(
+                service="risk-engine",
+                route=request.url.path,
+                method=request.method,
+                status=status,
+                req_id=req_id,
+                ip=ip,
+                duration_ms=duration_ms,
+                payload_hash=payload_hash,
+                error=error,
+            )
+        except Exception as e:
+            log.warning(f"audit log save failed: {e}")
+
+        response.headers["X-Request-Id"] = req_id
+        return response
+
+
 # ---------- API ----------
 app = FastAPI(title="ZakupAI risk-engine", version="1.0.0")
+
+# Add audit middleware
+app.add_middleware(AuditMiddleware)
 
 
 @app.on_event("startup")
@@ -233,7 +355,7 @@ def info(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
 
 
 class ScoreRequest(BaseModel):
-    lot_id: Annotated[int, ...]
+    lot_id: Annotated[int, Field(ge=1)]
 
 
 @app.post("/risk/score")
