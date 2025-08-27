@@ -7,7 +7,7 @@
 \[x\] Логи JSON + кореляция X-Request-Id во всех сервисах
 \[x\] Скрипт запуска scripts/bootstrap.sh
 \[x\] Удалить version: из docker-compose.yml (warning compose)
-\[x\] Reverse-proxy (nginx gateway) + rate limits (429)
+\[x\] Reverse-proxy (nginx gateway) + rate limits (429) + prefix stripping
 \[x\] Pre-commit хуки (ruff/black/isort, yamllint, mdformat, bandit)
 
 1. Данные и схема БД
@@ -34,7 +34,8 @@
 
 3. Интеграции (n8n / Flowise)
 
-\[ \] n8n-nodes: goszakup-rk
+\[x\] Настроена связность: Flowise/n8n → zakupai сервисы (docker networks)
+\[x\] n8n-nodes: goszakup-rk
 \[ \] n8n-nodes: price-aggregator
 \[ \] n8n-nodes: tender-finance-calc
 \[ \] n8n-nodes: lot-risk-scoring
@@ -71,7 +72,7 @@
 
 7. Документация
 
-\[x\] OpenAPI: /docs, /openapi.json
+\[ \] OpenAPI: /docs, /openapi.json
 \[x\] README.md: запуск, порты, curl (базово)
 \[ \] CHANGELOG.md
 \[ \] docs/architecture.md
