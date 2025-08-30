@@ -1,0 +1,75 @@
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: zakupai_stage
+    profiles: ["stage"]
+
+  gateway:
+    volumes:
+      - ./gateway/nginx.stage.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    profiles: ["stage", "default"]
+
+  calc-service:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - ENABLE_SWAGGER=true
+      - ENABLE_AUDIT_LOG=true
+    profiles: ["stage", "default"]
+
+  risk-engine:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - ENABLE_SWAGGER=true
+      - ENABLE_AUDIT_LOG=true
+    profiles: ["stage", "default"]
+
+  doc-service:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - ENABLE_SWAGGER=true
+      - ENABLE_AUDIT_LOG=true
+    profiles: ["stage", "default"]
+
+  embedding-api:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=info
+      - ENABLE_SWAGGER=true
+      - ENABLE_AUDIT_LOG=true
+    profiles: ["stage", "default"]
+
+  web:
+    environment:
+      - DEBUG=false
+      - CORS_ORIGINS=https://stage.zakupai.example.com,https://stage-n8n.exomind.site
+      - CSRF_ENABLED=true
+      - SECURE_COOKIES=true
+    profiles: ["stage", "default"]
+
+  bot:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=info
+    profiles: ["stage", "default"]
+
+  # Monitoring for staging
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: zakupai-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - zakupai-network
+    profiles: ["stage"]
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:

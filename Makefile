@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -123,3 +123,23 @@ test-sec: ## Run security validation tests only
 		cd "$$service_dir" && $(PYTHON_EXEC) -m pytest -q tests/test_validation.py || exit 1; \
 		cd - >/dev/null; \
 	done
+
+e2e: ## Run end-to-end pipeline tests
+	@echo "🚀 Running ZakupAI E2E Tests..."
+	@$(PYTHON_EXEC) scripts/e2e/mock_run.py
+
+backup-now: ## Run database backup immediately (dry-run by default)
+	@echo "🗄️  Running database backup..."
+	@if docker-compose ps db-backup | grep -q Up; then \
+		$(COMPOSE) exec -e DRY_RUN=true db-backup /scripts/backup.sh; \
+	else \
+		echo "⚠️  Backup service not running, using test simulation..."; \
+		./scripts/test_backup.sh; \
+	fi
+
+backup-now-real: ## Run database backup immediately (real backup)
+	@echo "🗄️  Running REAL database backup..."
+	@$(COMPOSE) exec -e DRY_RUN=false db-backup /scripts/backup.sh
+
+backup-logs: ## Show backup service logs
+	@$(COMPOSE) logs -f db-backup

@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}Лот {{ lot_id }} - ZakupAI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2>
+                    <i class="bi bi-file-text"></i>
+                    Лот #{{ lot_id }}
+                </h2>
+                <nav>
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/">Главная</a></li>
+                        <li class="breadcrumb-item active">Лот {{ lot_id }}</li>
+                    </ol>
+                </nav>
+            </div>
+            <div>
+                <div class="btn-group">
+                    <a href="/api/lot/{{ lot_id }}" class="btn btn-outline-primary">
+                        <i class="bi bi-code"></i> JSON
+                    </a>
+                    <a href="#" class="btn btn-outline-danger" onclick="generatePDF()">
+                        <i class="bi bi-file-pdf"></i> PDF
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Main Info -->
+            <div class="col-lg-8">
+                <!-- Lot Details -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-info-circle"></i>
+                            Основная информация
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% if lot_data %}
+                        <dl class="row">
+                            <dt class="col-sm-3">Название:</dt>
+                            <dd class="col-sm-9">{{ lot_data.get('title', 'Не указано') }}</dd>
+
+                            <dt class="col-sm-3">Цена:</dt>
+                            <dd class="col-sm-9">
+                                {% if lot_data.get('price') %}
+                                    <strong>{{ "{:,.0f}".format(lot_data.price) }}</strong> тенге
+                                {% else %}
+                                    Не указана
+                                {% endif %}
+                            </dd>
+
+                            <dt class="col-sm-3">Заказчик:</dt>
+                            <dd class="col-sm-9">{{ lot_data.get('customer', 'Не указан') }}</dd>
+
+                            <dt class="col-sm-3">Срок подачи:</dt>
+                            <dd class="col-sm-9">{{ lot_data.get('deadline', 'Не указан') }}</dd>
+
+                            <dt class="col-sm-3">Статус:</dt>
+                            <dd class="col-sm-9">
+                                <span class="badge bg-info">{{ lot_data.get('status', 'Неизвестно') }}</span>
+                            </dd>
+                        </dl>
+                        {% else %}
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            Основные данные лота недоступны
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- TL;DR -->
+                {% if tldr_data %}
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-card-text"></i>
+                            Краткое описание
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% if tldr_data.get('lines') %}
+                            <ul class="list-unstyled">
+                                {% for line in tldr_data.lines %}
+                                <li><i class="bi bi-check-circle text-success"></i> {{ line }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-muted">TL;DR недоступно</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <!-- Risk Analysis -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-shield-exclamation"></i>
+                            Анализ рисков
+                        </h5>
+                    </div>
+                    <div class="card-body text-center">
+                        {% if risk_data and risk_data.get('risk_score') is not none %}
+                            {% set risk_score = risk_data.risk_score * 100 %}
+                            {% if risk_score < 30 %}
+                                {% set risk_class = "success" %}
+                                {% set risk_text = "Низкий" %}
+                            {% elif risk_score < 70 %}
+                                {% set risk_class = "warning" %}
+                                {% set risk_text = "Средний" %}
+                            {% else %}
+                                {% set risk_class = "danger" %}
+                                {% set risk_text = "Высокий" %}
+                            {% endif %}
+
+                            <div class="display-6 text-{{ risk_class }} mb-2">{{ "%.1f"|format(risk_score) }}%</div>
+                            <h6 class="text-{{ risk_class }}">{{ risk_text }} риск</h6>
+
+                            {% if risk_data.get('explanation') %}
+                            <p class="small text-muted mt-3">{{ risk_data.explanation }}</p>
+                            {% endif %}
+                        {% else %}
+                        <div class="text-muted">
+                            <i class="bi bi-question-circle display-6"></i>
+                            <p class="mt-2">Анализ рисков недоступен</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Margin Analysis -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-graph-up"></i>
+                            Маржинальность
+                        </h5>
+                    </div>
+                    <div class="card-body text-center">
+                        {% if margin_data and margin_data.get('margin_percentage') is not none %}
+                            {% set margin = margin_data.margin_percentage %}
+                            {% if margin >= 15 %}
+                                {% set margin_class = "success" %}
+                                {% set margin_text = "Хорошая" %}
+                            {% elif margin >= 5 %}
+                                {% set margin_class = "warning" %}
+                                {% set margin_text = "Средняя" %}
+                            {% else %}
+                                {% set margin_class = "danger" %}
+                                {% set margin_text = "Низкая" %}
+                            {% endif %}
+
+                            <div class="display-6 text-{{ margin_class }} mb-2">{{ "%.1f"|format(margin) }}%</div>
+                            <h6 class="text-{{ margin_class }}">{{ margin_text }} маржа</h6>
+
+                            {% if margin_data.get('profit_amount') %}
+                            <p class="small text-muted mt-3">
+                                Прибыль: {{ "{:,.0f}".format(margin_data.profit_amount) }} тенге
+                            </p>
+                            {% endif %}
+                        {% else %}
+                        <div class="text-muted">
+                            <i class="bi bi-question-circle display-6"></i>
+                            <p class="mt-2">Анализ маржи недоступен</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-tools"></i>
+                            Действия
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-2">
+                            <a href="https://goszakup.gov.kz/ru/announce/index/{{ lot_id }}"
+                               target="_blank" class="btn btn-outline-primary">
+                                <i class="bi bi-box-arrow-up-right"></i>
+                                Открыть в Goszakup
+                            </a>
+                            <button class="btn btn-outline-success" onclick="refreshAnalysis()">
+                                <i class="bi bi-arrow-clockwise"></i>
+                                Обновить анализ
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="addToWatchlist()">
+                                <i class="bi bi-bookmark"></i>
+                                Добавить в избранное
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center p-4">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+                <p class="mb-0">Обновляем данные...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function generatePDF() {
+    // TODO: Implement PDF generation via doc-service
+    alert('PDF генерация будет доступна в ближайшее время');
+}
+
+function refreshAnalysis() {
+    const modal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    modal.show();
+
+    // Simulate refresh - in real implementation, make API call to trigger re-analysis
+    setTimeout(() => {
+        modal.hide();
+        location.reload();
+    }, 2000);
+}
+
+function addToWatchlist() {
+    // TODO: Implement watchlist functionality
+    alert('Функция "Избранное" будет доступна в ближайшее время');
+}
+
+// Auto-refresh every 5 minutes for active lots
+setInterval(() => {
+    // Only refresh if lot is "active" status
+    {% if lot_data and lot_data.get('status') == 'active' %}
+    console.log('Auto-refreshing lot data...');
+    // Could implement silent refresh here
+    {% endif %}
+}, 5 * 60 * 1000);
+</script>
+{% endblock %}

@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 import psycopg2
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field, validator
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -24,6 +24,59 @@ API_KEY = os.getenv("API_KEY", "changeme")
 
 # Template whitelist
 ALLOWED_TEMPLATES = {"tldr", "letters/guarantee"}
+
+# Localization support
+SUPPORTED_LANGUAGES = {"ru", "kz", "en"}
+DEFAULT_LANGUAGE = "ru"
+
+
+def load_locales():
+    """Load all localization files"""
+    locales = {}
+    locales_dir = os.path.join(os.path.dirname(__file__), "locales")
+
+    for lang in SUPPORTED_LANGUAGES:
+        lang_file = os.path.join(locales_dir, lang, "messages.json")
+        try:
+            if os.path.exists(lang_file):
+                with open(lang_file, encoding="utf-8") as f:
+                    locales[lang] = json.load(f)
+            else:
+                log.warning(f"Locale file not found: {lang_file}")
+                locales[lang] = {}
+        except Exception as e:
+            log.error(f"Failed to load locale {lang}: {e}")
+            locales[lang] = {}
+
+    return locales
+
+
+def get_translation(key: str, lang: str = DEFAULT_LANGUAGE) -> str:
+    """Get translation for a key in specified language"""
+    if lang not in LOCALES:
+        lang = DEFAULT_LANGUAGE
+
+    return LOCALES[lang].get(key, key)
+
+
+def get_localized_context(context: dict, lang: str = DEFAULT_LANGUAGE) -> dict:
+    """Add translations to template context"""
+    localized = context.copy()
+
+    # Add all translations with 't_' prefix
+    if lang in LOCALES:
+        for key, value in LOCALES[lang].items():
+            localized[f"t_{key}"] = value
+
+    # Add language info
+    localized["_lang"] = lang
+    localized["_supported_langs"] = list(SUPPORTED_LANGUAGES)
+
+    return localized
+
+
+# Load locales at startup
+LOCALES = load_locales()
 
 
 # ---------- DB helpers ----------
@@ -225,7 +278,13 @@ class RenderRequest(BaseModel):
 
 
 # ---------- FastAPI ----------
-app = FastAPI(title="ZakupAI doc-service", version="0.1.1")
+app = FastAPI(
+    title="ZakupAI doc-service",
+    version="0.1.1",
+    root_path="/doc",
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
@@ -262,42 +321,78 @@ def info(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
 
 @app.post("/tldr")
 def tldr_endpoint(
-    req: TldrRequest, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+    req: TldrRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    lang: str = Query(
+        default=DEFAULT_LANGUAGE, description="Language code (ru, kz, en)"
+    ),
 ):
     check_api_key(x_api_key)
+
+    if lang not in SUPPORTED_LANGUAGES:
+        lang = DEFAULT_LANGUAGE
+
     lot = get_lot(req.lot_id)
     if not lot:
         raise HTTPException(404, f"Lot {req.lot_id} not found")
 
-    # Generate simple TL;DR
+    # Generate localized TL;DR
     title = lot.get("title", "Unknown lot")
     price = lot.get("price", 0)
 
-    lines = [f"Лот: {title}", f"Цена: {price:,.2f} тенге", "Статус: Активный"]
+    # Create lines with translations
+    lines = [
+        f"{get_translation('lot_summary', lang)}: {title}",
+        f"{get_translation('price', lang)}: {price:,.2f} {get_translation('currency', lang) if 'currency' in LOCALES.get(lang, {}) else 'тенге'}",
+        f"{get_translation('status', lang)}: {get_translation('active', lang)}",
+    ]
 
-    return {"lot_id": req.lot_id, "lines": lines, "ts": datetime.now(UTC).isoformat()}
+    return {
+        "lot_id": req.lot_id,
+        "lines": lines,
+        "language": lang,
+        "ts": datetime.now(UTC).isoformat(),
+    }
 
 
 @app.post("/letters/generate")
 def generate_letter(
-    req: RenderRequest, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+    req: RenderRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    lang: str = Query(
+        default=DEFAULT_LANGUAGE, description="Language code (ru, kz, en)"
+    ),
 ):
     check_api_key(x_api_key)
 
-    # Simple template rendering (basic implementation)
+    if lang not in SUPPORTED_LANGUAGES:
+        lang = DEFAULT_LANGUAGE
+
+    # Simple template rendering with localization
     if req.template == "letters/guarantee":
         supplier = req.context.get("supplier_name", "N/A")
         lot_title = req.context.get("lot_title", "N/A")
         contact = req.context.get("contact", "N/A")
 
+        # Get localized strings
+        guarantee_letter_title = get_translation("guarantee_letter", lang)
+        supplier_label = get_translation("company_name", lang)
+        date_label = get_translation("date", lang)
+
         html = f"""
         <html>
+        <head>
+            <meta charset="utf-8">
+        </head>
         <body>
-        <h1>Гарантийное письмо</h1>
-        <p>Поставщик: {supplier}</p>
-        <p>Лот: {lot_title}</p>
-        <p>Контакт: {contact}</p>
-        <p>Дата: {datetime.now().strftime("%d.%m.%Y")}</p>
+        <h1>{guarantee_letter_title}</h1>
+        <p>{supplier_label}: {supplier}</p>
+        <p>{get_translation("lot_summary", lang)}: {lot_title}</p>
+        <p>{get_translation("customer", lang)}: {contact}</p>
+        <p>{date_label}: {datetime.now().strftime("%d.%m.%Y")}</p>
+        <br>
+        <p>{get_translation("with_respect", lang)},</p>
+        <p>{get_translation("director", lang)}</p>
         </body>
         </html>
         """
@@ -307,6 +402,7 @@ def generate_letter(
     return {
         "template": req.template,
         "html": html,
+        "language": lang,
         "length": len(html),
         "ts": datetime.now(UTC).isoformat(),
     }
@@ -314,7 +410,24 @@ def generate_letter(
 
 @app.post("/render/html")
 def render_html(
-    req: RenderRequest, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+    req: RenderRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    lang: str = Query(
+        default=DEFAULT_LANGUAGE, description="Language code (ru, kz, en)"
+    ),
 ):
     check_api_key(x_api_key)
-    return generate_letter(req, x_api_key)
+    return generate_letter(req, x_api_key, lang)
+
+
+@app.get("/languages")
+def get_languages(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    """Get available languages and their translations"""
+    check_api_key(x_api_key)
+
+    return {
+        "default_language": DEFAULT_LANGUAGE,
+        "supported_languages": list(SUPPORTED_LANGUAGES),
+        "locales": LOCALES,
+        "ts": datetime.now(UTC).isoformat(),
+    }

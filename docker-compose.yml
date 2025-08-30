@@ -183,12 +183,166 @@ services:
       - zakupai-network
     restart: unless-stopped
 
+  zakupai-bot:
+    build: ./bot
+    container_name: zakupai-bot
+    env_file:
+      - ./bot/.env
+    environment:
+      - GATEWAY_URL=http://zakupai-gateway
+      - DATABASE_URL=postgresql+asyncpg://zakupai:zakupai@db:5432/zakupai
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=zakupai
+      - POSTGRES_USER=zakupai
+      - POSTGRES_PASSWORD=zakupai
+    depends_on:
+      db:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    container_name: zakupai-web
+    ports:
+      - "8081:8000"
+    env_file:
+      - .env
+    environment:
+      - GATEWAY_URL=http://gateway
+      - ZAKUPAI_API_KEY=changeme
+    depends_on:
+      - gateway
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  db-backup:
+    build: ./backup
+    container_name: zakupai-db-backup
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=zakupai
+      - POSTGRES_USER=zakupai
+      - POSTGRES_PASSWORD=zakupai
+      - BACKUP_RETENTION_DAYS=14
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: zakupai-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: zakupai-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_SECURITY_COOKIE_SAMESITE=lax
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    container_name: zakupai-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: zakupai-blackbox
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: zakupai-cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.6.0
+    container_name: zakupai-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   ollama_data:
   chroma_data:
   flowise_data:
   n8n_data:
+  backup_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   zakupai-network:

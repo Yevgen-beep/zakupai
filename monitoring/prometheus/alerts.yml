@@ -1,0 +1,56 @@
+groups:
+  - name: zakupai_alerts
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.instance }} is down"
+          description: "Service {{ $labels.instance }} has been down for more than 1 minute."
+
+      - alert: HighHTTPErrorRate
+        expr: rate(probe_http_status_code{code=~"5.."}[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP 5xx error rate on {{ $labels.instance }}"
+          description: "HTTP 5xx errors detected on {{ $labels.instance }} for more than 1 minute."
+
+      - alert: DatabaseDown
+        expr: probe_success{instance=~".*health.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failed for {{ $labels.instance }}"
+          description: "Database health check failing for {{ $labels.instance }} for more than 1 minute."
+
+      - alert: HighCPUUsage
+        expr: (1 - rate(container_cpu_usage_seconds_total{name!=""}[5m])) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on container {{ $labels.name }}"
+          description: "Container {{ $labels.name }} CPU usage is above 80% for more than 2 minutes."
+
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on container {{ $labels.name }}"
+          description: "Container {{ $labels.name }} memory usage is above 90% for more than 2 minutes."
+
+      - alert: LowDiskSpace
+        expr: (1 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes)) * 100 > 90
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is above 90% on {{ $labels.instance }} {{ $labels.mountpoint }}."

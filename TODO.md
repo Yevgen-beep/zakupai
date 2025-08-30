@@ -29,26 +29,26 @@
 \[x\] doc-service: /tldr, /letters/generate, /render/html
 \[x\] doc-service: экспорт HTML→PDF (/render/pdf)
 \[x\] embedding-api: /embed, /index, /search
-\[ \] doc-service: локализация ru-KZ
+\[x\] doc-service: локализация ru-KZ
 \[x\] Pytest + curl-примеры для всех сервисов
 
 3. Интеграции (n8n / Flowise)
 
 \[x\] Настроена связность: Flowise/n8n → zakupai сервисы (docker networks)
 \[x\] n8n-nodes: goszakup-rk
-\[ \] n8n-nodes: price-aggregator
-\[ \] n8n-nodes: tender-finance-calc
-\[ \] n8n-nodes: lot-risk-scoring
-\[ \] n8n-nodes: doc-builder
-\[ \] flowise-tools: lot-reader
-\[ \] flowise-tools: risk-explain
-\[ \] flowise-tools: finance-calc
-\[ \] flowise-tools: template-gen
+\[x\] n8n-nodes: price-aggregator
+\[x\] n8n-nodes: tender-finance-calc
+\[x\] n8n-nodes: lot-risk-scoring
+\[x\] n8n-nodes: doc-builder
+\[x\] flowise-tools: lot-reader
+\[x\] flowise-tools: risk-explain
+\[x\] flowise-tools: finance-calc
+\[x\] flowise-tools: template-gen
 
 4. Клиентские потоки
 
-\[ \] Telegram: /start + API Key
-\[ \] Telegram: /lot \<id|url> → TL;DR → риск → финкальк → «Документы»
+\[x\] Telegram: /start + API Key
+\[x\] Telegram: /lot \<id|url> → TL;DR → риск → финкальк → «Документы»
 \[ \] Telegram: уведомления «горячие лоты» (cron)
 \[ \] Веб-панель: страница лота + форма аплоада прайсов (CSV/XLSX)
 
@@ -61,7 +61,7 @@
 \[x\] SAST: Bandit в pre-commit/CI
 \[x\] Валидация и санитизация всех входных данных (FastAPI deps) для защиты от инъекций
 
-6. DevOps / эксплуатация
+6. DevOps / эксплуатация1
 
 \[x\] Smoke для calc/risk/doc/emb (скрипт + Makefile)
 \[x\] Включить smoke-матрицу в CI по всем сервисам
@@ -72,7 +72,7 @@
 
 7. Документация
 
-\[ \] OpenAPI: /docs, /openapi.json
+\[x\] OpenAPI: /docs, /openapi.json
 \[x\] README.md: запуск, порты, curl (базово)
 \[ \] CHANGELOG.md
 \[ \] docs/architecture.md
@@ -85,7 +85,7 @@
 
 9. Тест-кейсы (сквозняк)
 
-\[ \] Импорт CSV/XLSX цен → prices
-\[ \] Создать лот → сопоставить SKU → рассчитать маржу (calc-service)
-\[ \] Риск-скоринг → сохранить в risk_evaluations (risk-engine)
-\[ \] Сгенерировать письмо (doc-service)
+\[x\] Импорт CSV/XLSX цен → prices
+\[x\] Создать лот → сопоставить SKU → рассчитать маржу (calc-service)
+\[x\] Риск-скоринг → сохранить в risk_evaluations (risk-engine)
+\[x\] Сгенерировать письмо (doc-service)

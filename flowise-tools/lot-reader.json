@@ -1,0 +1,263 @@
+{
+    "name": "Lot Reader",
+    "version": "1.0.0",
+    "description": "Read and parse tender lot information from various sources",
+    "icon": "🔍",
+    "category": "Data Sources",
+    "type": "tool",
+    "inputs": [
+        {
+            "name": "lotId",
+            "type": "string",
+            "label": "Lot ID",
+            "description": "ID of the lot to read",
+            "required": true,
+            "placeholder": "e.g., 12345"
+        },
+        {
+            "name": "source",
+            "type": "select",
+            "label": "Data Source",
+            "description": "Source to read lot data from",
+            "required": true,
+            "options": [
+                {
+                    "label": "Goszakup API",
+                    "value": "goszakup"
+                },
+                {
+                    "label": "Internal Database",
+                    "value": "database"
+                },
+                {
+                    "label": "Zakupai Cache",
+                    "value": "cache"
+                }
+            ],
+            "default": "database"
+        },
+        {
+            "name": "includeDetails",
+            "type": "boolean",
+            "label": "Include Details",
+            "description": "Include detailed lot information (requirements, specifications)",
+            "default": true
+        },
+        {
+            "name": "includePricing",
+            "type": "boolean",
+            "label": "Include Pricing",
+            "description": "Include pricing information and market analysis",
+            "default": true
+        },
+        {
+            "name": "includeRisk",
+            "type": "boolean",
+            "label": "Include Risk Assessment",
+            "description": "Include risk score and risk factors",
+            "default": false
+        },
+        {
+            "name": "language",
+            "type": "select",
+            "label": "Output Language",
+            "description": "Language for output formatting",
+            "options": [
+                {
+                    "label": "Russian",
+                    "value": "ru"
+                },
+                {
+                    "label": "Kazakh",
+                    "value": "kz"
+                },
+                {
+                    "label": "English",
+                    "value": "en"
+                }
+            ],
+            "default": "ru"
+        }
+    ],
+    "outputs": [
+        {
+            "name": "lotData",
+            "type": "object",
+            "description": "Complete lot information"
+        },
+        {
+            "name": "summary",
+            "type": "string",
+            "description": "Human-readable lot summary"
+        },
+        {
+            "name": "metadata",
+            "type": "object",
+            "description": "Metadata about the data source and retrieval"
+        }
+    ],
+    "code": `
+const axios = require('axios');
+
+class LotReaderTool {
+    async execute(inputs) {
+        const { lotId, source, includeDetails, includePricing, includeRisk, language } = inputs;
+
+        try {
+            let lotData = {};
+            const metadata = {
+                lotId,
+                source,
+                retrievedAt: new Date().toISOString(),
+                language
+            };
+
+            // Read lot data based on source
+            switch (source) {
+                case 'database':
+                    lotData = await this.readFromDatabase(lotId, includeDetails, includePricing, includeRisk);
+                    break;
+                case 'goszakup':
+                    lotData = await this.readFromGoszakup(lotId);
+                    break;
+                case 'cache':
+                    lotData = await this.readFromCache(lotId);
+                    break;
+                default:
+                    throw new Error(\`Unsupported source: \${source}\`);
+            }
+
+            // Generate summary
+            const summary = this.generateSummary(lotData, language);
+
+            return {
+                lotData,
+                summary,
+                metadata
+            };
+        } catch (error) {
+            throw new Error(\`Failed to read lot \${lotId}: \${error.message}\`);
+        }
+    }
+
+    async readFromDatabase(lotId, includeDetails, includePricing, includeRisk) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        const lotResponse = await axios.get(\`\${baseUrl}/lots/\${lotId}\`, {
+            headers: { 'X-API-Key': apiKey }
+        });
+
+        let lotData = lotResponse.data;
+
+        if (includePricing) {
+            try {
+                const pricingResponse = await axios.get(\`\${baseUrl}/calc/lot-total/\${lotId}\`, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                lotData.pricing = pricingResponse.data;
+            } catch (error) {
+                console.warn(\`Failed to get pricing for lot \${lotId}: \${error.message}\`);
+            }
+        }
+
+        if (includeRisk) {
+            try {
+                const riskResponse = await axios.post(\`\${baseUrl}/risk/score/\${lotId}\`, {}, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+                lotData.riskAssessment = riskResponse.data;
+            } catch (error) {
+                console.warn(\`Failed to get risk assessment for lot \${lotId}: \${error.message}\`);
+            }
+        }
+
+        return lotData;
+    }
+
+    async readFromGoszakup(lotId) {
+        // This would integrate with Goszakup API
+        // For now, return mock data
+        return {
+            id: lotId,
+            title: "Sample Goszakup Lot",
+            description: "Retrieved from Goszakup API",
+            customer: "Government Entity",
+            price: 1000000,
+            deadline: "2024-12-31",
+            source: "goszakup"
+        };
+    }
+
+    async readFromCache(lotId) {
+        // This would read from Redis/memory cache
+        // For now, return mock data
+        return {
+            id: lotId,
+            title: "Cached Lot Data",
+            description: "Retrieved from cache",
+            cached: true,
+            cacheTime: new Date().toISOString()
+        };
+    }
+
+    generateSummary(lotData, language) {
+        const translations = {
+            ru: {
+                lot: "Лот",
+                title: "Название",
+                customer: "Заказчик",
+                price: "Цена",
+                deadline: "Крайний срок",
+                risk: "Риск"
+            },
+            kz: {
+                lot: "Лот",
+                title: "Атауы",
+                customer: "Тапсырыс беруші",
+                price: "Баға",
+                deadline: "Соңғы мерзім",
+                risk: "Тәуекел"
+            },
+            en: {
+                lot: "Lot",
+                title: "Title",
+                customer: "Customer",
+                price: "Price",
+                deadline: "Deadline",
+                risk: "Risk"
+            }
+        };
+
+        const t = translations[language] || translations.ru;
+
+        let summary = \`\${t.lot} #\${lotData.id || 'N/A'}\\n\`;
+
+        if (lotData.title) {
+            summary += \`\${t.title}: \${lotData.title}\\n\`;
+        }
+
+        if (lotData.customer) {
+            summary += \`\${t.customer}: \${lotData.customer}\\n\`;
+        }
+
+        if (lotData.price) {
+            summary += \`\${t.price}: \${lotData.price.toLocaleString()} тенге\\n\`;
+        }
+
+        if (lotData.deadline) {
+            summary += \`\${t.deadline}: \${lotData.deadline}\\n\`;
+        }
+
+        if (lotData.riskAssessment?.score) {
+            summary += \`\${t.risk}: \${(lotData.riskAssessment.score * 100).toFixed(1)}%\\n\`;
+        }
+
+        return summary.trim();
+    }
+}
+
+// Export for Flowise
+module.exports = { nodeClass: LotReaderTool };
+`
+}

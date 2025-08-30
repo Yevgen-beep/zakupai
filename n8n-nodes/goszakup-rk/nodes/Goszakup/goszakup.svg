@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+	<rect width="60" height="60" rx="8" fill="#0066CC"/>
+	<text x="30" y="38" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle">GZ</text>
+	<circle cx="45" cy="15" r="3" fill="#FFD700"/>
+</svg>

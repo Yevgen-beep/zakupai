@@ -222,7 +222,13 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
 
 # ---------- FastAPI ----------
-app = FastAPI(title="ZakupAI embedding-api", version="0.1.0")
+app = FastAPI(
+    title="ZakupAI embedding-api",
+    version="0.1.0",
+    root_path="/emb",
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)

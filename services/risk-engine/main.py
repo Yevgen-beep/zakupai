@@ -321,7 +321,13 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
 
 # ---------- API ----------
-app = FastAPI(title="ZakupAI risk-engine", version="1.0.0")
+app = FastAPI(
+    title="ZakupAI risk-engine",
+    version="1.0.0",
+    root_path="/risk",
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)

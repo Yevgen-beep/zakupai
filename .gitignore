@@ -46,3 +46,4 @@ __pycache__/
 # Docker volumes data
 data/
 volumes/
+n8n-nodes/*/node_modules/

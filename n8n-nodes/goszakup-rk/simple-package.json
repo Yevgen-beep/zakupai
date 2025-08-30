@@ -1,0 +1,19 @@
+{
+  "name": "n8n-nodes-goszakup-rk",
+  "version": "1.0.0",
+  "description": "n8n node for Goszakup.gov.kz API integration",
+  "keywords": [
+    "n8n-community-node-package"
+  ],
+  "license": "MIT",
+  "main": "index.js",
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "credentials/GoszakupApi.credentials.js"
+    ],
+    "nodes": [
+      "nodes/Goszakup/Goszakup.node.js"
+    ]
+  }
+}

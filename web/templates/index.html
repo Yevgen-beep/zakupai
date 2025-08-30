@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - ZakupAI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="text-center mb-5">
+            <h1 class="display-4">
+                <i class="bi bi-graph-up text-primary"></i>
+                ZakupAI
+            </h1>
+            <p class="lead">Система анализа государственных закупок</p>
+        </div>
+
+        <!-- Lot Search Card -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-search"></i>
+                    Анализ лота
+                </h5>
+                <p class="card-text">Введите ID лота или URL для получения детального анализа</p>
+
+                <form id="lotSearchForm" class="row g-3">
+                    <div class="col-md-8">
+                        <input type="text" class="form-control" id="lotInput"
+                               placeholder="ID лота или URL (например: 12345)" required>
+                        <div class="form-text">
+                            Поддерживаются ID лотов и URL с goszakup.gov.kz
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-search"></i>
+                            Анализировать
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-speedometer2"></i>
+                    Быстрые действия
+                </h5>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <a href="/upload" class="btn btn-outline-success w-100">
+                            <i class="bi bi-upload"></i>
+                            Загрузить прайс-лист
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="#examples" class="btn btn-outline-info w-100">
+                            <i class="bi bi-lightbulb"></i>
+                            Примеры анализа
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Examples Section -->
+        <div id="examples" class="mt-5">
+            <h3 class="mb-3">Примеры анализа</h3>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <span class="badge bg-success">Низкий риск</span>
+                                Лот #123456
+                            </h6>
+                            <p class="card-text small">
+                                Поставка канцелярских товаров<br>
+                                <strong>Маржа:</strong> 18.5% | <strong>Риск:</strong> 25%
+                            </p>
+                            <a href="/lot/123456" class="btn btn-sm btn-outline-primary">Посмотреть</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <span class="badge bg-warning">Средний риск</span>
+                                Лот #654321
+                            </h6>
+                            <p class="card-text small">
+                                IT оборудование<br>
+                                <strong>Маржа:</strong> 12.3% | <strong>Риск:</strong> 55%
+                            </p>
+                            <a href="/lot/654321" class="btn btn-sm btn-outline-primary">Посмотреть</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('lotSearchForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const input = document.getElementById('lotInput').value.trim();
+    if (!input) return;
+
+    // Extract lot ID from input (could be ID or URL)
+    let lotId = input;
+
+    // If it's a URL, extract ID
+    const urlPatterns = [
+        /\/announce\/index\/(\d+)/,
+        /\/lot\/(\d+)/,
+        /lot_id=(\d+)/,
+        /id=(\d+)/
+    ];
+
+    for (const pattern of urlPatterns) {
+        const match = input.match(pattern);
+        if (match) {
+            lotId = match[1];
+            break;
+        }
+    }
+
+    // If it's not a number, assume it's already an ID
+    if (!/^\d+$/.test(lotId)) {
+        // Try to extract any sequence of digits
+        const digitMatch = input.match(/(\d{4,})/);
+        if (digitMatch) {
+            lotId = digitMatch[1];
+        }
+    }
+
+    if (/^\d+$/.test(lotId)) {
+        window.location.href = `/lot/${lotId}`;
+    } else {
+        alert('Не удалось определить ID лота. Используйте числовой ID или корректный URL.');
+    }
+});
+</script>
+{% endblock %}

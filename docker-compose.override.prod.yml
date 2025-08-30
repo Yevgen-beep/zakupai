@@ -1,0 +1,139 @@
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/backups:/backups
+    profiles: ["prod"]
+
+  gateway:
+    volumes:
+      - ./gateway/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    profiles: ["prod", "default"]
+
+  calc-service:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=warning
+      - ENABLE_SWAGGER=false
+      - ENABLE_AUDIT_LOG=true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    profiles: ["prod", "default"]
+
+  risk-engine:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=warning
+      - ENABLE_SWAGGER=false
+      - ENABLE_AUDIT_LOG=true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    profiles: ["prod", "default"]
+
+  doc-service:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=warning
+      - ENABLE_SWAGGER=false
+      - ENABLE_AUDIT_LOG=true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    profiles: ["prod", "default"]
+
+  embedding-api:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=warning
+      - ENABLE_SWAGGER=false
+      - ENABLE_AUDIT_LOG=true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    profiles: ["prod", "default"]
+
+  web:
+    environment:
+      - DEBUG=false
+      - CORS_ORIGINS=https://zakupai.exomind.site,https://n8n.exomind.site
+      - CSRF_ENABLED=true
+      - SECURE_COOKIES=true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    profiles: ["prod", "default"]
+
+  bot:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=warning
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    profiles: ["prod", "default"]
+
+  # Production monitoring stack
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: zakupai-prometheus
+    volumes:
+      - ./monitoring/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - zakupai-network
+    profiles: ["prod"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: zakupai-grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_COOKIE_SAMESITE=lax
+    networks:
+      - zakupai-network
+    profiles: ["prod"]
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

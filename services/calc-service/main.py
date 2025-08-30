@@ -202,7 +202,13 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
 
 # ---------- FastAPI ----------
-app = FastAPI(title="ZakupAI calc-service", version="0.1.1")
+app = FastAPI(
+    title="ZakupAI calc-service",
+    version="0.1.1",
+    root_path="/calc",
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
