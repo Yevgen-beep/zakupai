@@ -1,6 +1,6 @@
 0. Базовая инфраструктура (Спринт 0)
 
-\[x\] Docker Compose: db, calc-service, risk-engine, doc-service, embedding-api
+\[x\] Docker Compose: db, calc-service, risk-engine, doc-service, embedding-api, billing-service
 \[x\] Health-check /health, защищённый /info (X-API-Key)
 \[x\] CI: lint + build (GitHub Actions)
 \[x\] Makefile: make up/down/logs/test (+ smoke-\*)
@@ -50,7 +50,7 @@
 \[x\] Telegram: /start + API Key
 \[x\] Telegram: /lot \<id|url> → TL;DR → риск → финкальк → «Документы»
 \[ \] Telegram: уведомления «горячие лоты» (cron)
-\[ \] Веб-панель: страница лота + форма аплоада прайсов (CSV/XLSX)
+\[x\] Веб-панель: страница лота + форма аплоада прайсов (CSV/XLSX)
 
 5. Безопасность и доступ
 
@@ -65,17 +65,17 @@
 
 \[x\] Smoke для calc/risk/doc/emb (скрипт + Makefile)
 \[x\] Включить smoke-матрицу в CI по всем сервисам
-\[ \] Envs: .env.dev, .env.stage, .env.prod
-\[ \] Бэкапы БД (pg_dump + rclone в облако)
-\[ \] Prometheus + Grafana, алерты
+\[x\] Envs: .env.dev, .env.stage, .env.prod
+\[x\] Бэкапы БД (pg_dump + rclone в облако)
+\[x\] Prometheus + Grafana, алерты
 \[ \] Docker-теги релизов, compose pull && up -d
 
 7. Документация
 
 \[x\] OpenAPI: /docs, /openapi.json
 \[x\] README.md: запуск, порты, curl (базово)
-\[ \] CHANGELOG.md
-\[ \] docs/architecture.md
+\[x\] CHANGELOG.md
+\[x\] docs/architecture.md
 
 8. Бизнес/юридическое
 
@@ -83,7 +83,16 @@
 \[ \] Виды деятельности/ОКЭД для ТОО (Astana Hub)
 \[ \] Выжимка бизнес-плана → лендинг/презентация
 
-9. Тест-кейсы (сквозняк)
+9. Billing Service (MVP)
+
+\[x\] billing-service: POST /billing/create_key, /validate_key, /usage
+\[x\] PostgreSQL billing схема: users, api_keys, usage, payments
+\[x\] Интеграция с docker-compose + gateway dependency
+\[x\] Лимиты Free/Premium + валидация ключей
+\[x\] Unit тесты billing-service
+\[x\] README.md: документация Billing Service
+
+10. Тест-кейсы (сквозняк)
 
 \[x\] Импорт CSV/XLSX цен → prices
 \[x\] Создать лот → сопоставить SKU → рассчитать маржу (calc-service)

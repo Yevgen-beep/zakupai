@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -143,3 +143,17 @@ backup-now-real: ## Run database backup immediately (real backup)
 
 backup-logs: ## Show backup service logs
 	@$(COMPOSE) logs -f db-backup
+
+# Workflow services
+workflows-up: ## Start n8n and Flowise workflow services
+	$(COMPOSE) -f docker-compose.workflows.yml --env-file .env.workflows up -d
+	@echo "✅ Workflow services started"
+	@echo "   n8n: http://localhost:5678"
+	@echo "   Flowise: http://localhost:3000"
+
+workflows-down: ## Stop workflow services
+	$(COMPOSE) -f docker-compose.workflows.yml down
+
+setup-workflows: ## Setup and configure workflow services
+	@echo "🔄 Setting up workflows..."
+	./scripts/setup-workflows.sh

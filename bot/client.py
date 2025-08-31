@@ -65,10 +65,10 @@ class ZakupaiAPIClient:
 
         except ClientError as e:
             logger.error(f"Network error for {endpoint}: {e}")
-            raise Exception("Ошибка сети, попробуйте позже")
-        except TimeoutError:
+            raise Exception("Ошибка сети, попробуйте позже") from e
+        except TimeoutError as e:
             logger.error(f"Timeout for {endpoint}")
-            raise Exception("Превышено время ожидания")
+            raise Exception("Превышено время ожидания") from e
 
     async def health_check(self) -> dict[Any, Any] | None:
         """
@@ -183,6 +183,85 @@ class ZakupaiAPIClient:
                 "penalty_rate": penalty_rate,
             },
         )
+
+    # === BILLING-SERVICE ===
+
+    async def validate_key(self, api_key: str, endpoint: str = "unknown") -> bool:
+        """
+        Валидация API ключа через Billing Service
+        """
+        try:
+            # Создаем временную сессию для обращения к billing-service напрямую
+            billing_url = "http://billing-service:7004/billing/validate_key"
+            headers = {"Content-Type": "application/json"}
+
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    billing_url,
+                    headers=headers,
+                    json={"api_key": api_key, "endpoint": endpoint},
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("valid", False)
+                    else:
+                        logger.error(f"Billing service error: {response.status}")
+                        return False
+        except Exception as e:
+            logger.error(f"Key validation error: {e}")
+            return False
+
+    async def create_billing_key(self, tg_id: int, email: str = None) -> str:
+        """
+        Создание API ключа через Billing Service
+        """
+        try:
+            # Создаем временную сессию для обращения к billing-service напрямую
+            billing_url = "http://billing-service:7004/billing/create_key"
+            headers = {"Content-Type": "application/json"}
+
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    billing_url, headers=headers, json={"tg_id": tg_id, "email": email}
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("api_key", "")
+                    else:
+                        logger.error(f"Billing service error: {response.status}")
+                        return ""
+        except Exception as e:
+            logger.error(f"Key creation error: {e}")
+            return ""
+
+    async def log_usage(self, api_key: str, endpoint: str, requests: int = 1) -> bool:
+        """
+        Логирование использования API
+        """
+        try:
+            # Создаем временную сессию для обращения к billing-service напрямую
+            billing_url = "http://billing-service:7004/billing/usage"
+            headers = {"Content-Type": "application/json"}
+
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    billing_url,
+                    headers=headers,
+                    json={
+                        "api_key": api_key,
+                        "endpoint": endpoint,
+                        "requests": requests,
+                    },
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("logged", False)
+                    else:
+                        logger.error(f"Billing service error: {response.status}")
+                        return False
+        except Exception as e:
+            logger.error(f"Usage logging error: {e}")
+            return False
 
     # === EMBEDDING-API ===
 

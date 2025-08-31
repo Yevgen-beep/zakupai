@@ -25,9 +25,13 @@ services:
       - "7010:8000"
     env_file:
       - .env
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
     networks:
       - zakupai-network
       - ai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   calc-service:
@@ -80,6 +84,20 @@ services:
       - ai-network
     restart: unless-stopped
 
+  billing-service:
+    build: ./services/billing-service
+    container_name: zakupai-billing-service
+    ports:
+      - "7004:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
   gateway:
     image: nginx:alpine
     container_name: zakupai-gateway
@@ -92,29 +110,30 @@ services:
       - risk-engine
       - doc-service
       - embedding-api
+      - billing-service
     networks:
       - zakupai-network
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama
-    container_name: zakupai-ollama
-    runtime: nvidia
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - ai-network
-    restart: unless-stopped
-    entrypoint: >
-      sh -c "
-        ollama pull nomic-embed-text &&
-        echo 'Starting Ollama server...' &&
-        ollama serve
-      "
+  # ollama:
+  #   image: ollama/ollama
+  #   container_name: zakupai-ollama
+  #   runtime: nvidia
+  #   environment:
+  #     NVIDIA_VISIBLE_DEVICES: all
+  #   ports:
+  #     - "11434:11434"
+#   volumes:
+  #     - ollama_data:/root/.ollama
+#   networks:
+  #     - ai-network
+#   restart: unless-stopped
+#   entrypoint: >
+#     sh -c "
+#       ollama pull nomic-embed-text &&
+#       echo 'Starting Ollama server...' &&
+#       ollama serve
+#     "
 
   chroma:
     image: chromadb/chroma
@@ -151,8 +170,10 @@ services:
     networks:
       - ai-network
       - zakupai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - ollama
+      # - ollama
       - chroma
     restart: unless-stopped
 
@@ -181,6 +202,8 @@ services:
     networks:
       - ai-network
       - zakupai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   zakupai-bot:
@@ -209,7 +232,7 @@ services:
     build: ./web
     container_name: zakupai-web
     ports:
-      - "8081:8000"
+      - "8082:8000"
     env_file:
       - .env
     environment:
@@ -305,7 +328,7 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.47.0
     container_name: zakupai-cadvisor
     ports:
-      - "8080:8080"
+      - "8081:8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro

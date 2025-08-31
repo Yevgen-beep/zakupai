@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from functools import wraps
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -53,22 +54,52 @@ async def command_start_handler(message: Message) -> None:
     api_key = await get_api_key(user_id)
 
     if not api_key:
-        await message.answer(
-            f"👋 Привет, {hbold(message.from_user.full_name)}!\n\n"
-            "🔑 Для работы с ZakupAI нужен API ключ.\n"
-            f"Отправь мне команду: {hcode('/key YOUR_API_KEY')}\n\n"
-            "После этого используй команды:\n"
-            f"• {hcode('/lot <id|url>')} - анализ лота\n"
-            f"• {hcode('/help')} - справка"
-        )
+        # Создаем новый API ключ через Billing Service
+        if not DEV_MODE:
+            try:
+                new_api_key = await api_client.create_billing_key(
+                    tg_id=user_id,
+                    email=None,  # email опционально
+                )
+                if new_api_key:
+                    await save_api_key(user_id, new_api_key)
+                    api_key = new_api_key
+                    logger.info(f"Created new API key for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to create API key for user {user_id}: {e}")
+
+        if not api_key:
+            await message.answer(
+                f"👋 Привет, {hbold(message.from_user.full_name)}!\n\n"
+                "🔑 Для работы с ZakupAI нужен API ключ.\n"
+                f"Отправь мне команду: {hcode('/key YOUR_API_KEY')}\n\n"
+                "После этого используй команды:\n"
+                f"• {hcode('/lot <id|url>')} - анализ лота\n"
+                f"• {hcode('/help')} - справка"
+            )
+        else:
+            await message.answer(
+                f"👋 Привет, {hbold(message.from_user.full_name)}!\n\n"
+                "✅ API ключ создан автоматически!\n\n"
+                "🚀 Доступные команды:\n"
+                f"• {hcode('/lot <id|url>')} - анализ лота\n"
+                f"• {hcode('/help')} - справка"
+            )
     else:
-        await message.answer(
-            f"✅ Добро пожаловать обратно, {hbold(message.from_user.full_name)}!\n\n"
-            "🚀 Доступные команды:\n"
-            f"• {hcode('/lot <id|url>')} - анализ лота\n"
-            f"• {hcode('/key <новый_ключ>')} - обновить API ключ\n"
-            f"• {hcode('/help')} - справка"
-        )
+        # Валидируем существующий ключ
+        if not DEV_MODE and not await api_client.validate_key(api_key, "start"):
+            await message.answer(
+                f"⚠️ Ваш API ключ недействителен или превышен лимит.\n\n"
+                f"Обновите ключ: {hcode('/key YOUR_NEW_API_KEY')}"
+            )
+        else:
+            await message.answer(
+                f"✅ Добро пожаловать обратно, {hbold(message.from_user.full_name)}!\n\n"
+                "🚀 Доступные команды:\n"
+                f"• {hcode('/lot <id|url>')} - анализ лота\n"
+                f"• {hcode('/key <новый_ключ>')} - обновить API ключ\n"
+                f"• {hcode('/help')} - справка"
+            )
 
 
 @dp.message(Command("key"))
@@ -93,23 +124,21 @@ async def command_key_handler(message: Message) -> None:
         return
 
     try:
-        # Сохраняем API ключ
-        await save_api_key(user_id, api_key)
-
         if DEV_MODE:
+            await save_api_key(user_id, api_key)
             await message.answer("✅ API ключ сохранён (dev режим)")
         else:
-            # Проверяем валидность ключа
-            test_client = ZakupaiAPIClient(
-                base_url=os.getenv("ZAKUPAI_API_URL", "http://localhost:8080"),
-                api_key=api_key,
-            )
-
-            health_check = await test_client.health_check()
-            if health_check and health_check.get("status") == "ok":
+            # Проверяем валидность ключа через Billing Service
+            if await api_client.validate_key(api_key, "key"):
+                await save_api_key(user_id, api_key)
                 await message.answer("✅ API ключ сохранён и проверен!")
+                # Логируем использование для команды key
+                await api_client.log_usage(api_key, "key")
             else:
-                await message.answer("⚠️ API ключ сохранён, но не прошёл проверку")
+                await message.answer(
+                    "❌ API ключ недействителен или превышен лимит.\n"
+                    "Проверьте ключ или попробуйте позже."
+                )
 
     except Exception as e:
         logger.error(f"Ошибка сохранения API ключа для {user_id}: {e}")
@@ -122,14 +151,6 @@ async def command_lot_handler(message: Message) -> None:
     Обработчик команды /lot для анализа лота
     """
     user_id = message.from_user.id
-
-    # Проверяем API ключ
-    api_key = await get_api_key(user_id)
-    if not api_key:
-        await message.answer(
-            "🔑 Сначала установи API ключ:\n" f"{hcode('/key YOUR_API_KEY')}"
-        )
-        return
 
     # Извлекаем ID лота
     args = message.text.split(maxsplit=1)
@@ -170,6 +191,9 @@ async def command_lot_handler(message: Message) -> None:
         await message.answer("🔄 Анализирую лот...")
 
         try:
+            # Получаем API ключ
+            api_key = await get_api_key(user_id)
+
             # Создаём клиент с пользовательским API ключом
             user_client = ZakupaiAPIClient(
                 base_url=os.getenv("ZAKUPAI_API_URL", "http://localhost:8080"),
@@ -199,13 +223,127 @@ async def command_help_handler(message: Message) -> None:
         f"• {hcode('/start')} - начать работу\n"
         f"• {hcode('/key <api_key>')} - установить API ключ\n"
         f"• {hcode('/lot <id|url>')} - анализ лота\n"
+        f"• {hcode('/stats')} - ваша статистика\n"
         f"• {hcode('/help')} - эта справка\n\n"
         "🔍 Пример анализа лота:\n"
         f"{hcode('/lot 12345')}\n"
         f"{hcode('/lot https://goszakup.gov.kz/ru/announce/index/12345')}\n\n"
+        "💰 Тарифы:\n"
+        "• Free: 100 запросов/день, 20/час\n"
+        "• Premium: 5000 запросов/день, 500/час\n\n"
         "🔧 Поддержка: @zakupai_support"
     )
     await message.answer(help_text)
+
+
+# Пример новой команды - показывает универсальность системы
+@dp.message(Command("stats"))
+async def command_stats_handler(message: Message) -> None:
+    """
+    Обработчик команды /stats - статистика пользователя
+    """
+    user_id = message.from_user.id
+
+    if DEV_MODE:
+        await message.answer(
+            "📊 Статистика (Dev режим):\n\n"
+            "🔑 План: Free\n"
+            "📈 Использовано сегодня: 5\n"
+            "📊 Всего запросов: 25\n"
+            "⏰ Осталось сегодня: 95\n"
+            "🕐 Осталось в час: 15"
+        )
+    else:
+        try:
+            import aiohttp
+
+            # Простой запрос к Billing Service для статистики
+            billing_url = f"http://billing-service:7004/billing/stats/{user_id}"
+            headers = {"Content-Type": "application/json"}
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(billing_url, headers=headers) as response:
+                    if response.status == 200:
+                        stats = await response.json()
+                        stats_text = (
+                            f"📊 Ваша статистика:\n\n"
+                            f"🔑 План: {stats.get('plan', 'N/A')}\n"
+                            f"📈 Использовано сегодня: {stats.get('usage', {}).get('today_requests', 0)}\n"
+                            f"📊 Всего запросов: {stats.get('usage', {}).get('total_requests', 0)}\n"
+                            f"⏰ Осталось сегодня: {stats.get('limits', {}).get('daily_remaining', 0)}\n"
+                            f"🕐 Осталось в час: {stats.get('limits', {}).get('hourly_remaining', 0)}"
+                        )
+                        await message.answer(stats_text)
+                    else:
+                        await message.answer("❌ Не удалось получить статистику")
+
+        except Exception as e:
+            logger.error(f"Error getting stats for user {user_id}: {e}")
+            await message.answer("❌ Ошибка получения статистики")
+
+
+def get_command_endpoint(message_text: str) -> str:
+    """
+    Извлекает имя команды для использования как endpoint в Billing Service
+    """
+    if message_text.startswith("/"):
+        command = message_text.split()[0][1:]  # Убираем '/' и берем первое слово
+        return command
+    return "unknown"
+
+
+def validate_and_log(require_key: bool = True):
+    """
+    Декоратор для валидации API ключа и логирования использования
+    """
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(message: Message, *args, **kwargs):
+            user_id = message.from_user.id
+            endpoint = get_command_endpoint(message.text)
+
+            # Получаем API ключ если нужен или есть
+            api_key = (
+                await get_api_key(user_id) if require_key or not DEV_MODE else None
+            )
+
+            if require_key:
+                # Проверяем наличие API ключа
+                if not api_key:
+                    await message.answer(
+                        "🔑 Сначала установи API ключ:\n"
+                        f"{hcode('/key YOUR_API_KEY')}"
+                    )
+                    return
+
+                # Валидируем ключ через Billing Service (кроме dev режима)
+                if not DEV_MODE:
+                    if not await api_client.validate_key(api_key, endpoint):
+                        await message.answer(
+                            "❌ API ключ недействителен или превышен лимит.\n"
+                            "Проверьте ключ или попробуйте позже."
+                        )
+                        return
+
+            # Выполняем основную функцию
+            result = await func(message, *args, **kwargs)
+
+            # Логируем использование (если есть ключ и не dev режим)
+            if not DEV_MODE and api_key:
+                try:
+                    await api_client.log_usage(api_key, endpoint)
+                    logger.debug(
+                        f"Logged usage for endpoint '{endpoint}' by user {user_id}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to log usage for endpoint '{endpoint}': {e}")
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def extract_lot_id(lot_input: str) -> str:

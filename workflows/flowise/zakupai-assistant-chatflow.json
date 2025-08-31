@@ -1,0 +1,790 @@
+{
+  "nodes": [
+    {
+      "width": 300,
+      "height": 485,
+      "id": "chatOpenAI_0",
+      "position": {
+        "x": 855.8837294817642,
+        "y": 254.03495114924084
+      },
+      "type": "customNode",
+      "data": {
+        "id": "chatOpenAI_0",
+        "label": "ChatOpenAI",
+        "version": 6,
+        "name": "chatOpenAI",
+        "type": "ChatOpenAI",
+        "baseClasses": [
+          "ChatOpenAI",
+          "BaseChatModel",
+          "BaseLanguageModel",
+          "Runnable"
+        ],
+        "category": "Chat Models",
+        "description": "Wrapper around OpenAI large language models that use the Chat endpoint",
+        "inputParams": [
+          {
+            "label": "Connect Credential",
+            "name": "credential",
+            "type": "credential",
+            "credentialNames": [
+              "openAIApi"
+            ],
+            "id": "chatOpenAI_0-input-credential-credential"
+          },
+          {
+            "label": "Model Name",
+            "name": "modelName",
+            "type": "asyncOptions",
+            "loadMethod": "listModels",
+            "default": "gpt-3.5-turbo",
+            "id": "chatOpenAI_0-input-modelName-asyncOptions"
+          },
+          {
+            "label": "Temperature",
+            "name": "temperature",
+            "type": "number",
+            "step": 0.1,
+            "default": 0.9,
+            "optional": true,
+            "id": "chatOpenAI_0-input-temperature-number"
+          },
+          {
+            "label": "Max Tokens",
+            "name": "maxTokens",
+            "type": "number",
+            "step": 1,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-maxTokens-number"
+          },
+          {
+            "label": "Top Probability",
+            "name": "topP",
+            "type": "number",
+            "step": 0.1,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-topP-number"
+          },
+          {
+            "label": "Frequency Penalty",
+            "name": "frequencyPenalty",
+            "type": "number",
+            "step": 0.1,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-frequencyPenalty-number"
+          },
+          {
+            "label": "Presence Penalty",
+            "name": "presencePenalty",
+            "type": "number",
+            "step": 0.1,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-presencePenalty-number"
+          },
+          {
+            "label": "Timeout",
+            "name": "timeout",
+            "type": "number",
+            "step": 1,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-timeout-number"
+          },
+          {
+            "label": "BasePath",
+            "name": "basepath",
+            "type": "string",
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-basepath-string"
+          },
+          {
+            "label": "BaseOptions",
+            "name": "baseOptions",
+            "type": "json",
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatOpenAI_0-input-baseOptions-json"
+          }
+        ],
+        "inputAnchors": [
+          {
+            "label": "Cache",
+            "name": "cache",
+            "type": "BaseCache",
+            "optional": true,
+            "id": "chatOpenAI_0-input-cache-BaseCache"
+          },
+          {
+            "label": "Tool Calling",
+            "name": "tools",
+            "type": "Tool",
+            "list": true,
+            "optional": true,
+            "id": "chatOpenAI_0-input-tools-Tool"
+          }
+        ],
+        "inputs": {
+          "cache": "",
+          "tools": [
+            "{{lotReader_0.data.instance}}",
+            "{{riskExplain_0.data.instance}}",
+            "{{financeCalc_0.data.instance}}",
+            "{{templateGen_0.data.instance}}"
+          ],
+          "modelName": "gpt-4",
+          "temperature": 0.3,
+          "maxTokens": "",
+          "topP": "",
+          "frequencyPenalty": "",
+          "presencePenalty": "",
+          "timeout": "",
+          "basepath": "",
+          "baseOptions": ""
+        },
+        "outputAnchors": [
+          {
+            "id": "chatOpenAI_0-output-chatOpenAI-ChatOpenAI",
+            "name": "chatOpenAI",
+            "label": "ChatOpenAI",
+            "type": "ChatOpenAI"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 855.8837294817642,
+        "y": 254.03495114924084
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 672,
+      "id": "conversationChain_0",
+      "position": {
+        "x": 1270.1162705182358,
+        "y": -9.965048850759162
+      },
+      "type": "customNode",
+      "data": {
+        "id": "conversationChain_0",
+        "label": "Conversation Chain",
+        "version": 3,
+        "name": "conversationChain",
+        "type": "ConversationChain",
+        "baseClasses": [
+          "ConversationChain",
+          "LLMChain",
+          "BaseChain",
+          "Runnable"
+        ],
+        "category": "Chains",
+        "description": "Chat models specific conversational chain with memory",
+        "inputParams": [
+          {
+            "label": "System Message",
+            "name": "systemMessagePrompt",
+            "type": "string",
+            "rows": 4,
+            "description": "If Chat Prompt Template is provided, this will be ignored",
+            "default": "The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. If the AI does not know the answer to a question, it truthfully says it does not know.",
+            "additionalParams": true,
+            "optional": true,
+            "id": "conversationChain_0-input-systemMessagePrompt-string"
+          }
+        ],
+        "inputAnchors": [
+          {
+            "label": "Chat Model",
+            "name": "model",
+            "type": "BaseChatModel",
+            "id": "conversationChain_0-input-model-BaseChatModel"
+          },
+          {
+            "label": "Memory",
+            "name": "memory",
+            "type": "BaseMemory",
+            "id": "conversationChain_0-input-memory-BaseMemory"
+          },
+          {
+            "label": "Chat Prompt Template",
+            "name": "chatPromptTemplate",
+            "type": "ChatPromptTemplate",
+            "description": "Override existing prompt with Chat Prompt Template. Human Message must contains {input}, and History Message must contains {chat_history}",
+            "optional": true,
+            "id": "conversationChain_0-input-chatPromptTemplate-ChatPromptTemplate"
+          },
+          {
+            "label": "Input Moderation",
+            "description": "Detect text that could generate harmful output and prevent it from being sent to the language model",
+            "name": "inputModeration",
+            "type": "Moderation",
+            "optional": true,
+            "list": true,
+            "id": "conversationChain_0-input-inputModeration-Moderation"
+          },
+          {
+            "label": "Output Moderation",
+            "description": "Detect text that could generate harmful output and prevent it from being sent to the language model",
+            "name": "outputModeration",
+            "type": "Moderation",
+            "optional": true,
+            "list": true,
+            "id": "conversationChain_0-input-outputModeration-Moderation"
+          }
+        ],
+        "inputs": {
+          "model": "{{chatOpenAI_0.data.instance}}",
+          "memory": "{{bufferMemory_0.data.instance}}",
+          "chatPromptTemplate": "{{chatPromptTemplate_0.data.instance}}",
+          "inputModeration": "",
+          "outputModeration": "",
+          "systemMessagePrompt": "Ты - ZakupAI, умный ассистент для работы с государственными закупками Казахстана. Твоя роль - помогать пользователям анализировать лоты, оценивать риски, рассчитывать маржу и генерировать документы.\n\nВозможности:\n- Поиск и анализ лотов по номеру или URL\n- Расчет рисков участия в тендере\n- Финансовые расчеты (маржа, НДС, штрафы)\n- Генерация документов и писем\n\nОтвечай на русском языке, будь конкретным и полезным."
+        },
+        "outputAnchors": [
+          {
+            "id": "conversationChain_0-output-conversationChain-ConversationChain",
+            "name": "conversationChain",
+            "label": "ConversationChain",
+            "type": "ConversationChain"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 1270.1162705182358,
+        "y": -9.965048850759162
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 433,
+      "id": "bufferMemory_0",
+      "position": {
+        "x": 851.1162705182358,
+        "y": 790.0349488507408
+      },
+      "type": "customNode",
+      "data": {
+        "id": "bufferMemory_0",
+        "label": "Buffer Memory",
+        "version": 2,
+        "name": "bufferMemory",
+        "type": "BufferMemory",
+        "baseClasses": [
+          "BufferMemory",
+          "BaseChatMemory",
+          "BaseMemory"
+        ],
+        "category": "Memory",
+        "description": "Retrieve chat messages stored in database",
+        "inputParams": [
+          {
+            "label": "Session Id",
+            "name": "sessionId",
+            "type": "string",
+            "description": "If not specified, a random id will be used. Learn <a target=\"_blank\" href=\"https://docs.flowiseai.com/memory/long-term-memory#ui-and-embedded-chat\">more</a>",
+            "default": "",
+            "additionalParams": true,
+            "optional": true,
+            "id": "bufferMemory_0-input-sessionId-string"
+          },
+          {
+            "label": "Memory Key",
+            "name": "memoryKey",
+            "type": "string",
+            "default": "chat_history",
+            "additionalParams": true,
+            "id": "bufferMemory_0-input-memoryKey-string"
+          }
+        ],
+        "inputAnchors": [
+          {
+            "label": "Chat Memory",
+            "name": "memory",
+            "type": "BaseChatMessageHistory",
+            "optional": true,
+            "description": "If left empty, the default will be a memory in the same process",
+            "id": "bufferMemory_0-input-memory-BaseChatMessageHistory"
+          }
+        ],
+        "inputs": {
+          "memory": "",
+          "sessionId": "",
+          "memoryKey": "chat_history"
+        },
+        "outputAnchors": [
+          {
+            "id": "bufferMemory_0-output-bufferMemory-BufferMemory",
+            "name": "bufferMemory",
+            "label": "BufferMemory",
+            "type": "BufferMemory"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 851.1162705182358,
+        "y": 790.0349488507408
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 669,
+      "id": "chatPromptTemplate_0",
+      "position": {
+        "x": 440.1162705182358,
+        "y": -9.965048850759162
+      },
+      "type": "customNode",
+      "data": {
+        "id": "chatPromptTemplate_0",
+        "label": "Chat Prompt Template",
+        "version": 1,
+        "name": "chatPromptTemplate",
+        "type": "ChatPromptTemplate",
+        "baseClasses": [
+          "ChatPromptTemplate",
+          "BaseChatPromptTemplate",
+          "BasePromptTemplate",
+          "Runnable"
+        ],
+        "category": "Prompts",
+        "description": "Schema to represent a basic chat prompt template",
+        "inputParams": [
+          {
+            "label": "System Message",
+            "name": "systemMessagePrompt",
+            "type": "string",
+            "rows": 4,
+            "placeholder": "You are a helpful assistant that answers questions about {topic}",
+            "id": "chatPromptTemplate_0-input-systemMessagePrompt-string"
+          },
+          {
+            "label": "Human Message",
+            "name": "humanMessagePrompt",
+            "type": "string",
+            "rows": 4,
+            "placeholder": "{input}",
+            "id": "chatPromptTemplate_0-input-humanMessagePrompt-string"
+          },
+          {
+            "label": "Format Prompt Values",
+            "name": "promptValues",
+            "type": "json",
+            "optional": true,
+            "acceptVariable": true,
+            "list": true,
+            "id": "chatPromptTemplate_0-input-promptValues-json"
+          }
+        ],
+        "inputAnchors": [
+          {
+            "label": "Chat History",
+            "name": "chatHistory",
+            "type": "BaseChatMessageHistory",
+            "optional": true,
+            "id": "chatPromptTemplate_0-input-chatHistory-BaseChatMessageHistory"
+          }
+        ],
+        "inputs": {
+          "systemMessagePrompt": "Ты - ZakupAI, умный ассистент для работы с государственными закупками Казахстана.\n\nТвои возможности:\n- 🔍 Поиск и анализ лотов (используй функцию lot_reader)\n- ⚠️ Оценка рисков участия (используй функцию risk_explain)\n- 💰 Финансовые расчеты (используй функцию finance_calc)\n- 📄 Генерация документов (используй функцию template_gen)\n\nИнструкции:\n1. Всегда спрашивай номер лота или URL если пользователь не указал\n2. При анализе лота сначала получи данные, затем оцени риски и рассчитай финансы\n3. Будь конкретным и полезным\n4. Отвечай на русском языке\n5. Используй доступные инструменты для получения актуальной информации\n\nПример диалога:\nПользователь: \"Проанализируй лот 12345\"\nТы: *используешь lot_reader* → *используешь risk_explain* → *используешь finance_calc* → даешь комплексный анализ\n\nИстория чата: {chat_history}",
+          "humanMessagePrompt": "Пользователь: {input}\n\nОтвет:",
+          "promptValues": "",
+          "chatHistory": ""
+        },
+        "outputAnchors": [
+          {
+            "id": "chatPromptTemplate_0-output-chatPromptTemplate-ChatPromptTemplate",
+            "name": "chatPromptTemplate",
+            "label": "ChatPromptTemplate",
+            "type": "ChatPromptTemplate"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 440.1162705182358,
+        "y": -9.965048850759162
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 522,
+      "id": "lotReader_0",
+      "position": {
+        "x": 30.116270518235803,
+        "y": 180.03495114924084
+      },
+      "type": "customNode",
+      "data": {
+        "id": "lotReader_0",
+        "label": "Lot Reader Tool",
+        "version": 1,
+        "name": "lotReader",
+        "type": "LotReader",
+        "baseClasses": [
+          "LotReader",
+          "Tool",
+          "StructuredTool",
+          "Runnable"
+        ],
+        "category": "Tools",
+        "description": "Tool to read and analyze government procurement lots",
+        "inputParams": [
+          {
+            "label": "Tool Name",
+            "name": "name",
+            "type": "string",
+            "default": "lot_reader",
+            "id": "lotReader_0-input-name-string"
+          },
+          {
+            "label": "Tool Description",
+            "name": "description",
+            "type": "string",
+            "default": "Читает и анализирует государственные закупки по номеру лота или URL. Возвращает основную информацию: название, цену, заказчика, дедлайн.",
+            "rows": 3,
+            "id": "lotReader_0-input-description-string"
+          },
+          {
+            "label": "ZakupAI API Key",
+            "name": "apiKey",
+            "type": "password",
+            "id": "lotReader_0-input-apiKey-password"
+          },
+          {
+            "label": "API Base URL",
+            "name": "baseUrl",
+            "type": "string",
+            "default": "http://gateway:8080",
+            "id": "lotReader_0-input-baseUrl-string"
+          }
+        ],
+        "inputAnchors": [],
+        "inputs": {
+          "name": "lot_reader",
+          "description": "Читает и анализирует государственные закупки по номеру лота или URL. Возвращает основную информацию: название, цену, заказчика, дедлайн.",
+          "apiKey": "",
+          "baseUrl": "http://gateway:8080"
+        },
+        "outputAnchors": [
+          {
+            "id": "lotReader_0-output-lotReader-LotReader",
+            "name": "lotReader",
+            "label": "LotReader",
+            "type": "LotReader"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 30.116270518235803,
+        "y": 180.03495114924084
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 522,
+      "id": "riskExplain_0",
+      "position": {
+        "x": 30.116270518235803,
+        "y": 750.0349511492408
+      },
+      "type": "customNode",
+      "data": {
+        "id": "riskExplain_0",
+        "label": "Risk Explain Tool",
+        "version": 1,
+        "name": "riskExplain",
+        "type": "RiskExplain",
+        "baseClasses": [
+          "RiskExplain",
+          "Tool",
+          "StructuredTool",
+          "Runnable"
+        ],
+        "category": "Tools",
+        "description": "Tool to explain risk assessment for procurement lots",
+        "inputParams": [
+          {
+            "label": "Tool Name",
+            "name": "name",
+            "type": "string",
+            "default": "risk_explain",
+            "id": "riskExplain_0-input-name-string"
+          },
+          {
+            "label": "Tool Description",
+            "name": "description",
+            "type": "string",
+            "default": "Объясняет оценку рисков для лота закупки. Анализирует факторы риска и дает рекомендации по участию в тендере.",
+            "rows": 3,
+            "id": "riskExplain_0-input-description-string"
+          },
+          {
+            "label": "ZakupAI API Key",
+            "name": "apiKey",
+            "type": "password",
+            "id": "riskExplain_0-input-apiKey-password"
+          },
+          {
+            "label": "API Base URL",
+            "name": "baseUrl",
+            "type": "string",
+            "default": "http://gateway:8080",
+            "id": "riskExplain_0-input-baseUrl-string"
+          }
+        ],
+        "inputAnchors": [],
+        "inputs": {
+          "name": "risk_explain",
+          "description": "Объясняет оценку рисков для лота закупки. Анализирует факторы риска и дает рекомендации по участию в тендере.",
+          "apiKey": "",
+          "baseUrl": "http://gateway:8080"
+        },
+        "outputAnchors": [
+          {
+            "id": "riskExplain_0-output-riskExplain-RiskExplain",
+            "name": "riskExplain",
+            "label": "RiskExplain",
+            "type": "RiskExplain"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 30.116270518235803,
+        "y": 750.0349511492408
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 522,
+      "id": "financeCalc_0",
+      "position": {
+        "x": 440.1162705182358,
+        "y": 750.0349511492408
+      },
+      "type": "customNode",
+      "data": {
+        "id": "financeCalc_0",
+        "label": "Finance Calculator Tool",
+        "version": 1,
+        "name": "financeCalc",
+        "type": "FinanceCalc",
+        "baseClasses": [
+          "FinanceCalc",
+          "Tool",
+          "StructuredTool",
+          "Runnable"
+        ],
+        "category": "Tools",
+        "description": "Tool to calculate financial metrics for procurement lots",
+        "inputParams": [
+          {
+            "label": "Tool Name",
+            "name": "name",
+            "type": "string",
+            "default": "finance_calc",
+            "id": "financeCalc_0-input-name-string"
+          },
+          {
+            "label": "Tool Description",
+            "name": "description",
+            "type": "string",
+            "default": "Рассчитывает финансовые показатели для лота: маржу, НДС, штрафы. Помогает оценить прибыльность участия в тендере.",
+            "rows": 3,
+            "id": "financeCalc_0-input-description-string"
+          },
+          {
+            "label": "ZakupAI API Key",
+            "name": "apiKey",
+            "type": "password",
+            "id": "financeCalc_0-input-apiKey-password"
+          },
+          {
+            "label": "API Base URL",
+            "name": "baseUrl",
+            "type": "string",
+            "default": "http://gateway:8080",
+            "id": "financeCalc_0-input-baseUrl-string"
+          }
+        ],
+        "inputAnchors": [],
+        "inputs": {
+          "name": "finance_calc",
+          "description": "Рассчитывает финансовые показатели для лота: маржу, НДС, штрафы. Помогает оценить прибыльность участия в тендере.",
+          "apiKey": "",
+          "baseUrl": "http://gateway:8080"
+        },
+        "outputAnchors": [
+          {
+            "id": "financeCalc_0-output-financeCalc-FinanceCalc",
+            "name": "financeCalc",
+            "label": "FinanceCalc",
+            "type": "FinanceCalc"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 440.1162705182358,
+        "y": 750.0349511492408
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "width": 300,
+      "height": 522,
+      "id": "templateGen_0",
+      "position": {
+        "x": 440.1162705182358,
+        "y": 180.03495114924084
+      },
+      "type": "customNode",
+      "data": {
+        "id": "templateGen_0",
+        "label": "Template Generator Tool",
+        "version": 1,
+        "name": "templateGen",
+        "type": "TemplateGen",
+        "baseClasses": [
+          "TemplateGen",
+          "Tool",
+          "StructuredTool",
+          "Runnable"
+        ],
+        "category": "Tools",
+        "description": "Tool to generate document templates and letters",
+        "inputParams": [
+          {
+            "label": "Tool Name",
+            "name": "name",
+            "type": "string",
+            "default": "template_gen",
+            "id": "templateGen_0-input-name-string"
+          },
+          {
+            "label": "Tool Description",
+            "name": "description",
+            "type": "string",
+            "default": "Генерирует шаблоны документов и письма для участия в тендерах. Создает заявки, гарантийные письма и другие необходимые документы.",
+            "rows": 3,
+            "id": "templateGen_0-input-description-string"
+          },
+          {
+            "label": "ZakupAI API Key",
+            "name": "apiKey",
+            "type": "password",
+            "id": "templateGen_0-input-apiKey-password"
+          },
+          {
+            "label": "API Base URL",
+            "name": "baseUrl",
+            "type": "string",
+            "default": "http://gateway:8080",
+            "id": "templateGen_0-input-baseUrl-string"
+          }
+        ],
+        "inputAnchors": [],
+        "inputs": {
+          "name": "template_gen",
+          "description": "Генерирует шаблоны документов и письма для участия в тендерах. Создает заявки, гарантийные письма и другие необходимые документы.",
+          "apiKey": "",
+          "baseUrl": "http://gateway:8080"
+        },
+        "outputAnchors": [
+          {
+            "id": "templateGen_0-output-templateGen-TemplateGen",
+            "name": "templateGen",
+            "label": "TemplateGen",
+            "type": "TemplateGen"
+          }
+        ]
+      },
+      "positionAbsolute": {
+        "x": 440.1162705182358,
+        "y": 180.03495114924084
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "chatOpenAI_0",
+      "sourceHandle": "chatOpenAI_0-output-chatOpenAI-ChatOpenAI",
+      "target": "conversationChain_0",
+      "targetHandle": "conversationChain_0-input-model-BaseChatModel",
+      "type": "buttonedge",
+      "id": "chatOpenAI_0-chatOpenAI_0-output-chatOpenAI-ChatOpenAI-conversationChain_0-conversationChain_0-input-model-BaseChatModel"
+    },
+    {
+      "source": "bufferMemory_0",
+      "sourceHandle": "bufferMemory_0-output-bufferMemory-BufferMemory",
+      "target": "conversationChain_0",
+      "targetHandle": "conversationChain_0-input-memory-BaseMemory",
+      "type": "buttonedge",
+      "id": "bufferMemory_0-bufferMemory_0-output-bufferMemory-BufferMemory-conversationChain_0-conversationChain_0-input-memory-BaseMemory"
+    },
+    {
+      "source": "chatPromptTemplate_0",
+      "sourceHandle": "chatPromptTemplate_0-output-chatPromptTemplate-ChatPromptTemplate",
+      "target": "conversationChain_0",
+      "targetHandle": "conversationChain_0-input-chatPromptTemplate-ChatPromptTemplate",
+      "type": "buttonedge",
+      "id": "chatPromptTemplate_0-chatPromptTemplate_0-output-chatPromptTemplate-ChatPromptTemplate-conversationChain_0-conversationChain_0-input-chatPromptTemplate-ChatPromptTemplate"
+    },
+    {
+      "source": "lotReader_0",
+      "sourceHandle": "lotReader_0-output-lotReader-LotReader",
+      "target": "chatOpenAI_0",
+      "targetHandle": "chatOpenAI_0-input-tools-Tool",
+      "type": "buttonedge",
+      "id": "lotReader_0-lotReader_0-output-lotReader-LotReader-chatOpenAI_0-chatOpenAI_0-input-tools-Tool"
+    },
+    {
+      "source": "riskExplain_0",
+      "sourceHandle": "riskExplain_0-output-riskExplain-RiskExplain",
+      "target": "chatOpenAI_0",
+      "targetHandle": "chatOpenAI_0-input-tools-Tool",
+      "type": "buttonedge",
+      "id": "riskExplain_0-riskExplain_0-output-riskExplain-RiskExplain-chatOpenAI_0-chatOpenAI_0-input-tools-Tool"
+    },
+    {
+      "source": "financeCalc_0",
+      "sourceHandle": "financeCalc_0-output-financeCalc-FinanceCalc",
+      "target": "chatOpenAI_0",
+      "targetHandle": "chatOpenAI_0-input-tools-Tool",
+      "type": "buttonedge",
+      "id": "financeCalc_0-financeCalc_0-output-financeCalc-FinanceCalc-chatOpenAI_0-chatOpenAI_0-input-tools-Tool"
+    },
+    {
+      "source": "templateGen_0",
+      "sourceHandle": "templateGen_0-output-templateGen-TemplateGen",
+      "target": "chatOpenAI_0",
+      "targetHandle": "chatOpenAI_0-input-tools-Tool",
+      "type": "buttonedge",
+      "id": "templateGen_0-templateGen_0-output-templateGen-TemplateGen-chatOpenAI_0-chatOpenAI_0-input-tools-Tool"
+    }
+  ],
+  "chatflow": {
+    "name": "ZakupAI Assistant",
+    "description": "AI Assistant for Kazakhstan Government Procurement",
+    "category": "Government",
+    "speechToText": "assemblyAI",
+    "type": "CHATFLOW"
+  }
+}
