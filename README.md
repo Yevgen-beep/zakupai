@@ -217,6 +217,8 @@ cp bot/.env.example bot/.env
 
 ### 2. Настройка Telegram Bot (обязательно)
 
+**Важно:** Переменные окружения для бота прописываются в файле `./bot/.env` (не в корневом `.env`).
+
 Отредактируйте файл `bot/.env`:
 
 ```bash
@@ -300,6 +302,8 @@ TELEGRAM_WEBHOOK_SECRET=  # Секрет для webhook (production)
 ENVIRONMENT=              # development/staging/production
 N8N_WEBHOOK_URL=         # URL n8n для поиска лотов
 ```
+
+**Важно:** Production URL для n8n прописывается в файле `bot/.env` (переменная `N8N_WEBHOOK_URL`). Полный путь: `zakupai/bot/.env`.
 
 ### Устранение проблем
 
