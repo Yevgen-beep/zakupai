@@ -12,8 +12,6 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from aiogram.utils.markdown import hbold, hcode
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-from aiohttp import web
 from client import ZakupaiAPIClient, get_command_endpoint
 from config import config
 from db_simple import get_api_key, init_db, save_api_key
@@ -45,11 +43,6 @@ dp.message.middleware(ErrorHandlingMiddleware())
 
 # API клиент из конфигурации
 api_client = ZakupaiAPIClient()
-
-# Режим работы: webhook или polling
-USE_WEBHOOK = bool(
-    config.telegram.webhook_url and config.security.environment != "development"
-)
 
 
 # Rate limiting система
@@ -633,29 +626,6 @@ def format_lot_analysis(result: dict) -> str:
     return "\n".join(output)
 
 
-async def setup_webhook():
-    """Настройка webhook для production режима"""
-    if not USE_WEBHOOK:
-        return
-
-    webhook_url = config.telegram.webhook_url
-    webhook_secret = config.telegram.webhook_secret
-
-    logger.info(f"Setting webhook to: {webhook_url}")
-
-    # Удаляем существующий webhook
-    await bot.delete_webhook(drop_pending_updates=True)
-
-    # Устанавливаем новый webhook
-    await bot.set_webhook(
-        url=webhook_url, secret_token=webhook_secret, drop_pending_updates=True
-    )
-
-    # Проверяем webhook
-    webhook_info = await bot.get_webhook_info()
-    logger.info(f"Webhook info: {webhook_info}")
-
-
 @asynccontextmanager
 async def lifespan_context():
     """
@@ -665,78 +635,18 @@ async def lifespan_context():
     await init_db()
     logger.info("База данных инициализирована")
 
-    # Настройка webhook если нужно
-    if USE_WEBHOOK:
-        await setup_webhook()
-
     yield
 
-    # Очистка при завершении
-    if USE_WEBHOOK:
-        await bot.delete_webhook(drop_pending_updates=False)
-
     logger.info("Завершение работы бота")
-
-
-async def webhook_main() -> None:
-    """
-    Запуск в webhook режиме
-    """
-    async with lifespan_context():
-        app = web.Application()
-
-        webhook_requests_handler = SimpleRequestHandler(
-            dispatcher=dp,
-            bot=bot,
-            secret_token=config.telegram.webhook_secret,
-        )
-        webhook_requests_handler.register(app, path="/webhook/telegram")
-
-        # Health check endpoint
-        async def health_check(request):
-            return web.Response(text="OK", status=200)
-
-        app.router.add_get("/health", health_check)
-
-        # Setup application and start server
-        setup_application(app, dp, bot=bot)
-
-        logger.info("🚀 ZakupAI Telegram Bot запущен в webhook режиме")
-
-        # Запуск сервера
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, host="0.0.0.0", port=8000)
-        await site.start()
-
-        # Бесконечный цикл
-        try:
-            await asyncio.Future()  # run forever
-        except KeyboardInterrupt:
-            logger.info("Получен сигнал завершения")
-        finally:
-            await runner.cleanup()
-
-
-async def polling_main() -> None:
-    """
-    Запуск в polling режиме
-    """
-    async with lifespan_context():
-        logger.info("🚀 ZakupAI Telegram Bot запущен в polling режиме")
-        await dp.start_polling(bot)
 
 
 async def main() -> None:
     """
     Основная функция запуска бота
     """
-    if USE_WEBHOOK:
-        logger.info(f"Режим: Webhook ({config.telegram.webhook_url})")
-        await webhook_main()
-    else:
-        logger.info("Режим: Polling (development)")
-        await polling_main()
+    async with lifespan_context():
+        logger.info("Запуск ZakupAI Telegram Bot")
+        await dp.start_polling(bot)
 
 
 if __name__ == "__main__":

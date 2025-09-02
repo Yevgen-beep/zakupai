@@ -1,0 +1,111 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install fastapi uvicorn
+
+# Copy mock billing service
+COPY <<EOF /app/mock_billing.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+import uvicorn
+import uuid
+import logging
+from datetime import datetime
+
+app = FastAPI(title="Mock Billing Service", version="1.0.0")
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class CreateKeyRequest(BaseModel):
+    tg_id: int
+    email: Optional[str] = None
+
+class ValidateKeyRequest(BaseModel):
+    api_key: str
+    endpoint: str
+
+class UsageRequest(BaseModel):
+    api_key: str
+    endpoint: str
+    requests: int = 1
+
+# Простое хранилище в памяти
+api_keys = {}
+usage_stats = {}
+
+@app.post("/billing/create_key")
+async def create_key(request: CreateKeyRequest):
+    """Создание API ключа"""
+    logger.info(f"Creating API key for user {request.tg_id}")
+
+    api_key = str(uuid.uuid4())
+    api_keys[api_key] = {
+        "tg_id": request.tg_id,
+        "email": request.email,
+        "plan": "free",
+        "created_at": datetime.now().isoformat()
+    }
+
+    return {
+        "api_key": api_key,
+        "plan": "free"
+    }
+
+@app.post("/billing/validate_key")
+async def validate_key(request: ValidateKeyRequest):
+    """Валидация API ключа"""
+    logger.info(f"Validating key for endpoint {request.endpoint}")
+
+    if request.api_key in api_keys:
+        return {
+            "valid": True,
+            "plan": "free",
+            "limits": {
+                "daily_remaining": 95,
+                "hourly_remaining": 18
+            }
+        }
+    else:
+        return {
+            "valid": False,
+            "error": "Invalid API key"
+        }
+
+@app.post("/billing/usage")
+async def log_usage(request: UsageRequest):
+    """Логирование использования"""
+    logger.info(f"Logging usage: {request.endpoint} - {request.requests} requests")
+
+    if request.api_key not in usage_stats:
+        usage_stats[request.api_key] = {}
+
+    if request.endpoint not in usage_stats[request.api_key]:
+        usage_stats[request.api_key][request.endpoint] = 0
+
+    usage_stats[request.api_key][request.endpoint] += request.requests
+
+    return {
+        "logged": True,
+        "usage": {
+            "today": sum(usage_stats[request.api_key].values()),
+            "this_hour": request.requests
+        }
+    }
+
+@app.get("/health")
+async def health():
+    """Health check"""
+    return {"status": "ok", "service": "mock-billing"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7004)
+EOF
+
+EXPOSE 7004
+
+CMD ["python", "mock_billing.py"]

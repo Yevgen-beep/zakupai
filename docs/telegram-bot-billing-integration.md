@@ -1,29 +1,61 @@
-# Telegram Bot ↔ Billing Service Integration
+# Telegram Bot Billing Integration
 
-## Архитектура интеграции
+Документация по интеграции Telegram-бота ZakupAI с Billing Service.
+
+## Обзор
+
+Все команды Telegram-бота интегрированы с Billing Service для:
+
+- **Валидации API ключей** перед выполнением команд
+- **Логирования использования** каждой команды
+- **Контроля лимитов** (rate limiting и тарифные планы)
+- **Безопасности** (защита от спама и злоупотреблений)
+
+## Архитектура
 
 ```mermaid
-sequenceDiagram
-    participant U as User
-    participant TB as Telegram Bot
-    participant BS as Billing Service
-    participant DB as PostgreSQL
+flowchart TD
+    User[👤 Пользователь] --> TgBot[🤖 Telegram Bot]
+    TgBot --> Decorator[🔒 @validate_and_log_bot]
+    Decorator --> BillingAPI[💳 Billing Service API]
 
-    U->>TB: /start
-    TB->>BS: POST /billing/create_key {"tg_id": 123, "email": null}
-    BS->>DB: INSERT INTO billing.users, billing.api_keys
-    BS-->>TB: {"api_key": "uuid", "plan": "free"}
-    TB-->>U: ✅ API ключ создан автоматически!
+    Decorator --> RateLimit[⏱️ Rate Limiter]
+    Decorator --> SearchLimit[🔍 Search Rate Limiter]
 
-    U->>TB: /lot 12345
-    TB->>BS: POST /billing/validate_key {"api_key": "uuid", "endpoint": "lot"}
-    BS->>DB: SELECT + CHECK limits
-    BS-->>TB: {"valid": true, "plan": "free", "remaining": 99}
-    TB->>TB: analyze_lot_pipeline()
-    TB->>BS: POST /billing/usage {"api_key": "uuid", "endpoint": "lot", "requests": 1}
-    BS->>DB: INSERT INTO billing.usage
-    TB-->>U: 📊 Анализ лота complete
+    BillingAPI --> Validate[✅ validate_key]
+    BillingAPI --> LogUsage[📝 log_usage]
+
+    Validate --> Execute[⚡ Выполнение команды]
+    Execute --> LogUsage
+
+    subgraph "Команды бота"
+        Start[/start]
+        Key[/key]
+        Search[/search]
+        Lot[/lot]
+        Help[/help]
+    end
+
+    Execute --> Start
+    Execute --> Key
+    Execute --> Search
+    Execute --> Lot
+    Execute --> Help
 ```
+
+## Endpoints для команд
+
+Каждая команда бота передает свой endpoint в Billing Service:
+
+| Команда   | Endpoint   | Требует ключ | Rate Limit     | Стоимость |
+| --------- | ---------- | ------------ | -------------- | --------- |
+| `/start`  | `"start"`  | Нет          | 10/мин         | 0         |
+| `/key`    | `"key"`    | Нет\*        | 10/мин         | 0         |
+| `/search` | `"search"` | Да           | 1/сек + 10/мин | 2         |
+| `/lot`    | `"lot"`    | Да           | 10/мин         | 5         |
+| `/help`   | `"help"`   | Нет          | 10/мин         | 0         |
+
+\*Команда `/key` валидирует переданный ключ через Billing Service.
 
 ## Ключевые компоненты
 

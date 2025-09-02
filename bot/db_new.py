@@ -1,9 +1,9 @@
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
+from config import config
 from models_new import ApiKeyValidation, Base, HotLot, NotificationMessage, TgKey
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -20,13 +20,23 @@ async def init_db():
     """Initialize database connection and create tables"""
     global _engine, _session_factory
 
-    database_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://zakupai:password123@localhost:5432/zakupai",
-    )
+    # Используем конфигурацию вместо хардкода
+    database_url = config.database.url
 
     _engine = create_async_engine(
-        database_url, echo=False, pool_size=5, max_overflow=10, pool_pre_ping=True
+        database_url,
+        echo=(config.security.environment == "development"),
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600,  # Переподключаться каждый час
+        connect_args={
+            "command_timeout": 60,
+            "server_settings": {
+                "application_name": "zakupai-telegram-bot-new",
+                "timezone": "UTC",
+            },
+        },
     )
 
     _session_factory = async_sessionmaker(
@@ -34,10 +44,13 @@ async def init_db():
     )
 
     # Create tables
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    logger.info("Database initialized successfully")
+    try:
+        async with _engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {type(e).__name__}")
+        raise
 
 
 async def close_db():
@@ -101,7 +114,7 @@ async def get_api_key(user_id: int) -> str | None:
     try:
         async with get_session() as session:
             stmt = select(TgKey.api_key).where(
-                and_(TgKey.user_id == user_id, TgKey.is_active == True)
+                and_(TgKey.user_id == user_id, TgKey.is_active.is_(True))
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
@@ -115,7 +128,7 @@ async def get_all_active_users() -> list[int]:
     """Get all active user IDs for notifications"""
     try:
         async with get_session() as session:
-            stmt = select(TgKey.user_id).where(TgKey.is_active == True)
+            stmt = select(TgKey.user_id).where(TgKey.is_active.is_(True))
             result = await session.execute(stmt)
             return [row[0] for row in result.fetchall()]
 
@@ -128,18 +141,6 @@ async def save_hot_lot(lot_data: dict) -> bool:
     """Save hot lot to database"""
     try:
         async with get_session() as session:
-            hot_lot = HotLot(
-                id=lot_data["lot_id"],
-                title=lot_data.get("title"),
-                price=lot_data.get("price", 0),
-                margin=int(
-                    lot_data.get("margin", 0) * 100
-                ),  # Store as integer (percentage * 100)
-                risk_score=int(lot_data.get("risk_score", 0) * 100),
-                deadline=lot_data.get("deadline"),
-                customer=lot_data.get("customer"),
-            )
-
             stmt = insert(HotLot).values(**lot_data)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["id"],
@@ -256,12 +257,14 @@ async def health_check() -> bool:
 # Test utilities
 async def create_test_data():
     """Create test data for development"""
-    if os.getenv("ENVIRONMENT") != "development":
+    if config.security.environment != "development":
+        logger.info("Skipping test data creation - not in development environment")
         return
 
     try:
-        # Test user
-        await save_api_key(123456789, "test-api-key-123")
+        # Test user с валидным UUID ключом
+        test_api_key = "550e8400-e29b-41d4-a716-446655440000"  # Пример UUID
+        await save_api_key(123456789, test_api_key)
 
         # Test hot lot
         test_lot = {
@@ -275,10 +278,10 @@ async def create_test_data():
         }
         await save_hot_lot(test_lot)
 
-        logger.info("Test data created")
+        logger.info("Test data created successfully")
 
     except Exception as e:
-        logger.error(f"Failed to create test data: {e}")
+        logger.error(f"Failed to create test data: {type(e).__name__}")
 
 
 if __name__ == "__main__":

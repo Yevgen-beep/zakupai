@@ -1,11 +1,121 @@
 import asyncio
 import logging
+import ssl
+import uuid
+from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
 import aiohttp
 from aiohttp import ClientError, ClientTimeout
+from config import config, mask_sensitive_data, validate_api_key_format
 
 logger = logging.getLogger(__name__)
+
+
+def get_command_endpoint(message_text: str) -> str:
+    """
+    Извлекает endpoint команды из текста сообщения
+
+    Args:
+        message_text: Текст сообщения от пользователя
+
+    Returns:
+        Название команды для использования в Billing Service
+    """
+    if not message_text:
+        return "unknown"
+
+    text = message_text.strip().lower()
+
+    # Команды Telegram бота
+    if text.startswith("/start"):
+        return "start"
+    elif text.startswith("/key"):
+        return "key"
+    elif text.startswith("/lot"):
+        return "lot"
+    elif text.startswith("/help"):
+        return "help"
+    elif text.startswith("/search"):
+        return "search"
+
+    # Для других команд используем первое слово без /
+    if text.startswith("/"):
+        command = text.split()[0][1:]  # Убираем /
+        return command if command else "unknown"
+
+    return "unknown"
+
+
+def validate_and_log(
+    api_client_func: Callable[[], "ZakupaiAPIClient"], require_key: bool = True
+):
+    """
+    Декоратор для валидации API ключей и логирования использования
+
+    Args:
+        api_client_func: Функция, возвращающая экземпляр ZakupaiAPIClient
+        require_key: Требовать ли валидный API ключ (по умолчанию True)
+    """
+
+    def decorator(handler_func):
+        @wraps(handler_func)
+        async def wrapper(*args, **kwargs):
+            # Извлекаем основные параметры из аргументов
+            # Предполагаем, что первый аргумент - это update или message объект
+            update = args[0] if args else None
+
+            if not update or not hasattr(update, "message"):
+                logger.error("Invalid update object in decorated handler")
+                return await handler_func(*args, **kwargs)
+
+            message = update.message
+            user_id = message.from_user.id if message.from_user else None
+            message_text = message.text or ""
+
+            # Определяем endpoint
+            endpoint = get_command_endpoint(message_text)
+
+            # Получаем API клиент
+            api_client = api_client_func()
+
+            if require_key and user_id:
+                # Получаем API ключ пользователя (нужно будет реализовать)
+                # Пока используем заглушку
+                api_key = kwargs.get("api_key") or getattr(
+                    args[1] if len(args) > 1 else None, "api_key", None
+                )
+
+                if api_key:
+                    # Валидация ключа
+                    is_valid = await api_client.validate_key(api_key, endpoint)
+                    if not is_valid:
+                        # Отправляем ошибку пользователю
+                        await message.reply_text(
+                            "❌ API ключ недействителен или исчерпаны лимиты.\n"
+                            "Используйте /key для обновления ключа."
+                        )
+                        return
+                else:
+                    await message.reply_text(
+                        "❌ Не найден API ключ.\n" "Используйте /start для регистрации."
+                    )
+                    return
+
+            # Выполняем оригинальный обработчик
+            result = await handler_func(*args, **kwargs)
+
+            # Логируем использование после успешного выполнения
+            if user_id and "api_key" in kwargs:
+                api_key = kwargs["api_key"]
+                await api_client.log_usage(api_key, endpoint)
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 class ZakupaiAPIClient:
@@ -13,14 +123,27 @@ class ZakupaiAPIClient:
     Асинхронный клиент для взаимодействия с ZakupAI API
     """
 
-    def __init__(self, base_url: str, api_key: str):
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
-        self.timeout = ClientTimeout(total=30)
+    def __init__(self, base_url: str = None, api_key: str = None):
+        self.base_url = (base_url or config.api.zakupai_base_url).rstrip("/")
+        self.api_key = api_key or config.api.zakupai_api_key
+        self.billing_url = config.api.billing_service_url
+        self.timeout = ClientTimeout(total=config.security.request_timeout)
+
+        # Безопасная настройка SSL
+        self.ssl_context = ssl.create_default_context()
+        if (
+            config.security.environment == "development"
+            and not config.security.ssl_verify
+        ):
+            self.ssl_context.check_hostname = False
+            self.ssl_context.verify_mode = ssl.CERT_NONE
+            logger.warning("SSL verification disabled for development environment")
+
         self.headers = {
-            "X-API-Key": api_key,
+            "X-API-Key": self.api_key,
             "Content-Type": "application/json",
             "User-Agent": "ZakupAI-TelegramBot/1.0",
+            "X-Request-Id": "",  # Будет установлен в каждом запросе
         }
 
     async def _make_request(
@@ -31,25 +154,42 @@ class ZakupaiAPIClient:
         params: dict | None = None,
     ) -> dict[Any, Any] | None:
         """
-        Универсальный метод для HTTP запросов
+        Универсальный метод для HTTP запросов с безопасным логированием
         """
         url = f"{self.base_url}{endpoint}"
+        request_id = str(uuid.uuid4())
+
+        # Обновляем заголовки с request ID
+        headers = self.headers.copy()
+        headers["X-Request-Id"] = request_id
+
+        # Безопасное логирование запроса
+        logger.debug(f"Request {request_id}: {method} {endpoint}")
 
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, connector=connector
+            ) as session:
                 async with session.request(
                     method=method,
                     url=url,
-                    headers=self.headers,
+                    headers=headers,
                     json=json_data,
                     params=params,
                 ) as response:
+                    # Логируем статус ответа без чувствительных данных
+                    logger.debug(f"Response {request_id}: {response.status}")
+
                     if response.status == 429:
-                        logger.warning(f"Rate limit exceeded for {endpoint}")
+                        logger.warning(f"Rate limit exceeded for endpoint {endpoint}")
                         raise Exception("Превышен лимит запросов, попробуйте позже")
 
                     if response.status == 401:
-                        logger.error(f"Unauthorized request to {endpoint}")
+                        logger.warning(
+                            f"Unauthorized request to {endpoint} with key {mask_sensitive_data(self.api_key)}"
+                        )
                         raise Exception("Неверный API ключ")
 
                     if response.status == 404:
@@ -57,17 +197,19 @@ class ZakupaiAPIClient:
                         raise Exception("Сервис недоступен")
 
                     if response.status >= 400:
-                        error_text = await response.text()
-                        logger.error(f"API error {response.status}: {error_text}")
+                        # Не логируем полный текст ошибки, который может содержать чувствительные данные
+                        logger.error(
+                            f"API error {response.status} for endpoint {endpoint}"
+                        )
                         raise Exception(f"Ошибка API: {response.status}")
 
                     return await response.json()
 
         except ClientError as e:
-            logger.error(f"Network error for {endpoint}: {e}")
+            logger.error(f"Network error for {endpoint}: {type(e).__name__}")
             raise Exception("Ошибка сети, попробуйте позже") from e
         except TimeoutError as e:
-            logger.error(f"Timeout for {endpoint}")
+            logger.error(f"Timeout for endpoint {endpoint}")
             raise Exception("Превышено время ожидания") from e
 
     async def health_check(self) -> dict[Any, Any] | None:
@@ -188,14 +330,25 @@ class ZakupaiAPIClient:
 
     async def validate_key(self, api_key: str, endpoint: str = "unknown") -> bool:
         """
-        Валидация API ключа через Billing Service
+        Валидация API ключа через Billing Service с безопасным логированием
         """
-        try:
-            # Создаем временную сессию для обращения к billing-service напрямую
-            billing_url = "http://billing-service:7004/billing/validate_key"
-            headers = {"Content-Type": "application/json"}
+        # Валидация формата ключа
+        if not validate_api_key_format(api_key):
+            logger.warning(f"Invalid API key format for endpoint '{endpoint}'")
+            return False
 
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+        try:
+            billing_url = f"{self.billing_url}/billing/validate_key"
+            headers = {
+                "Content-Type": "application/json",
+                "X-Request-Id": str(uuid.uuid4()),
+            }
+
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, connector=connector
+            ) as session:
                 async with session.post(
                     billing_url,
                     headers=headers,
@@ -203,47 +356,92 @@ class ZakupaiAPIClient:
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data.get("valid", False)
+                        is_valid = data.get("valid", False)
+                        logger.debug(
+                            f"Key validation for endpoint '{endpoint}': {'valid' if is_valid else 'invalid'}"
+                        )
+                        return is_valid
                     else:
-                        logger.error(f"Billing service error: {response.status}")
+                        logger.warning(
+                            f"Billing service returned {response.status} for endpoint '{endpoint}'"
+                        )
                         return False
         except Exception as e:
-            logger.error(f"Key validation error: {e}")
+            logger.error(
+                f"Key validation failed for endpoint '{endpoint}': {type(e).__name__}"
+            )
             return False
 
     async def create_billing_key(self, tg_id: int, email: str = None) -> str:
         """
-        Создание API ключа через Billing Service
+        Создание API ключа через Billing Service с безопасным логированием
         """
-        try:
-            # Создаем временную сессию для обращения к billing-service напрямую
-            billing_url = "http://billing-service:7004/billing/create_key"
-            headers = {"Content-Type": "application/json"}
+        # Валидация входных данных
+        if not isinstance(tg_id, int) or tg_id <= 0:
+            logger.error(f"Invalid tg_id for key creation: {type(tg_id)}")
+            return ""
 
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+        try:
+            billing_url = f"{self.billing_url}/billing/create_key"
+            headers = {
+                "Content-Type": "application/json",
+                "X-Request-Id": str(uuid.uuid4()),
+            }
+
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, connector=connector
+            ) as session:
                 async with session.post(
                     billing_url, headers=headers, json={"tg_id": tg_id, "email": email}
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data.get("api_key", "")
+                        new_key = data.get("api_key", "")
+                        if new_key:
+                            logger.info(
+                                f"Successfully created API key for user {tg_id}"
+                            )
+                        else:
+                            logger.warning(f"Empty API key returned for user {tg_id}")
+                        return new_key
                     else:
-                        logger.error(f"Billing service error: {response.status}")
+                        logger.warning(
+                            f"Billing service returned {response.status} for key creation"
+                        )
                         return ""
         except Exception as e:
-            logger.error(f"Key creation error: {e}")
+            logger.error(f"Key creation failed for user {tg_id}: {type(e).__name__}")
             return ""
 
     async def log_usage(self, api_key: str, endpoint: str, requests: int = 1) -> bool:
         """
-        Логирование использования API
+        Логирование использования API с безопасным логированием
         """
-        try:
-            # Создаем временную сессию для обращения к billing-service напрямую
-            billing_url = "http://billing-service:7004/billing/usage"
-            headers = {"Content-Type": "application/json"}
+        # Валидация входных данных
+        if not validate_api_key_format(api_key):
+            logger.warning(
+                f"Invalid API key format for usage logging on endpoint '{endpoint}'"
+            )
+            return False
 
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+        if not isinstance(requests, int) or requests <= 0:
+            logger.warning(f"Invalid requests count for usage logging: {requests}")
+            return False
+
+        try:
+            billing_url = f"{self.billing_url}/billing/usage"
+            headers = {
+                "Content-Type": "application/json",
+                "X-Request-Id": str(uuid.uuid4()),
+            }
+
+            connector = aiohttp.TCPConnector(ssl=self.ssl_context)
+
+            async with aiohttp.ClientSession(
+                timeout=self.timeout, connector=connector
+            ) as session:
                 async with session.post(
                     billing_url,
                     headers=headers,
@@ -255,12 +453,21 @@ class ZakupaiAPIClient:
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data.get("logged", False)
+                        logged = data.get("logged", False)
+                        if logged:
+                            logger.debug(
+                                f"Usage logged for endpoint '{endpoint}': {requests} requests"
+                            )
+                        return logged
                     else:
-                        logger.error(f"Billing service error: {response.status}")
+                        logger.warning(
+                            f"Billing service returned {response.status} for usage logging"
+                        )
                         return False
         except Exception as e:
-            logger.error(f"Usage logging error: {e}")
+            logger.error(
+                f"Usage logging failed for endpoint '{endpoint}': {type(e).__name__}"
+            )
             return False
 
     # === EMBEDDING-API ===

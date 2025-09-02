@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zakupai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mock Billing Service (for testing)
+  mock-billing:
+    build:
+      context: .
+      dockerfile: Dockerfile.mock-billing
+    ports:
+      - "7004:7004"
+    environment:
+      - PORT=7004
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ZakupAI Telegram Bot
+  telegram-bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    env_file:
+      - ./bot/.env.test
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - mock-billing
+    volumes:
+      - ./bot:/app
+      - /tmp:/tmp
+    command: python main_fixed.py
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
