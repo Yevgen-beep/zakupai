@@ -98,3 +98,12 @@
 \[x\] Создать лот → сопоставить SKU → рассчитать маржу (calc-service)
 \[x\] Риск-скоринг → сохранить в risk_evaluations (risk-engine)
 \[x\] Сгенерировать письмо (doc-service)
+
+11. Telegram Bot — тестирование команд (см. test-plan.md)
+
+\[ \] Базовые команды: /start, /help, /key
+\[ \] Основные команды: /lot, /search
+\[ \] Интеграция с Billing Service
+\[ \] Полный сценарий пользователя (регистрация → поиск → анализ)
+\[ \] Тестирование webhook и polling режимов
+\[ \] Валидация rate limiting и error handling
