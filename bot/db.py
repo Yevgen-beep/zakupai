@@ -36,7 +36,7 @@ async def get_connection_pool() -> Pool:
             logger.info("Connection pool created successfully")
         except Exception as e:
             logger.error(f"Failed to create connection pool: {e}")
-            raise DatabaseError(f"Database connection failed: {e}")
+            raise DatabaseError(f"Database connection failed: {e}") from e
 
     return _connection_pool
 
@@ -64,7 +64,7 @@ async def get_connection():
             yield connection
         except Exception as e:
             logger.error(f"Database operation failed: {e}")
-            raise DatabaseError(f"Database operation failed: {e}")
+            raise DatabaseError(f"Database operation failed: {e}") from e
 
 
 async def init_db():
@@ -90,7 +90,7 @@ async def init_db():
             logger.info("Database tables initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
-        raise DatabaseError(f"Database initialization failed: {e}")
+        raise DatabaseError(f"Database initialization failed: {e}") from e
 
 
 async def save_api_key(user_id: int, api_key: str) -> bool:
@@ -293,7 +293,7 @@ async def reset_test_data():
             logger.info("Test data cleared")
     except Exception as e:
         logger.error(f"Failed to reset test data: {e}")
-        raise DatabaseError(f"Test data reset failed: {e}")
+        raise DatabaseError(f"Test data reset failed: {e}") from e
 
 
 if __name__ == "__main__":

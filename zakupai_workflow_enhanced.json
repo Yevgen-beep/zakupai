@@ -1,0 +1,205 @@
+{
+  "name": "ZakupAI Search Enhanced (GraphQL + REST Fallback)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "goszakup-search-enhanced",
+        "responseMode": "responseNode"
+      },
+      "id": "1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "webhookId": "goszakup-search-enhanced"
+    },
+    {
+      "parameters": {
+        "url": "https://ows.goszakup.gov.kz/v2/graphql",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.GOSZAKUP_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "ZakupAI-Bot/1.0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ \"query\": \"query SearchLots($filter: LotsFiltersInput) { Lots(filter: $filter) { id lotNumber nameRu descriptionRu amount count customerNameRu customerBin trdBuyNumberAnno TrdBuy { id nameRu numberAnno orgNameRu orgBin RefTradeMethods { nameRu } } RefLotsStatus { nameRu } } }\", \"variables\": { \"filter\": { \"nameRu\": $json.query, \"nameDescriptionRu\": $json.query } } }) }}"
+      },
+      "id": "2",
+      "name": "GraphQL Primary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [300, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "graphql_success",
+              "leftValue": "={{$node['GraphQL Primary'].json.data?.Lots}}",
+              "rightValue": "",
+              "operator": {
+                "type": "array",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3",
+      "name": "Check GraphQL Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://ows.goszakup.gov.kz/v3/lots",
+        "options": {
+          "timeout": 30000
+        },
+        "authentication": "none",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.GOSZAKUP_TOKEN}}"
+            },
+            {
+              "name": "User-Agent",
+              "value": "ZakupAI-Bot/1.0"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "10"
+            },
+            {
+              "name": "nameRu",
+              "value": "={{$json.query}}"
+            },
+            {
+              "name": "descriptionRu",
+              "value": "={{$json.query}}"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "REST Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Форматирование результатов GraphQL\nconst lots = $json.data?.Lots || [];\nif (!lots.length) {\n  return [{ json: { ok: false, text: \"🔍 Ничего не найдено по вашему запросу.\" } }];\n}\n\nlet out = [`📋 Найдено лотов: ${lots.length}\\n\\n`];\nlots.forEach((lot, i) => {\n  out.push(`🔹 **Лот ${i+1}**\\n`);\n  out.push(`📝 № лота: ${lot.lotNumber || 'Не указан'}\\n`);\n  \n  if (lot.trdBuyNumberAnno || lot.TrdBuy?.numberAnno) {\n    out.push(`📋 Объявление: ${lot.trdBuyNumberAnno || lot.TrdBuy?.numberAnno}\\n`);\n  }\n  \n  if (lot.TrdBuy?.nameRu) {\n    out.push(`📄 Название: ${lot.TrdBuy.nameRu}\\n`);\n  }\n  \n  out.push(`📦 Наименование: ${lot.nameRu || 'Не указано'}\\n`);\n  \n  if (lot.descriptionRu) {\n    const description = lot.descriptionRu.length > 200 ? \n      lot.descriptionRu.substring(0, 200) + '...' : lot.descriptionRu;\n    out.push(`📋 Описание: ${description}\\n`);\n  }\n  \n  if (lot.count > 0) {\n    out.push(`🔢 Количество: ${lot.count}\\n`);\n  }\n  \n  if (lot.amount > 0) {\n    out.push(`💰 Сумма: ${Number(lot.amount).toLocaleString('ru')} тг\\n`);\n  }\n  \n  out.push(`🏢 Заказчик: ${lot.customerNameRu || lot.TrdBuy?.orgNameRu || 'Не указан'}\\n`);\n  \n  if (lot.customerBin || lot.TrdBuy?.orgBin) {\n    out.push(`🏛️ БИН: ${lot.customerBin || lot.TrdBuy?.orgBin}\\n`);\n  }\n  \n  const tradeMethod = lot.TrdBuy?.RefTradeMethods?.nameRu || 'Не указан';\n  out.push(`🛒 Способ закупки: ${tradeMethod}\\n`);\n  \n  const status = lot.RefLotsStatus?.nameRu || 'Не указан';\n  out.push(`📌 Статус: ${status}\\n`);\n  \n  out.push('\\n' + '─'.repeat(50) + '\\n\\n');\n});\n\nout.push('\\n🤖 *Результаты получены через GraphQL v2*');\nreturn [{ json: { ok: true, text: out.join('') } }];"
+      },
+      "id": "5",
+      "name": "Format GraphQL Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 0]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Форматирование результатов REST\nconst lots = $json.lots || [];\nif (!lots.length) {\n  return [{ json: { ok: false, text: \"🔍 Ничего не найдено по вашему запросу (REST fallback).\" } }];\n}\n\nlet out = [`📋 Найдено лотов: ${lots.length} (через REST API)\\n\\n`];\nlots.forEach((lot, i) => {\n  out.push(`🔹 **Лот ${i+1}**\\n`);\n  out.push(`📝 № лота: ${lot.lot_number || 'Не указан'}\\n`);\n  \n  if (lot.trd_buy_number_anno) {\n    out.push(`📋 Объявление: ${lot.trd_buy_number_anno}\\n`);\n  }\n  \n  if (lot.trd_buy_name_ru) {\n    out.push(`📄 Название: ${lot.trd_buy_name_ru}\\n`);\n  }\n  \n  out.push(`📦 Наименование: ${lot.name_ru || 'Не указано'}\\n`);\n  \n  if (lot.description_ru) {\n    const description = lot.description_ru.length > 200 ? \n      lot.description_ru.substring(0, 200) + '...' : lot.description_ru;\n    out.push(`📋 Описание: ${description}\\n`);\n  }\n  \n  if (lot.count > 0) {\n    out.push(`🔢 Количество: ${lot.count}\\n`);\n  }\n  \n  if (lot.amount > 0) {\n    out.push(`💰 Сумма: ${Number(lot.amount).toLocaleString('ru')} тг\\n`);\n  }\n  \n  out.push(`🏢 Заказчик: ${lot.customer_name_ru || 'Не указан'}\\n`);\n  \n  if (lot.customer_bin) {\n    out.push(`🏛️ БИН: ${lot.customer_bin}\\n`);\n  }\n  \n  const tradeMethod = lot.ref_trade_methods?.name_ru || 'Не указан';\n  out.push(`🛒 Способ закупки: ${tradeMethod}\\n`);\n  \n  const status = lot.ref_lots_status?.name_ru || 'Не указан';\n  out.push(`📌 Статус: ${status}\\n`);\n  \n  out.push('\\n' + '─'.repeat(50) + '\\n\\n');\n});\n\nout.push('\\n⚠️ *Результаты получены через REST v3 (fallback)*');\nreturn [{ json: { ok: true, text: out.join('') } }];"
+      },
+      "id": "6",
+      "name": "Format REST Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "id": "7",
+      "name": "Respond GraphQL",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1200, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "id": "8",
+      "name": "Respond REST",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1200, 200]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "GraphQL Primary", "type": "main", "index": 0 }]]
+    },
+    "GraphQL Primary": {
+      "main": [[{ "node": "Check GraphQL Success", "type": "main", "index": 0 }]]
+    },
+    "Check GraphQL Success": {
+      "main": [
+        [{ "node": "Format GraphQL Results", "type": "main", "index": 0 }],
+        [{ "node": "REST Fallback", "type": "main", "index": 0 }]
+      ]
+    },
+    "REST Fallback": {
+      "main": [[{ "node": "Format REST Results", "type": "main", "index": 0 }]]
+    },
+    "Format GraphQL Results": {
+      "main": [[{ "node": "Respond GraphQL", "type": "main", "index": 0 }]]
+    },
+    "Format REST Results": {
+      "main": [[{ "node": "Respond REST", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "none"
+  },
+  "staticData": {},
+  "tags": ["goszakup", "search", "graphql", "zakupai"],
+  "active": true
+}

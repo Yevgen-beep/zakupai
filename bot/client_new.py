@@ -80,20 +80,20 @@ class ZakupaiHTTPClient:
 
                     return response.json()
 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
                 if attempt < retries:
                     wait_time = 2**attempt
                     logger.warning(f"Timeout, retrying in {wait_time}s")
                     await asyncio.sleep(wait_time)
                     continue
-                raise Exception("Превышено время ожидания")
-            except httpx.ConnectError:
+                raise Exception("Превышено время ожидания") from e
+            except httpx.ConnectError as e:
                 if attempt < retries:
                     wait_time = 2**attempt
                     logger.warning(f"Connection error, retrying in {wait_time}s")
                     await asyncio.sleep(wait_time)
                     continue
-                raise Exception("Ошибка подключения")
+                raise Exception("Ошибка подключения") from e
 
         return None
 

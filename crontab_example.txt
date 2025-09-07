@@ -1,0 +1,20 @@
+# ZakupAI Log Cleanup Cron Jobs
+# Добавьте эти строки в ваш crontab (crontab -e)
+
+# Ежедневная автоочистка в 2:00 утра
+0 2 * * * /home/mint/projects/claude_sandbox/zakupai/cleanup_logs.py >> /home/mint/projects/claude_sandbox/zakupai/data/cleanup_cron.log 2>&1
+
+# Еженедельная агрессивная очистка в воскресенье в 3:00 утра
+0 3 * * 0 /home/mint/projects/claude_sandbox/zakupai/cleanup_logs.py >> /home/mint/projects/claude_sandbox/zakupai/data/cleanup_weekly.log 2>&1
+
+# Месячная проверка размера базы данных в первый день месяца в 4:00 утра
+0 4 1 * * python3 -c "import sys; sys.path.insert(0, '/home/mint/projects/claude_sandbox/zakupai/bot'); from user_metrics import metrics_service; info = metrics_service.get_database_info(); print(f'DB Size: {info.get(\"db_size_mb\", 0):.2f} MB, Records: {info.get(\"total_records\", 0)}')" >> /home/mint/projects/claude_sandbox/zakupai/data/monthly_stats.log 2>&1
+
+# Пример настройки для разных периодов:
+# Каждый час: 0 * * * *
+# Каждый день в 2:00: 0 2 * * *
+# Каждую неделю в воскресенье в 3:00: 0 3 * * 0
+# Каждый месяц 1 числа в 4:00: 0 4 1 * *
+
+# Рекомендуемая настройка для продакшена:
+# 0 2 * * * /path/to/zakupai/cleanup_logs.py >/dev/null 2>&1

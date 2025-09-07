@@ -5,7 +5,6 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import wraps
 
-import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -45,6 +44,9 @@ dp.message.middleware(ErrorHandlingMiddleware())
 
 # API клиент из конфигурации
 api_client = ZakupaiAPIClient()
+
+# Хранилище состояний поиска для пагинации
+user_search_sessions = {}
 
 # Режим работы: webhook или polling
 USE_WEBHOOK = bool(
@@ -245,7 +247,7 @@ async def command_start_handler(message: Message) -> None:
                 "🔑 Для работы с ZakupAI нужен API ключ.\n"
                 f"Отправь мне команду: {hcode('/key YOUR_API_KEY')}\n\n"
                 "После этого используй команды:\n"
-                f"• {hcode('/search <запрос>')} - поиск лотов\n"
+                f"• {hcode('/search')} &lt;запрос&gt; - поиск лотов\n"
                 f"• {hcode('/lot <id|url>')} - анализ лота\n"
                 f"• {hcode('/help')} - справка"
             )
@@ -254,7 +256,7 @@ async def command_start_handler(message: Message) -> None:
                 f"👋 Привет, {hbold(message.from_user.full_name)}!\n\n"
                 "✅ API ключ создан автоматически!\n\n"
                 "🚀 Доступные команды:\n"
-                f"• {hcode('/search <запрос>')} - поиск лотов\n"
+                f"• {hcode('/search')} &lt;запрос&gt; - поиск лотов\n"
                 f"• {hcode('/lot <id|url>')} - анализ лота\n"
                 f"• {hcode('/help')} - справка"
             )
@@ -269,7 +271,7 @@ async def command_start_handler(message: Message) -> None:
             await message.answer(
                 f"✅ Добро пожаловать обратно, {hbold(message.from_user.full_name)}!\n\n"
                 "🚀 Доступные команды:\n"
-                f"• {hcode('/search <запрос>')} - поиск лотов\n"
+                f"• {hcode('/search')} &lt;запрос&gt; - поиск лотов\n"
                 f"• {hcode('/lot <id|url>')} - анализ лота\n"
                 f"• {hcode('/key <новый_ключ>')} - обновить API ключ\n"
                 f"• {hcode('/help')} - справка"
@@ -323,40 +325,37 @@ async def command_key_handler(message: Message) -> None:
 @validate_and_log_bot(require_key=True)
 async def command_search_handler(message: Message) -> None:
     """
-    Обработчик команды /search для поиска лотов через n8n webhook
+    Обработчик команды /search для поиска лотов через новую поисковую систему
     """
     user_id = message.from_user.id
+    username = message.from_user.username or "unknown"
+
+    logger.info(f"Processing search command for user {user_id} (@{username})")
 
     # Извлекаем поисковый запрос
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         await message.answer(
-            "🔍 Использование: /search <ключевые слова>\n\n"
+            "🔍 Использование: /search &lt;ключевые слова&gt;\n\n"
             "Примеры:\n"
+            f"• {hcode('/search ЛАК')}\n"
             f"• {hcode('/search компьютеры')}\n"
             f"• {hcode('/search строительство дорог')}\n"
             f"• {hcode('/search медицинское оборудование')}"
         )
         return
 
-    query = args[1].strip()
+    raw_query = args[1].strip()
 
     # Валидация запроса
-    if len(query) < 2:
+    if len(raw_query) < 2:
         await message.answer("❌ Поисковый запрос слишком короткий (минимум 2 символа)")
         return
 
-    if len(query) > 200:
+    if len(raw_query) > 200:
         await message.answer(
             "❌ Поисковый запрос слишком длинный (максимум 200 символов)"
         )
-        return
-
-    # Проверяем наличие webhook URL
-    webhook_url = config.api.n8n_webhook_url
-    if not webhook_url:
-        await message.answer("❌ Поиск временно недоступен (не настроен webhook)")
-        logger.error("N8N_WEBHOOK_URL not configured")
         return
 
     # Показываем индикатор поиска
@@ -365,68 +364,109 @@ async def command_search_handler(message: Message) -> None:
     )
 
     try:
-        # Запрос к n8n webhook
-        payload = {"query": query}
+        # Используем новую логику поиска с нормализацией и n8n fallback
+        from services_v2 import search_lots_for_telegram_v2
 
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(webhook_url, json=payload) as response:
-                if response.status != 200:
-                    logger.error(f"n8n webhook returned status {response.status}")
-                    await loading_message.delete()
-                    await message.answer("⚠️ Ошибка поиска: сервис временно недоступен")
-                    return
-
-                data = await response.json()
+        results_text = await search_lots_for_telegram_v2(
+            raw_query, limit=10, show_source=True, user_id=user_id
+        )
 
         # Удаляем индикатор загрузки
         await loading_message.delete()
 
-        # Обрабатываем ответ
-        lots = data.get("lots", []) if isinstance(data, dict) else data
-
-        if not lots or len(lots) == 0:
-            await message.answer("❌ Лоты не найдены по вашему запросу")
-            return
-
-        # Форматируем результаты (максимум 5 лотов)
-        formatted_lots = []
-        for i, lot in enumerate(lots[:5], 1):
-            lot_id = lot.get("id", lot.get("lot_id", ""))
-            title = lot.get("title", lot.get("name", "Без названия"))[:100]
-            url = lot.get("url", lot.get("link", ""))
-
-            lot_line = f"📌 <b>{i}.</b> {title}"
-            if url:
-                lot_line += f'\n🔗 <a href="{url}">Подробнее</a>'
-            if lot_id:
-                lot_line += f"\n📊 Анализ: /lot {lot_id}"
-
-            formatted_lots.append(lot_line)
-
-        result_text = f"🔍 <b>Результаты поиска по запросу:</b> <i>{query}</i>\n\n"
-        result_text += "\n\n".join(formatted_lots)
-
-        if len(lots) > 5:
-            result_text += f"\n\n💡 Показано первых 5 из {len(lots)} найденных лотов"
-
-        result_text += "\n\n🔎 Используйте /lot <ID> для подробного анализа любого лота"
-
+        # Отправляем результаты
         await message.answer(
-            result_text, parse_mode="HTML", disable_web_page_preview=True
+            results_text, parse_mode="HTML", disable_web_page_preview=True
         )
-        logger.info(f"User {user_id} searched for '{query}' - found {len(lots)} lots")
 
-    except TimeoutError:
-        await loading_message.delete()
-        await message.answer("⚠️ Ошибка поиска: превышено время ожидания")
-        logger.error(f"Timeout searching for '{query}' by user {user_id}")
+        # Сохраняем состояние поиска для пагинации
+        user_search_sessions[user_id] = {
+            "query": raw_query,
+            "offset": 10,  # Следующая страница начинается с 10-го элемента
+            "limit": 10,
+            "timestamp": message.date.timestamp(),
+        }
+
+        logger.info(
+            f"Search completed for user {user_id} (@{username}) with query '{raw_query}'"
+        )
+
     except Exception as e:
         await loading_message.delete()
         await message.answer(f"⚠️ Ошибка поиска: {type(e).__name__}")
         logger.error(
-            f"Error searching for '{query}' by user {user_id}: {type(e).__name__}"
+            f"Error searching for '{raw_query}' by user {user_id}: {type(e).__name__}"
         )
+
+
+@dp.message(Command("search_continue"))
+@validate_and_log_bot(require_key=True)
+async def command_search_continue_handler(message: Message) -> None:
+    """
+    Обработчик команды /search_continue для продолжения поиска лотов
+    """
+    user_id = message.from_user.id
+    username = message.from_user.username or "unknown"
+
+    logger.info(f"Processing search_continue command for user {user_id} (@{username})")
+
+    # Проверяем наличие сохраненного поиска для пользователя
+    if user_id not in user_search_sessions:
+        await message.answer(
+            "❌ Нет активного поиска для продолжения.\n\n"
+            "Сначала выполните поиск с помощью команды /search"
+        )
+        return
+
+    search_session = user_search_sessions[user_id]
+
+    # Проверяем, не истек ли поиск (15 минут)
+    import time
+
+    if time.time() - search_session["timestamp"] > 900:  # 15 минут
+        del user_search_sessions[user_id]
+        await message.answer(
+            "⏰ Сессия поиска истекла.\n\n"
+            "Выполните новый поиск с помощью команды /search"
+        )
+        return
+
+    # Показываем индикатор поиска
+    loading_message = await message.answer("🔍 Загружаю следующие результаты...")
+
+    try:
+        # Используем сохраненные параметры поиска
+        query = search_session["query"]
+        offset = search_session["offset"]
+        limit = search_session["limit"]
+
+        # Выполняем поиск со смещением
+        from services_v2 import search_lots_for_telegram_v2
+
+        results_text = await search_lots_for_telegram_v2(
+            query, limit=limit, offset=offset, show_source=True, user_id=user_id
+        )
+
+        # Удаляем индикатор загрузки
+        await loading_message.delete()
+
+        # Отправляем результаты
+        await message.answer(
+            results_text, parse_mode="HTML", disable_web_page_preview=True
+        )
+
+        # Обновляем смещение для следующей страницы
+        search_session["offset"] += limit
+        search_session["timestamp"] = message.date.timestamp()
+
+        logger.info(
+            f"Search continue completed for user {user_id} (@{username}) with query '{query}', offset {offset}"
+        )
+
+    except Exception as e:
+        await loading_message.delete()
+        await message.answer(f"⚠️ Ошибка продолжения поиска: {type(e).__name__}")
+        logger.error(f"Search continue failed for user {user_id}: {e}")
 
 
 @dp.message(Command("lot"))
@@ -510,7 +550,7 @@ async def command_help_handler(message: Message) -> None:
         "📋 Доступные команды:\n"
         f"• {hcode('/start')} - начать работу\n"
         f"• {hcode('/key <api_key>')} - установить API ключ\n"
-        f"• {hcode('/search <запрос>')} - поиск лотов по ключевым словам\n"
+        f"• {hcode('/search')} &lt;запрос&gt; - поиск лотов по ключевым словам\n"
         f"• {hcode('/lot <id|url>')} - анализ лота\n"
         f"• {hcode('/help')} - эта справка\n\n"
         "🔍 Примеры поиска:\n"

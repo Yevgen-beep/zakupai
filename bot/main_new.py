@@ -141,7 +141,7 @@ async def cmd_lot(message: Message) -> None:
 
     # Validate lot ID
     try:
-        lot_request = LotRequest(lot_id=lot_id)
+        LotRequest(lot_id=lot_id)
     except Exception:
         await message.answer("❌ Некорректный ID лота")
         return

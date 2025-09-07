@@ -200,7 +200,7 @@ if __name__ == "__main__":
         print("\n" + "=" * 50 + "\n")
 
         # Test keyboard
-        keyboard = service._create_lot_keyboard("TEST123")
+        service._create_lot_keyboard("TEST123")
         print("Keyboard created successfully")
 
         await bot.session.close()

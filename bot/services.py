@@ -9,6 +9,7 @@ from typing import Any
 import aiohttp
 from config import config
 from error_handler import handle_api_error, log_security_event
+from goszakup_graphql import GoszakupGraphQLClient
 from models import (
     LotAnalysisResult,
     MarginResponse,
@@ -102,13 +103,72 @@ class BillingService:
 
 
 class GoszakupService:
-    """Сервис для работы с API goszakup.gov.kz"""
+    """Сервис для работы с API goszakup.gov.kz с поддержкой GraphQL v2"""
 
     def __init__(self):
         self.base_url = "https://ows.goszakup.gov.kz/v3/trd/lots"
+        self.graphql_client = None
+        self._token = None
+
+    def set_token(self, token: str):
+        """Установка токена для GraphQL API"""
+        self._token = token
+        self.graphql_client = GoszakupGraphQLClient(token)
 
     async def search_lots(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Поиск лотов по ключевым словам"""
+        """Поиск лотов по ключевым словам с приоритетом GraphQL v2"""
+
+        # Пробуем GraphQL API если есть токен
+        if self.graphql_client:
+            try:
+                logger.info(f"Searching lots via GraphQL: '{query}', limit: {limit}")
+                graphql_results = await self.graphql_client.search_lots(
+                    query, limit=limit, use_graphql=True
+                )
+
+                if graphql_results:
+                    # Конвертируем GraphQL результаты в старый формат для совместимости
+                    formatted_lots = []
+                    for result in graphql_results:
+                        formatted_lot = {
+                            "id": str(result.lot_number or ""),
+                            "name": result.name_ru,
+                            "customer": result.customer_name,
+                            "price": result.amount,
+                            "currency": "KZT",
+                            "status": result.status,
+                            "deadline": "",  # В GraphQL схеме нет поля deadline
+                            "url": f"https://goszakup.gov.kz/ru/announce/index/{result.announcement_number}",
+                            "description": (
+                                result.description_ru[:200] + "..."
+                                if len(result.description_ru) > 200
+                                else result.description_ru
+                            ),
+                            "count": result.count,
+                            "trade_method": result.trade_method,
+                            "customer_bin": result.customer_bin,
+                        }
+                        formatted_lots.append(formatted_lot)
+
+                    logger.info(
+                        f"GraphQL search successful: {len(formatted_lots)} lots found"
+                    )
+                    return formatted_lots
+                else:
+                    logger.warning(
+                        "GraphQL search returned no results, trying REST fallback"
+                    )
+
+            except Exception as e:
+                logger.error(f"GraphQL search failed: {e}, falling back to REST v3")
+
+        # Fallback на REST v3 API
+        return await self._search_lots_rest(query, limit)
+
+    async def _search_lots_rest(
+        self, query: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Поиск лотов через REST v3 API (fallback)"""
 
         params = {
             "nameRu": query,
@@ -127,7 +187,7 @@ class GoszakupService:
                     self.base_url, params=params, headers=headers
                 ) as response:
                     if response.status != 200:
-                        logger.error(f"Goszakup API error: {response.status}")
+                        logger.error(f"Goszakup REST API error: {response.status}")
                         return []
 
                     data = await response.json()
@@ -150,6 +210,9 @@ class GoszakupService:
                         }
                         formatted_lots.append(formatted_lot)
 
+                    logger.info(
+                        f"REST search successful: {len(formatted_lots)} lots found"
+                    )
                     return formatted_lots
 
         except TimeoutError:
@@ -263,6 +326,13 @@ class ZakupAIService:
 # Инициализация сервисов
 billing_service = BillingService()
 goszakup_service = GoszakupService()
+
+# Устанавливаем токен GraphQL если есть в конфигурации
+if hasattr(config, "goszakup") and hasattr(config.goszakup, "token"):
+    goszakup_service.set_token(config.goszakup.token)
+elif config.api and hasattr(config.api, "goszakup_token"):
+    goszakup_service.set_token(config.api.goszakup_token)
+
 zakupai_service = ZakupAIService()
 
 
