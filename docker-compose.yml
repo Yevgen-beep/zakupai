@@ -3,14 +3,16 @@ services:
     image: postgres:16
     container_name: zakupai-db
     environment:
-      POSTGRES_USER: zakupai
-      POSTGRES_PASSWORD: zakupai
-      POSTGRES_DB: zakupai
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_password
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zakupai"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -98,6 +100,22 @@ services:
       - zakupai-network
     restart: unless-stopped
 
+  etl-service:
+    build: ./services/etl-service
+    container_name: zakupai-etl-service
+    ports:
+      - "7011:8000"
+    env_file:
+      - .env
+    environment:
+      - API_TOKEN=${API_TOKEN}
+      - DATABASE_URL=postgresql://zakupai:zakupai@db:5432/zakupai
+    networks:
+      - zakupai-network
+    depends_on:
+      - db
+    restart: unless-stopped
+
   gateway:
     image: nginx:alpine
     container_name: zakupai-gateway
@@ -111,29 +129,10 @@ services:
       - doc-service
       - embedding-api
       - billing-service
+      - etl-service
     networks:
       - zakupai-network
     restart: unless-stopped
-
-  # ollama:
-  #   image: ollama/ollama
-  #   container_name: zakupai-ollama
-  #   runtime: nvidia
-  #   environment:
-  #     NVIDIA_VISIBLE_DEVICES: all
-  #   ports:
-  #     - "11434:11434"
-#   volumes:
-  #     - ollama_data:/root/.ollama
-#   networks:
-  #     - ai-network
-#   restart: unless-stopped
-#   entrypoint: >
-#     sh -c "
-#       ollama pull nomic-embed-text &&
-#       echo 'Starting Ollama server...' &&
-#       ollama serve
-#     "
 
   chroma:
     image: chromadb/chroma
@@ -173,7 +172,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      # - ollama
       - chroma
     restart: unless-stopped
 
