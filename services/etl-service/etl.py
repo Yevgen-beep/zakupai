@@ -387,7 +387,8 @@ class ETLService:
                     publishDate TIMESTAMP,
                     endDate TIMESTAMP,
                     customerBin VARCHAR(12),
-                    customerNameRu TEXT
+                    customerNameRu TEXT,
+                    risk_flag TEXT DEFAULT '🟢 Надёжный'
                 )
             """,
             "contracts": """
@@ -396,7 +397,8 @@ class ETLService:
                     contractNumber VARCHAR(100),
                     contractSum NUMERIC,
                     signDate TIMESTAMP,
-                    supplierBiin VARCHAR(12)
+                    supplierBiin VARCHAR(12),
+                    risk_flag TEXT DEFAULT '🟢 Надёжный'
                 )
             """,
             "subjects": """
@@ -456,6 +458,50 @@ class ETLService:
                 except Exception as e:
                     logger.warning(f"Could not create index on {table_name}.{col}: {e}")
 
+    def check_rnu_risk_flags(self, data_with_bins: list[dict]) -> list[dict]:
+        """Add RNU risk flags to data based on BIN/BIIN checking"""
+        if not data_with_bins:
+            return data_with_bins
+            
+        try:
+            # Get RNU data from database
+            conn = psycopg2.connect(self.database_url)
+            cur = conn.cursor()
+            
+            # Get all RNU BIINs for risk checking
+            cur.execute("SELECT DISTINCT supplierBiin FROM rnu WHERE supplierBiin IS NOT NULL")
+            rnu_biins = {row[0] for row in cur.fetchall() if row[0]}
+            
+            conn.close()
+            
+            # Add risk flags to data
+            for record in data_with_bins:
+                risk_flag = "🟢 Надёжный"  # Default: reliable
+                
+                # Check various BIN/BIIN fields for RNU matches
+                bins_to_check = []
+                
+                # Add all possible BIN/BIIN fields
+                for field in ['customerBin', 'customerBiin', 'supplierBiin', 'supplierBin']:
+                    if field in record and record[field]:
+                        bins_to_check.append(record[field])
+                
+                # Check if any BIN/BIIN is in RNU (unreliable suppliers)
+                if any(bin_val in rnu_biins for bin_val in bins_to_check):
+                    risk_flag = "⚠ Недобросовестный"
+                    
+                record['risk_flag'] = risk_flag
+                
+            logger.info(f"Applied RNU risk flags to {len(data_with_bins)} records")
+            return data_with_bins
+            
+        except Exception as e:
+            logger.error(f"Failed to apply RNU risk flags: {e}")
+            # Return original data if risk checking fails
+            for record in data_with_bins:
+                record['risk_flag'] = "❓ Неизвестно"
+            return data_with_bins
+
     async def run_etl(self, days: int = 7, test_limit: int = 3) -> dict[str, Any]:
         """Run ETL process with exact CURL query format"""
         start_time = time.time()
@@ -473,6 +519,22 @@ class ETLService:
             logger.info(f"Starting ETL for date range: {date_from} to {date_to}")
             logger.info(f"Using limit: {test_limit}")
 
+            # Fetch RNU data first for risk checking
+            logger.info("Fetching RNU...")
+            rnu_data, rnu_errors = await self.fetch_rnu(test_limit)
+            errors.extend(rnu_errors)
+            if rnu_data:
+                self.bulk_insert_to_postgres("rnu", rnu_data, ["id"])
+            records["rnu"] = len(rnu_data)
+
+            # Fetch Subjects for reference data
+            logger.info("Fetching Subjects...")
+            subjects_data, subjects_errors = await self.fetch_subjects(test_limit)
+            errors.extend(subjects_errors)
+            if subjects_data:
+                self.bulk_insert_to_postgres("subjects", subjects_data, ["pid"])
+            records["subjects"] = len(subjects_data)
+
             # Fetch dated data sequentially to avoid overwhelming API
             logger.info("Fetching Lots...")
             lots_data, lots_errors = await self.fetch_lots(
@@ -488,7 +550,10 @@ class ETLService:
                 date_from, date_to, test_limit
             )
             errors.extend(trdbuy_errors)
+            
+            # Apply RNU risk flags to TrdBuy data
             if trdbuy_data:
+                trdbuy_data = self.check_rnu_risk_flags(trdbuy_data)
                 self.bulk_insert_to_postgres("trdbuy", trdbuy_data, ["id"])
             records["trdbuy"] = len(trdbuy_data)
 
@@ -497,23 +562,12 @@ class ETLService:
                 date_from, date_to, test_limit
             )
             errors.extend(contracts_errors)
+            
+            # Apply RNU risk flags to Contract data
             if contracts_data:
+                contracts_data = self.check_rnu_risk_flags(contracts_data)
                 self.bulk_insert_to_postgres("contracts", contracts_data, ["id"])
             records["contracts"] = len(contracts_data)
-
-            logger.info("Fetching Subjects...")
-            subjects_data, subjects_errors = await self.fetch_subjects(test_limit)
-            errors.extend(subjects_errors)
-            if subjects_data:
-                self.bulk_insert_to_postgres("subjects", subjects_data, ["pid"])
-            records["subjects"] = len(subjects_data)
-
-            logger.info("Fetching RNU...")
-            rnu_data, rnu_errors = await self.fetch_rnu(test_limit)
-            errors.extend(rnu_errors)
-            if rnu_data:
-                self.bulk_insert_to_postgres("rnu", rnu_data, ["id"])
-            records["rnu"] = len(rnu_data)
 
             duration = time.time() - start_time
 

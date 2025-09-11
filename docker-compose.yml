@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:16
@@ -108,7 +110,7 @@ services:
     env_file:
       - .env
     environment:
-      - API_TOKEN=${API_TOKEN}
+      - API_TOKEN=${GOSZAKUP_TOKEN}
       - DATABASE_URL=postgresql://zakupai:zakupai@db:5432/zakupai
     networks:
       - zakupai-network
@@ -129,7 +131,6 @@ services:
       - doc-service
       - embedding-api
       - billing-service
-      - etl-service
     networks:
       - zakupai-network
     restart: unless-stopped
