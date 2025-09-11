@@ -462,44 +462,51 @@ class ETLService:
         """Add RNU risk flags to data based on BIN/BIIN checking"""
         if not data_with_bins:
             return data_with_bins
-            
+
         try:
             # Get RNU data from database
             conn = psycopg2.connect(self.database_url)
             cur = conn.cursor()
-            
+
             # Get all RNU BIINs for risk checking
-            cur.execute("SELECT DISTINCT supplierBiin FROM rnu WHERE supplierBiin IS NOT NULL")
+            cur.execute(
+                "SELECT DISTINCT supplierBiin FROM rnu WHERE supplierBiin IS NOT NULL"
+            )
             rnu_biins = {row[0] for row in cur.fetchall() if row[0]}
-            
+
             conn.close()
-            
+
             # Add risk flags to data
             for record in data_with_bins:
                 risk_flag = "🟢 Надёжный"  # Default: reliable
-                
+
                 # Check various BIN/BIIN fields for RNU matches
                 bins_to_check = []
-                
+
                 # Add all possible BIN/BIIN fields
-                for field in ['customerBin', 'customerBiin', 'supplierBiin', 'supplierBin']:
+                for field in [
+                    "customerBin",
+                    "customerBiin",
+                    "supplierBiin",
+                    "supplierBin",
+                ]:
                     if field in record and record[field]:
                         bins_to_check.append(record[field])
-                
+
                 # Check if any BIN/BIIN is in RNU (unreliable suppliers)
                 if any(bin_val in rnu_biins for bin_val in bins_to_check):
                     risk_flag = "⚠ Недобросовестный"
-                    
-                record['risk_flag'] = risk_flag
-                
+
+                record["risk_flag"] = risk_flag
+
             logger.info(f"Applied RNU risk flags to {len(data_with_bins)} records")
             return data_with_bins
-            
+
         except Exception as e:
             logger.error(f"Failed to apply RNU risk flags: {e}")
             # Return original data if risk checking fails
             for record in data_with_bins:
-                record['risk_flag'] = "❓ Неизвестно"
+                record["risk_flag"] = "❓ Неизвестно"
             return data_with_bins
 
     async def run_etl(self, days: int = 7, test_limit: int = 3) -> dict[str, Any]:
@@ -550,7 +557,7 @@ class ETLService:
                 date_from, date_to, test_limit
             )
             errors.extend(trdbuy_errors)
-            
+
             # Apply RNU risk flags to TrdBuy data
             if trdbuy_data:
                 trdbuy_data = self.check_rnu_risk_flags(trdbuy_data)
@@ -562,7 +569,7 @@ class ETLService:
                 date_from, date_to, test_limit
             )
             errors.extend(contracts_errors)
-            
+
             # Apply RNU risk flags to Contract data
             if contracts_data:
                 contracts_data = self.check_rnu_risk_flags(contracts_data)

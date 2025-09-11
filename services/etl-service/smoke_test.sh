@@ -101,7 +101,7 @@ if python3 ocr_loader.py --path ./pdf/ --db postgresql://zakupai:zakupai@localho
 else
     echo "⚠️  Full OCR Loader failed (missing dependencies), using simple version..."
     echo "Running: python3 ocr_loader_simple.py --path ./pdf/ --db postgresql://zakupai:zakupai@localhost:5432/zakupai"
-    
+
     if python3 ocr_loader_simple.py --path ./pdf/ --db postgresql://zakupai:zakupai@localhost:5432/zakupai; then
         echo "✅ Simple OCR Loader completed successfully"
     else
@@ -166,7 +166,7 @@ echo "=================================================="
 echo "Summary:"
 echo "- ✅ Test PDF files created"
 echo "- ✅ PostgreSQL migration applied"
-echo "- ✅ OCR Loader processed files"  
+echo "- ✅ OCR Loader processed files"
 echo "- ✅ Database content verified"
 echo "- ✅ Full-text search tested"
 echo "- 📊 Total records processed: $TOTAL_COUNT"

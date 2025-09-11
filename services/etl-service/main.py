@@ -1,8 +1,11 @@
+import math
 import os
 
+import psycopg2
+import psycopg2.extras
 from dotenv import load_dotenv
 from etl import ETLService
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -31,6 +34,24 @@ class ETLResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+
+class Attachment(BaseModel):
+    id: int
+    lot_id: str | None = None
+    filename: str | None = None
+    file_size: int | None = None
+    content: str | None = None
+    processed_at: str | None = None
+    file_hash: str | None = None
+
+
+class AttachmentsResponse(BaseModel):
+    attachments: list[Attachment]
+    total: int
+    page: int
+    limit: int
+    pages: int
 
 
 def check_env_variables():
@@ -98,6 +119,140 @@ async def run_etl(
         ) from e
 
 
+@app.get("/attachments", response_model=AttachmentsResponse)
+async def get_attachments(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    search: str | None = Query(None, description="Full-text search query"),
+    _: bool = Depends(check_env_variables),
+):
+    """Get paginated list of OCR attachments with optional full-text search"""
+    try:
+        database_url = os.getenv("DATABASE_URL")
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Calculate offset
+        offset = (page - 1) * limit
+
+        # Base query
+        if search:
+            # Full-text search query with Russian language support
+            count_query = """
+                SELECT COUNT(*) as total
+                FROM attachments
+                WHERE to_tsvector('russian', content) @@ plainto_tsquery('russian', %s)
+            """
+
+            main_query = """
+                SELECT id, lot_id, filename, file_size, content, processed_at, file_hash,
+                       ts_rank(to_tsvector('russian', content), plainto_tsquery('russian', %s)) as rank
+                FROM attachments
+                WHERE to_tsvector('russian', content) @@ plainto_tsquery('russian', %s)
+                ORDER BY rank DESC, processed_at DESC
+                LIMIT %s OFFSET %s
+            """
+
+            # Get total count
+            cursor.execute(count_query, (search,))
+            total = cursor.fetchone()["total"]
+
+            # Get attachments
+            cursor.execute(main_query, (search, search, limit, offset))
+
+        else:
+            # Regular query without search
+            count_query = "SELECT COUNT(*) as total FROM attachments"
+            main_query = """
+                SELECT id, lot_id, filename, file_size, content, processed_at, file_hash
+                FROM attachments
+                ORDER BY processed_at DESC
+                LIMIT %s OFFSET %s
+            """
+
+            # Get total count
+            cursor.execute(count_query)
+            total = cursor.fetchone()["total"]
+
+            # Get attachments
+            cursor.execute(main_query, (limit, offset))
+
+        rows = cursor.fetchall()
+
+        # Convert to Attachment models
+        attachments = []
+        for row in rows:
+            # Truncate content for list view (first 200 chars)
+            content = row["content"]
+            if content and len(content) > 200:
+                content = content[:200] + "..."
+
+            attachments.append(
+                Attachment(
+                    id=row["id"],
+                    lot_id=row["lot_id"],
+                    filename=row["filename"],
+                    file_size=row["file_size"],
+                    content=content,
+                    processed_at=(
+                        str(row["processed_at"]) if row["processed_at"] else None
+                    ),
+                    file_hash=row["file_hash"],
+                )
+            )
+
+        cursor.close()
+        conn.close()
+
+        # Calculate total pages
+        pages = math.ceil(total / limit) if total > 0 else 0
+
+        return AttachmentsResponse(
+            attachments=attachments, total=total, page=page, limit=limit, pages=pages
+        )
+
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@app.get("/attachments/{attachment_id}", response_model=Attachment)
+async def get_attachment(attachment_id: int, _: bool = Depends(check_env_variables)):
+    """Get full attachment details by ID"""
+    try:
+        database_url = os.getenv("DATABASE_URL")
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cursor.execute(
+            "SELECT id, lot_id, filename, file_size, content, processed_at, file_hash FROM attachments WHERE id = %s",
+            (attachment_id,),
+        )
+
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+
+        cursor.close()
+        conn.close()
+
+        return Attachment(
+            id=row["id"],
+            lot_id=row["lot_id"],
+            filename=row["filename"],
+            file_size=row["file_size"],
+            content=row["content"],  # Full content for detail view
+            processed_at=str(row["processed_at"]) if row["processed_at"] else None,
+            file_hash=row["file_hash"],
+        )
+
+    except psycopg2.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
 @app.get("/")
 async def root():
     """Root endpoint with service information"""
@@ -107,6 +262,7 @@ async def root():
         "endpoints": {
             "/health": "Health check",
             "/run": "Run ETL process",
+            "/attachments": "Get OCR processed attachments",
             "/docs": "API documentation",
         },
     }

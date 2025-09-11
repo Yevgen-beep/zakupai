@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+
+{% block title %}OCR Документы - ZakupAI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>
+                <i class="bi bi-file-earmark-text text-primary"></i>
+                OCR Документы
+            </h1>
+            <span class="badge bg-primary fs-6">{{ total }} документов</span>
+        </div>
+
+        <!-- Search Form -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-search"></i>
+                    Поиск по содержимому
+                </h5>
+                <form method="get" action="/attachments" class="row g-3">
+                    <div class="col-md-10">
+                        <input type="text" class="form-control" name="search"
+                               value="{{ search_query }}"
+                               placeholder="Поиск по тексту документа (например: 'канцелярские товары', 'компьютер')">
+                        <div class="form-text">
+                            Полнотекстовый поиск по русскому языку с поддержкой морфологии
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-search"></i>
+                            Найти
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        {% if error %}
+        <div class="alert alert-warning" role="alert">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <!-- Results -->
+        {% if attachments %}
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    Найдено документов: {{ attachments|length }}
+                    {% if search_query %}
+                    по запросу "<strong>{{ search_query }}</strong>"
+                    {% endif %}
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Лот</th>
+                                <th>Файл</th>
+                                <th>Размер</th>
+                                <th>Дата обработки</th>
+                                <th>Содержимое</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for attachment in attachments %}
+                            <tr>
+                                <td>
+                                    <code>{{ attachment.id }}</code>
+                                </td>
+                                <td>
+                                    {% if attachment.lot_id %}
+                                    <a href="/lot/{{ attachment.lot_id }}" class="btn btn-sm btn-outline-primary">
+                                        Лот {{ attachment.lot_id }}
+                                    </a>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+                                        <span class="fw-medium">{{ attachment.filename or 'unknown.pdf' }}</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    {% if attachment.file_size %}
+                                    <span class="badge bg-light text-dark">{{ attachment.file_size }} байт</span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if attachment.processed_at %}
+                                    <small>{{ attachment.processed_at[:19] }}</small>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="text-truncate" style="max-width: 300px;">
+                                        {% if attachment.content %}
+                                        <small class="text-muted">{{ attachment.content[:100] }}{% if attachment.content|length > 100 %}...{% endif %}</small>
+                                        {% else %}
+                                        <span class="text-muted">Нет текста</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <button type="button" class="btn btn-outline-info"
+                                                onclick="showContent({{ attachment.id }})"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#contentModal">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        {% if attachment.lot_id %}
+                                        <a href="/lot/{{ attachment.lot_id }}" class="btn btn-outline-primary">
+                                            <i class="bi bi-graph-up"></i>
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        {% if pages > 1 %}
+        <nav aria-label="Навигация по страницам" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if current_page > 1 %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ current_page - 1 }}{% if search_query %}&search={{ search_query }}{% endif %}">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {% endif %}
+
+                {% for page_num in range(1, pages + 1) %}
+                    {% if page_num == current_page %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% elif page_num <= current_page + 2 and page_num >= current_page - 2 %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_num }}{% if search_query %}&search={{ search_query }}{% endif %}">{{ page_num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if current_page < pages %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ current_page + 1 }}{% if search_query %}&search={{ search_query }}{% endif %}">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+
+        {% else %}
+        <!-- No Results -->
+        <div class="text-center py-5">
+            <div class="mb-4">
+                <i class="bi bi-inbox display-1 text-muted"></i>
+            </div>
+            <h3 class="text-muted">
+                {% if search_query %}
+                Документы не найдены
+                {% else %}
+                Нет обработанных документов
+                {% endif %}
+            </h3>
+            <p class="text-muted">
+                {% if search_query %}
+                По запросу "{{ search_query }}" ничего не найдено. Попробуйте другие ключевые слова.
+                {% else %}
+                Документы появятся здесь после обработки PDF-файлов через ETL-сервис.
+                {% endif %}
+            </p>
+            {% if search_query %}
+            <a href="/attachments" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-left"></i>
+                Показать все документы
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Content Modal -->
+<div class="modal fade" id="contentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Содержимое документа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="modalContent" class="text-muted">
+                    <div class="d-flex justify-content-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let attachmentsData = {{ attachments | tojson }};
+
+function showContent(attachmentId) {
+    const attachment = attachmentsData.find(a => a.id === attachmentId);
+    const modalContent = document.getElementById('modalContent');
+    const modalTitle = document.querySelector('#contentModal .modal-title');
+
+    if (attachment) {
+        modalTitle.textContent = `Документ: ${attachment.filename || 'unknown.pdf'}`;
+
+        if (attachment.content) {
+            modalContent.innerHTML = `
+                <div class="mb-3">
+                    <strong>Файл:</strong> ${attachment.filename || 'unknown.pdf'}<br>
+                    <strong>Размер:</strong> ${attachment.file_size ? attachment.file_size + ' байт' : '—'}<br>
+                    <strong>Обработан:</strong> ${attachment.processed_at ? attachment.processed_at.substring(0, 19) : '—'}<br>
+                    ${attachment.lot_id ? '<strong>Лот:</strong> <a href="/lot/' + attachment.lot_id + '">Лот ' + attachment.lot_id + '</a>' : ''}
+                </div>
+                <div class="border rounded p-3" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9em;">
+${attachment.content}
+                </div>
+            `;
+        } else {
+            modalContent.innerHTML = `
+                <div class="text-center text-muted">
+                    <i class="bi bi-exclamation-triangle fs-1"></i>
+                    <h5>Содержимое недоступно</h5>
+                    <p>Текст документа не был извлечен или обработан.</p>
+                </div>
+            `;
+        }
+    } else {
+        modalContent.innerHTML = `
+            <div class="text-center text-danger">
+                <i class="bi bi-x-circle fs-1"></i>
+                <h5>Ошибка</h5>
+                <p>Документ не найден.</p>
+            </div>
+        `;
+    }
+}
+
+// Highlight search terms in content
+document.addEventListener('DOMContentLoaded', function() {
+    const searchQuery = '{{ search_query }}';
+    if (searchQuery) {
+        const cells = document.querySelectorAll('td .text-truncate');
+        cells.forEach(cell => {
+            const text = cell.textContent;
+            const highlightedText = text.replace(
+                new RegExp('(' + searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'),
+                '<mark>$1</mark>'
+            );
+            if (highlightedText !== text) {
+                cell.innerHTML = highlightedText;
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

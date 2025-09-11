@@ -244,6 +244,57 @@ async def upload_page(request: Request):
     return templates.TemplateResponse("upload.html", {"request": request})
 
 
+@app.get("/attachments", response_class=HTMLResponse)
+async def attachments_page(request: Request, search: str = None, page: int = 1):
+    """OCR attachments page with search and pagination"""
+    try:
+        # Get attachments from ETL service
+        params = {"page": page, "limit": 20}
+        if search:
+            params["search"] = search
+
+        attachments_response = await client.get(
+            f"{GATEWAY_URL}/etl/attachments", params=params
+        )
+
+        if attachments_response.status_code == 200:
+            attachments_data = attachments_response.json()
+        else:
+            # Fallback to direct database connection if ETL service is unavailable
+            attachments_data = {"attachments": [], "total": 0, "pages": 0}
+
+        return templates.TemplateResponse(
+            "attachments.html",
+            {
+                "request": request,
+                "attachments": attachments_data.get("attachments", []),
+                "total": attachments_data.get("total", 0),
+                "pages": attachments_data.get("pages", 0),
+                "current_page": page,
+                "search_query": search or "",
+            },
+        )
+
+    except httpx.RequestError as e:
+        logger.error(f"ETL service request failed: {e}")
+        # Return empty results with error message
+        return templates.TemplateResponse(
+            "attachments.html",
+            {
+                "request": request,
+                "attachments": [],
+                "total": 0,
+                "pages": 0,
+                "current_page": 1,
+                "search_query": search or "",
+                "error": "Сервис OCR временно недоступен",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Attachments page error: {e}")
+        raise HTTPException(500, "Ошибка загрузки страницы")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
