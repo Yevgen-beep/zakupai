@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -157,3 +157,25 @@ workflows-down: ## Stop workflow services
 setup-workflows: ## Setup and configure workflow services
 	@echo "🔄 Setting up workflows..."
 	./scripts/setup-workflows.sh
+
+# Priority 1 Integration Commands
+test-priority1: ## Test Priority 1 integration (API Gateway + ChromaDB)
+	@echo "🚀 Testing Priority 1 integration..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python test_priority1_integration.py; \
+	else \
+		$(PYTHON_EXEC) test_priority1_integration.py; \
+	fi
+
+chroma-up: ## Start ChromaDB and related services
+	$(COMPOSE) up -d chromadb embedding-api goszakup-api
+	@echo "✅ ChromaDB services started:"
+	@echo "   ChromaDB: http://localhost:8010"
+	@echo "   Embedding API: http://localhost:7010"
+	@echo "   Goszakup API Gateway: http://localhost:7005"
+
+chroma-test: ## Quick ChromaDB connectivity test
+	@echo "🔍 Testing ChromaDB connectivity..."
+	@curl -f http://localhost:8010/api/v2/heartbeat 2>/dev/null && echo "✅ ChromaDB OK" || echo "❌ ChromaDB failed"
+	@curl -f http://localhost:7010/health && echo "✅ Embedding API OK" || echo "❌ Embedding API failed"
+	@curl -f http://localhost:7005/health && echo "✅ Goszakup API OK" || echo "❌ Goszakup API failed"

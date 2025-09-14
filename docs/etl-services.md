@@ -22,7 +22,7 @@ GraphQL API (ows.goszakup.gov.kz) → ETL Service → PostgreSQL
 Создайте файл `.env`:
 
 ```bash
-API_TOKEN=your_goszakup_api_token_here
+GOSZAKUP_TOKEN=your_goszakup_api_token_here
 DATABASE_URL=postgresql://zakupai:zakupai@localhost:5432/zakupai
 ```
 
@@ -168,7 +168,7 @@ CREATE TABLE subjects (
 ### GraphQL API параметры
 
 - **URL:** `https://ows.goszakup.gov.kz/v3/graphql`
-- **Авторизация:** `Bearer <API_TOKEN>`
+- **Авторизация:** `Bearer <GOSZAKUP_TOKEN>`
 - **Лимит записей:** 200 на запрос
 - **Пагинация:** через параметр `after` (ID последней записи)
 
@@ -259,7 +259,7 @@ grep "Fetched" etl.log
 
 ```
 Error: API token invalid or expired
-Solution: Check API_TOKEN environment variable
+Solution: Check GOSZAKUP_TOKEN environment variable
 ```
 
 **Connection refused**

@@ -79,8 +79,8 @@ async def cmd_api(message: Message) -> None:
     try:
         # Delete user message for security
         await message.delete()
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to delete user message: {e}")
 
     # Extract API key
     parts = message.text.split(" ", 1)
@@ -174,14 +174,14 @@ async def cmd_help(message: Message) -> None:
     help_text = f"""🤖 **ZakupAI Telegram Bot**
 
 📋 **Команды:**
-• {hcode('/start')} - начать работу
-• {hcode('api <ключ>')} - установить API ключ
-• {hcode('/lot <id|url>')} - анализ лота
-• {hcode('/help')} - эта справка
+• {hcode("/start")} - начать работу
+• {hcode("api <ключ>")} - установить API ключ
+• {hcode("/lot <id|url>")} - анализ лота
+• {hcode("/help")} - эта справка
 
 🔍 **Примеры:**
-• {hcode('/lot 12345')}
-• {hcode('/lot https://goszakup.gov.kz/ru/announce/index/12345')}
+• {hcode("/lot 12345")}
+• {hcode("/lot https://goszakup.gov.kz/ru/announce/index/12345")}
 
 🔥 **Горячие лоты:**
 • Автоматические уведомления каждые 15 минут

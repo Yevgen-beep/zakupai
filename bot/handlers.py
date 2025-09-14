@@ -327,8 +327,8 @@ async def stats_command(message: Message):
 📊 <b>Ваша статистика</b>
 
 👤 ID пользователя: {user_id}
-📅 Дата регистрации: {user_stats.registered_at.strftime('%d.%m.%Y')}
-🔄 Последнее обновление: {user_stats.last_updated.strftime('%d.%m.%Y %H:%M')}
+📅 Дата регистрации: {user_stats.registered_at.strftime("%d.%m.%Y")}
+🔄 Последнее обновление: {user_stats.last_updated.strftime("%d.%m.%Y %H:%M")}
 📈 Количество запросов: {user_stats.requests_count or 0}
 
 {"🟢 Активен" if user_stats.is_active else "🔴 Неактивен"}
@@ -436,7 +436,7 @@ async def unknown_command(message: Message):
     """Обработчик неизвестных команд"""
 
     await message.answer(
-        "❓ Неизвестная команда\n" "Используйте /help для просмотра доступных команд"
+        "❓ Неизвестная команда\nИспользуйте /help для просмотра доступных команд"
     )
 
 
@@ -457,7 +457,7 @@ async def text_message_handler(message: Message):
         await help_command(message)
     elif any(word in text for word in ["поиск", "найди", "search"]):
         await message.answer(
-            "🔍 Для поиска используйте команду /search\n" "Пример: /search компьютеры"
+            "🔍 Для поиска используйте команду /search\nПример: /search компьютеры"
         )
     else:
         await message.answer(

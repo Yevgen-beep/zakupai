@@ -119,7 +119,8 @@ class OCRLoader:
                     if len(lines) > 2 and lines[0] == "MOCK PDF FILE FOR TESTING":
                         return "\n".join(lines[2:])  # Skip header and separator
                     return content
-        except:
+        except Exception as e:
+            print(f"Failed to read as text file: {e}")
             pass  # Continue with normal PDF processing
 
         try:

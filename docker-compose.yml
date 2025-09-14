@@ -88,6 +88,31 @@ services:
       - ai-network
     restart: unless-stopped
 
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: zakupai-chromadb
+    ports:
+      - "8010:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  goszakup-api:
+    build: ./services/goszakup-api
+    container_name: zakupai-goszakup-api
+    ports:
+      - "7005:8001"
+    env_file:
+      - .env
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
   billing-service:
     build: ./services/billing-service
     container_name: zakupai-billing-service
@@ -110,12 +135,13 @@ services:
     env_file:
       - .env
     environment:
-      - API_TOKEN=${GOSZAKUP_TOKEN}
+      - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
       - DATABASE_URL=postgresql://zakupai:zakupai@db:5432/zakupai
     networks:
       - zakupai-network
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   gateway:
@@ -150,19 +176,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  chroma:
-    image: chromadb/chroma
-    container_name: zakupai-chroma
-    ports:
-      - "8000:8000"
-    volumes:
-      - chroma_data:/chroma/chroma
-    environment:
-      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=*
-      - CHROMA_SERVER_HOST=0.0.0.0
-    networks:
-      - ai-network
-    restart: unless-stopped
 
   flowise:
     image: flowiseai/flowise
@@ -188,7 +201,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - chroma
+      - chromadb
     restart: unless-stopped
 
   n8n:
@@ -391,7 +404,7 @@ services:
 volumes:
   postgres_data:
   ollama_data:
-  chroma_data:
+  chromadb_data:
   flowise_data:
   n8n_data:
   backup_data:

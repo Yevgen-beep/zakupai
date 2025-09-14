@@ -56,12 +56,12 @@ class AttachmentsResponse(BaseModel):
 
 def check_env_variables():
     """Check if required environment variables are present"""
-    api_token = os.getenv("API_TOKEN")
+    api_token = os.getenv("GOSZAKUP_TOKEN")
     database_url = os.getenv("DATABASE_URL")
 
     if not api_token:
         raise HTTPException(
-            status_code=500, detail="API_TOKEN environment variable not found"
+            status_code=500, detail="GOSZAKUP_TOKEN environment variable not found"
         )
 
     if not database_url:
@@ -212,9 +212,11 @@ async def get_attachments(
         )
 
     except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
 
 
 @app.get("/attachments/{attachment_id}", response_model=Attachment)
@@ -248,9 +250,11 @@ async def get_attachment(attachment_id: int, _: bool = Depends(check_env_variabl
         )
 
     except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
 
 
 @app.get("/")

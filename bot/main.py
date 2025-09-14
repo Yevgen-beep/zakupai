@@ -161,8 +161,7 @@ def validate_and_log_bot(require_key: bool = True):
                 # Проверяем наличие API ключа
                 if not api_key:
                     await message.answer(
-                        "🔑 Сначала установи API ключ:\n"
-                        f"{hcode('/key YOUR_API_KEY')}"
+                        f"🔑 Сначала установи API ключ:\n{hcode('/key YOUR_API_KEY')}"
                     )
                     logger.info(
                         f"User {user_id} (@{username}) attempted to use {endpoint} without API key"
@@ -289,7 +288,7 @@ async def command_key_handler(message: Message) -> None:
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         await message.answer(
-            "❌ Неверный формат команды.\n" f"Используй: {hcode('/key YOUR_API_KEY')}"
+            f"❌ Неверный формат команды.\nИспользуй: {hcode('/key YOUR_API_KEY')}"
         )
         return
 
@@ -481,7 +480,7 @@ async def command_lot_handler(message: Message) -> None:
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         await message.answer(
-            "❌ Укажи ID или URL лота.\n" f"Пример: {hcode('/lot 12345')}"
+            f"❌ Укажи ID или URL лота.\nПример: {hcode('/lot 12345')}"
         )
         return
 
@@ -746,7 +745,7 @@ async def webhook_main() -> None:
         # Запуск сервера
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, host="0.0.0.0", port=8000)
+        site = web.TCPSite(runner, host="0.0.0.0", port=8000)  # nosec B104
         await site.start()
 
         # Бесконечный цикл

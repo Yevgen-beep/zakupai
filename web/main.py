@@ -1,5 +1,8 @@
+import asyncio
 import logging
 import os
+import time
+from io import BytesIO
 from pathlib import Path
 
 import httpx
@@ -121,10 +124,10 @@ async def lot_page(request: Request, lot_id: str):
 
     except httpx.RequestError as e:
         logger.error(f"API request failed: {e}")
-        raise HTTPException(500, "Ошибка подключения к API")
+        raise HTTPException(500, "Ошибка подключения к API") from e
     except Exception as e:
         logger.error(f"Lot page error: {e}")
-        raise HTTPException(500, "Внутренняя ошибка сервера")
+        raise HTTPException(500, "Внутренняя ошибка сервера") from e
 
 
 @app.get("/api/lot/{lot_id}")
@@ -158,7 +161,7 @@ async def api_get_lot(lot_id: str):
 
     except Exception as e:
         logger.error(f"API lot error: {e}")
-        raise HTTPException(500, "API error")
+        raise HTTPException(500, "API error") from e
 
 
 @app.post("/upload-prices")
@@ -226,16 +229,16 @@ async def upload_prices(
             "filename": file.filename,
         }
 
-    except pd.errors.EmptyDataError:
-        raise HTTPException(400, "Файл пуст или поврежден")
+    except pd.errors.EmptyDataError as e:
+        raise HTTPException(400, "Файл пуст или поврежден") from e
     except pd.errors.ParserError as e:
-        raise HTTPException(400, f"Ошибка парсинга файла: {str(e)}")
+        raise HTTPException(400, f"Ошибка парсинга файла: {str(e)}") from e
     except httpx.RequestError as e:
         logger.error(f"API request failed during import: {e}")
-        raise HTTPException(500, "Ошибка подключения к API")
+        raise HTTPException(500, "Ошибка подключения к API") from e
     except Exception as e:
         logger.error(f"Upload error: {e}")
-        raise HTTPException(500, "Ошибка обработки файла")
+        raise HTTPException(500, "Ошибка обработки файла") from e
 
 
 @app.get("/upload", response_class=HTMLResponse)
@@ -292,7 +295,7 @@ async def attachments_page(request: Request, search: str = None, page: int = 1):
         )
     except Exception as e:
         logger.error(f"Attachments page error: {e}")
-        raise HTTPException(500, "Ошибка загрузки страницы")
+        raise HTTPException(500, "Ошибка загрузки страницы") from e
 
 
 @app.get("/health")
@@ -309,12 +312,7 @@ async def health_check():
         return {"status": "error", "error": str(e)}
 
 
-# Add missing imports
-import asyncio
-import time
-from io import BytesIO
-
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104

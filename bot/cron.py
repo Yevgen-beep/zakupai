@@ -65,7 +65,8 @@ async def find_and_save_hot_lots():
                         deadline_str.replace("Z", "+00:00")
                     )
                     days_until_deadline = (deadline - datetime.now()).days
-                except:
+                except Exception as e:
+                    logger.warning(f"Failed to parse deadline: {e}")
                     continue
 
                 # Apply criteria

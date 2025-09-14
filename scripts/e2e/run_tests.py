@@ -53,7 +53,8 @@ class E2ETestRunner:
                     if resp.status_code != 200:
                         all_healthy = False
                         break
-                except:
+                except Exception as e:
+                    print(f"Health check failed for {service}: {e}")
                     all_healthy = False
                     break
 

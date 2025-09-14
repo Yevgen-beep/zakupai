@@ -355,7 +355,7 @@ def format_search_results(lots: list[dict[str, Any]]) -> str:
         if lot["deadline"]:
             text += f"⏰ До: {lot['deadline'][:10]}\n"
 
-        text += f"🔗 <a href=\"{lot['url']}\">Подробнее</a>\n"
+        text += f'🔗 <a href="{lot["url"]}">Подробнее</a>\n'
         text += f"📊 Анализ: /lot {lot['id']}\n\n"
 
         # Ограничиваем размер сообщения
@@ -400,7 +400,7 @@ def format_lot_analysis(analysis: LotAnalysisResult) -> str:
     if analysis.finance:
         text += "💵 <b>НДС анализ:</b>\n"
         text += f"Сумма без НДС: {analysis.finance.amount_without_vat:,.0f} тг\n"
-        text += f"НДС ({analysis.finance.vat_rate*100:.0f}%): {analysis.finance.vat_amount:,.0f} тг\n"
+        text += f"НДС ({analysis.finance.vat_rate * 100:.0f}%): {analysis.finance.vat_amount:,.0f} тг\n"
         text += f"Итого с НДС: {analysis.finance.total_with_vat:,.0f} тг\n\n"
 
     # Ошибки

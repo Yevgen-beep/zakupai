@@ -404,10 +404,10 @@ async def lot_command(message: Message):
         lot_info = f"""
 📋 <b>Информация о лоте</b>
 
-🔢 <b>Номер лота:</b> {lot['id']}
-📦 <b>Наименование:</b> {lot['name']}
-💰 <b>Сумма:</b> {lot['price']:,.0f} {lot.get('currency', 'тг')}
-🏢 <b>Заказчик:</b> {lot['customer']}
+🔢 <b>Номер лота:</b> {lot["id"]}
+📦 <b>Наименование:</b> {lot["name"]}
+💰 <b>Сумма:</b> {lot["price"]:,.0f} {lot.get("currency", "тг")}
+🏢 <b>Заказчик:</b> {lot["customer"]}
 """
 
         if lot.get("customer_bin"):
@@ -471,23 +471,23 @@ async def stats_command(message: Message):
 📊 <b>Ваша статистика</b>
 
 👤 <b>Пользователь:</b> {user_id}
-📅 <b>Дата регистрации:</b> {user_stats.get('created_at', 'Неизвестно')[:10] if user_stats.get('created_at') else 'Неизвестно'}
-🔑 <b>API ключ:</b> {'✅ Привязан' if user_stats.get('api_key') else '❌ Не привязан'}
-🔢 <b>Всего запросов:</b> {user_stats.get('total_requests', 0)}
+📅 <b>Дата регистрации:</b> {user_stats.get("created_at", "Неизвестно")[:10] if user_stats.get("created_at") else "Неизвестно"}
+🔑 <b>API ключ:</b> {"✅ Привязан" if user_stats.get("api_key") else "❌ Не привязан"}
+🔢 <b>Всего запросов:</b> {user_stats.get("total_requests", 0)}
 
 📈 <b>Статистика поиска</b>
 
-🚀 <b>GraphQL v2:</b> {search_stats.get('v2_requests', 0)} запросов
-🔄 <b>GraphQL v3:</b> {search_stats.get('v3_graphql_requests', 0)} запросов
-📡 <b>REST v3:</b> {search_stats.get('v3_rest_requests', 0)} запросов
-🆘 <b>Fallback:</b> {search_stats.get('fallback_requests', 0)} случаев
-❌ <b>Ошибки:</b> {search_stats.get('failed_requests', 0)} запросов
+🚀 <b>GraphQL v2:</b> {search_stats.get("v2_requests", 0)} запросов
+🔄 <b>GraphQL v3:</b> {search_stats.get("v3_graphql_requests", 0)} запросов
+📡 <b>REST v3:</b> {search_stats.get("v3_rest_requests", 0)} запросов
+🆘 <b>Fallback:</b> {search_stats.get("fallback_requests", 0)} случаев
+❌ <b>Ошибки:</b> {search_stats.get("failed_requests", 0)} запросов
 
-🎯 <b>Успешность:</b> {search_stats.get('success_rate', 0)*100:.1f}%
+🎯 <b>Успешность:</b> {search_stats.get("success_rate", 0) * 100:.1f}%
 
 🔧 <b>Доступность API</b>
-GraphQL v2: {'✅' if goszakup_service.is_v2_available() else '❌'}
-REST v3: {'✅' if goszakup_service.is_v3_available() else '❌'}
+GraphQL v2: {"✅" if goszakup_service.is_v2_available() else "❌"}
+REST v3: {"✅" if goszakup_service.is_v3_available() else "❌"}
 """
 
         await message.answer(stats_text, parse_mode="HTML")

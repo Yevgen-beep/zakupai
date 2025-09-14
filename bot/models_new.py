@@ -109,7 +109,7 @@ class NotificationMessage(BaseModel):
 {risk_emoji} **Риск:** {self.risk_score:.1f}%
 💸 **Цена:** {price_formatted} тенге
 ⏰ **Дедлайн:** {deadline_str}
-🏢 **Заказчик:** {self.customer or 'N/A'}
+🏢 **Заказчик:** {self.customer or "N/A"}
 
 _Найден в {datetime.now().strftime("%H:%M")}_"""
 

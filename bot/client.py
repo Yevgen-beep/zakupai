@@ -99,7 +99,7 @@ def validate_and_log(
                         return
                 else:
                     await message.reply_text(
-                        "❌ Не найден API ключ.\n" "Используйте /start для регистрации."
+                        "❌ Не найден API ключ.\nИспользуйте /start для регистрации."
                     )
                     return
 
@@ -601,9 +601,9 @@ class ZakupaiPipelineClient:
             html += f"""
             <h2>Краткое описание</h2>
             <ul>
-                <li><strong>Название:</strong> {tldr.get('title', 'N/A')}</li>
-                <li><strong>Цена:</strong> {tldr.get('price', 'N/A')} тг</li>
-                <li><strong>Заказчик:</strong> {tldr.get('customer', 'N/A')}</li>
+                <li><strong>Название:</strong> {tldr.get("title", "N/A")}</li>
+                <li><strong>Цена:</strong> {tldr.get("price", "N/A")} тг</li>
+                <li><strong>Заказчик:</strong> {tldr.get("customer", "N/A")}</li>
             </ul>
             """
 
@@ -611,8 +611,8 @@ class ZakupaiPipelineClient:
             risk = analysis["risk"]
             html += f"""
             <h2>Риск-анализ</h2>
-            <p><strong>Уровень риска:</strong> {risk.get('score', 0):.2f}</p>
-            <p><strong>Объяснение:</strong> {risk.get('explanation', 'N/A')}</p>
+            <p><strong>Уровень риска:</strong> {risk.get("score", 0):.2f}</p>
+            <p><strong>Объяснение:</strong> {risk.get("explanation", "N/A")}</p>
             """
 
         if analysis.get("finance"):
@@ -620,9 +620,9 @@ class ZakupaiPipelineClient:
             html += f"""
             <h2>Финансовые расчёты</h2>
             <ul>
-                <li><strong>Без НДС:</strong> {finance.get('amount_without_vat', 'N/A')} тг</li>
-                <li><strong>НДС:</strong> {finance.get('vat_amount', 'N/A')} тг</li>
-                <li><strong>Итого:</strong> {finance.get('total_with_vat', 'N/A')} тг</li>
+                <li><strong>Без НДС:</strong> {finance.get("amount_without_vat", "N/A")} тг</li>
+                <li><strong>НДС:</strong> {finance.get("vat_amount", "N/A")} тг</li>
+                <li><strong>Итого:</strong> {finance.get("total_with_vat", "N/A")} тг</li>
             </ul>
             """
 
