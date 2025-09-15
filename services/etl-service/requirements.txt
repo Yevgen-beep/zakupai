@@ -11,6 +11,10 @@ PyMuPDF==1.23.8
 pytesseract==0.3.10
 Pillow==10.1.0
 
+# PyTorch CPU-only version (prevents CUDA dependencies)
+--find-links https://download.pytorch.org/whl/torch_stable.html
+torch==2.2.2+cpu
+
 # ChromaDB and embeddings
 chromadb==0.4.18
 sentence-transformers==2.2.2
@@ -19,3 +23,10 @@ sentence-transformers==2.2.2
 pathlib
 reportlab==4.0.7
 fpdf2==2.7.6
+
+# Testing
+pytest==7.4.3
+httpx==0.25.2
+
+# FastAPI file upload support
+python-multipart==0.0.6
