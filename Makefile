@@ -180,6 +180,10 @@ chroma-test: ## Quick ChromaDB connectivity test
 	@curl -f http://localhost:7010/health && echo "✅ Embedding API OK" || echo "❌ Embedding API failed"
 	@curl -f http://localhost:7005/health && echo "✅ Goszakup API OK" || echo "❌ Goszakup API failed"
 
+etl-migrate: ## Run Alembic migrations for ETL service
+	@echo "🗄️  Running ETL service migrations..."
+	@cd services/etl-service && $(PYTHON_EXEC) -m alembic upgrade head
+
 etl-test: ## Run pytest tests for ETL service
 	@echo "🧪 Running ETL service tests..."
 	@cd services/etl-service && $(PYTHON_EXEC) -m pytest test_upload.py -v
@@ -192,6 +196,8 @@ test-priority2: ## Test Priority 2 integration (ETL service OCR pipeline + Chrom
 	@timeout 60 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 2; done"
 	@timeout 60 bash -c "until curl -fsS http://localhost:8010/api/v2/heartbeat 2>/dev/null; do sleep 2; done"
 	@timeout 60 bash -c "until curl -fsS http://localhost:7010/health 2>/dev/null; do sleep 2; done"
+	@echo "🗄️  Running migrations..."
+	@$(MAKE) etl-migrate
 	@echo "📋 Running ETL service tests..."
 	@cd services/etl-service && $(PYTHON_EXEC) -m pytest test_upload.py -v
 	@echo "🧪 Running integration tests..."

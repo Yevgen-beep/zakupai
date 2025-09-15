@@ -267,24 +267,54 @@ run_tests() {
     fi
     echo ""
 
-    # Test 8: Test ChromaDB search (if embedding-api is available)
-    log_info "Running test: ChromaDB Search Test"
-    if curl -sf "http://localhost:7010/health" >/dev/null 2>&1; then
-        search_response=$(curl -s -X POST "http://localhost:7010/search" \
-            -H "Content-Type: application/json" \
-            -d '{"query":"тест OCR","top_k":3,"collection":"etl_documents"}' 2>/dev/null)
+    # Test 8: Test ETL service search endpoint
+    log_info "Running test: ETL Search Endpoint Test"
 
-        if [[ $? -eq 0 ]]; then
-            log_success "ChromaDB Search Test - Connection OK ✅"
-            echo "$search_response" | python3 -m json.tool 2>/dev/null || echo "$search_response"
+    # First, wait a moment for indexing to complete after uploads
+    sleep 2
+
+    # Test search for common Russian terms
+    for search_term in "тест" "документ" "text"; do
+        log_info "Testing search for: $search_term"
+        search_response=$(curl -s -X POST "$ETL_HOST/search" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"$search_term\",\"top_k\":3,\"collection\":\"etl_documents\"}" 2>/dev/null)
+
+        search_http_code=$(curl -s -w '%{http_code}' -X POST "$ETL_HOST/search" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"$search_term\",\"top_k\":3,\"collection\":\"etl_documents\"}" \
+            -o /dev/null 2>/dev/null)
+
+        if [[ "$search_http_code" == "200" ]]; then
+            log_success "Search for '$search_term' - HTTP 200 ✅"
+
+            # Parse results count
+            results_count=$(echo "$search_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('total_found', 0))
+except:
+    print(0)
+" 2>/dev/null)
+
+            if [[ "$results_count" -gt 0 ]]; then
+                log_success "Found $results_count results for '$search_term' 🔍"
+            else
+                log_warning "No results found for '$search_term' (may be expected for first runs)"
+            fi
+
+            # Show formatted results
+            echo "$search_response" | python3 -m json.tool 2>/dev/null | head -20
+
+        elif [[ "$search_http_code" == "503" ]]; then
+            log_warning "Search for '$search_term' - Service unavailable (ChromaDB not ready) ⚠️"
         else
-            log_warning "ChromaDB Search Test - Failed to search ⚠️"
+            log_error "Search for '$search_term' - HTTP $search_http_code ❌"
             ((failed_tests++))
         fi
-    else
-        log_warning "ChromaDB Search Test - Embedding API not available ⚠️"
-    fi
-    echo ""
+        echo ""
+    done
 
     # Summary
     echo "=================================================="

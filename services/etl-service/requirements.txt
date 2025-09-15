@@ -24,6 +24,9 @@ pathlib
 reportlab==4.0.7
 fpdf2==2.7.6
 
+# Database migrations
+alembic==1.12.1
+
 # Testing
 pytest==7.4.3
 httpx==0.25.2

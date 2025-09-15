@@ -214,15 +214,27 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng
+      - name: Start database
+        run: docker compose up -d db
+      - name: Wait for database
+        run: timeout 60 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 2; done"
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           cd services/etl-service
           pip install -r requirements.txt
+      - name: Run Alembic migrations
+        run: |
+          cd services/etl-service
+          python -m alembic upgrade head
+        env:
+          DATABASE_URL: postgresql://zakupai:zakupai@localhost:5432/zakupai
       - name: Run ETL upload tests (pytest)
         run: |
           cd services/etl-service
           python -m pytest test_upload.py -v
+        env:
+          DATABASE_URL: postgresql://zakupai:zakupai@localhost:5432/zakupai
       - name: Build ETL service container
         run: |
           cd services/etl-service

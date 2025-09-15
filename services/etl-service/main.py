@@ -91,6 +91,30 @@ class OCRHealthResponse(BaseModel):
     message: str
 
 
+class SearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="Search query text")
+    collection: str = Field(
+        default="etl_documents", description="ChromaDB collection name"
+    )
+    top_k: int = Field(
+        default=5, ge=1, le=20, description="Number of results to return"
+    )
+
+
+class SearchResult(BaseModel):
+    doc_id: str
+    file_name: str
+    score: float
+    metadata: dict
+    content_preview: str | None = None
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult]
+    total_found: int
+
+
 async def process_pdf_ocr(file_path: Path, file_name: str) -> str:
     """
     Process PDF file with OCR using PyMuPDF and Tesseract
@@ -525,6 +549,121 @@ async def upload_file(file: UploadFile = File(...), lot_id: str | None = None):
         raise HTTPException(
             status_code=500, detail=f"File processing failed: {str(e)}"
         ) from e
+
+
+@app.post("/search", response_model=SearchResponse)
+async def search_documents(request: SearchRequest):
+    """
+    Search documents in ChromaDB collection
+
+    - **query**: Text to search for
+    - **collection**: ChromaDB collection name (default: etl_documents)
+    - **top_k**: Number of results to return (1-20, default: 5)
+
+    Returns documents with similarity scores and metadata
+    """
+    try:
+        embedding_api_url = os.getenv("EMBEDDING_API_URL", "http://localhost:7010")
+
+        search_payload = {
+            "query": request.query,
+            "top_k": request.top_k,
+            "collection": request.collection,
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{embedding_api_url}/search",
+                json=search_payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status == 200:
+                    search_data = await response.json()
+
+                    results = []
+                    for item in search_data.get("results", []):
+                        # Extract document info from ChromaDB results
+                        metadata = item.get("metadata", {})
+                        doc_id = metadata.get("doc_id", "unknown")
+                        file_name = metadata.get("file_name", "unknown")
+
+                        # Get content preview from PostgreSQL if doc_id available
+                        content_preview = None
+                        if doc_id != "unknown" and doc_id.startswith("etl_doc:"):
+                            try:
+                                db_doc_id = int(doc_id.split(":")[-1])
+                                content_preview = await get_document_preview(db_doc_id)
+                            except (ValueError, IndexError):
+                                pass
+
+                        results.append(
+                            SearchResult(
+                                doc_id=item.get("id", doc_id),
+                                file_name=file_name,
+                                score=item.get("score", 0.0),
+                                metadata=metadata,
+                                content_preview=content_preview,
+                            )
+                        )
+
+                    return SearchResponse(
+                        query=request.query, results=results, total_found=len(results)
+                    )
+                else:
+                    error_text = await response.text()
+                    logger.error(f"ChromaDB search failed: {error_text}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Search service unavailable: {error_text}",
+                    )
+
+    except aiohttp.ClientError as e:
+        logger.error(f"ChromaDB connection failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Search service unavailable - ChromaDB connection failed",
+        ) from e
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}") from e
+
+
+async def get_document_preview(doc_id: int, max_length: int = 200) -> str | None:
+    """
+    Get document content preview from PostgreSQL
+
+    Args:
+        doc_id: Document ID
+        max_length: Maximum length of preview text
+
+    Returns:
+        Content preview or None if not found
+    """
+    try:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return None
+
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT content FROM etl_documents WHERE id = %s", (doc_id,))
+
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if result and result[0]:
+            content = result[0]
+            if len(content) > max_length:
+                return content[:max_length] + "..."
+            return content
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to get document preview for ID {doc_id}: {e}")
+        return None
 
 
 @app.post("/run", response_model=ETLResponse)

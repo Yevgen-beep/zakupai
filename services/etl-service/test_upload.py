@@ -454,5 +454,256 @@ class TestOCRIntegration:
         assert expected_structure["results"][0]["metadata"]["file_name"] == "test.pdf"
 
 
+class TestE2EWithRealScans:
+    """E2E tests with real scan files - requires test_files/ directory"""
+
+    @pytest.fixture
+    def test_files_dir(self):
+        """Get test files directory path"""
+        current_dir = Path(__file__).parent
+        test_files_path = current_dir / "test_files"
+        if not test_files_path.exists():
+            pytest.skip("test_files/ directory not found - create it for E2E tests")
+        return test_files_path
+
+    def test_single_pdf_scan1(self, test_files_dir):
+        """Test uploading scan1.pdf with real OCR"""
+        scan1_path = test_files_dir / "scan1.pdf"
+        if not scan1_path.exists():
+            pytest.skip("scan1.pdf not found in test_files")
+
+        with open(scan1_path, "rb") as f:
+            files = {"file": ("scan1.pdf", f, "application/pdf")}
+            response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 200  # nosec
+        data = response.json()
+        assert data["status"] == "ok"  # nosec
+        assert len(data["files"]) == 1  # nosec
+
+        # Check for Cyrillic content in OCR results
+        file_data = data["files"][0]
+        assert file_data["file_name"] == "scan1.pdf"  # nosec
+        content_preview = file_data["content_preview"]
+
+        # Should contain some Cyrillic text (not just empty or error)
+        assert len(content_preview) > 10  # nosec
+        assert content_preview != "[Processing failed]"  # nosec
+        assert content_preview != "[No text content extracted]"  # nosec
+
+        # Check for common Russian legal terms
+        cyrillic_found = any(
+            term in content_preview.lower()
+            for term in ["иск", "суд", "договор", "закон", "право", "документ"]
+        )
+        # If no specific terms found, at least check for Cyrillic characters
+        if not cyrillic_found:
+            has_cyrillic = any("\u0400" <= char <= "\u04ff" for char in content_preview)
+            assert (
+                has_cyrillic
+            ), f"No Cyrillic text found in: {content_preview[:100]}"  # nosec
+
+    def test_single_pdf_scan2(self, test_files_dir):
+        """Test uploading scan2.pdf with real OCR"""
+        scan2_path = test_files_dir / "scan2.pdf"
+        if not scan2_path.exists():
+            pytest.skip("scan2.pdf not found in test_files")
+
+        with open(scan2_path, "rb") as f:
+            files = {"file": ("scan2.pdf", f, "application/pdf")}
+            response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 200  # nosec
+        data = response.json()
+        assert data["status"] == "ok"  # nosec
+        assert len(data["files"]) == 1  # nosec
+
+        file_data = data["files"][0]
+        content_preview = file_data["content_preview"]
+        assert len(content_preview) > 10  # nosec
+        assert content_preview != "[Processing failed]"  # nosec
+
+    def test_single_pdf_scan3(self, test_files_dir):
+        """Test uploading scan3.pdf with real OCR"""
+        scan3_path = test_files_dir / "scan3.pdf"
+        if not scan3_path.exists():
+            pytest.skip("scan3.pdf not found in test_files")
+
+        with open(scan3_path, "rb") as f:
+            files = {"file": ("scan3.pdf", f, "application/pdf")}
+            response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 200  # nosec
+        data = response.json()
+        assert data["status"] == "ok"  # nosec
+        assert len(data["files"]) == 1  # nosec
+
+        file_data = data["files"][0]
+        content_preview = file_data["content_preview"]
+        assert len(content_preview) > 10  # nosec
+        assert content_preview != "[Processing failed]"  # nosec
+
+    def test_zip_with_multiple_pdfs(self, test_files_dir):
+        """Test uploading scan_bundle.zip with multiple PDF files"""
+        bundle_path = test_files_dir / "scan_bundle.zip"
+        if not bundle_path.exists():
+            pytest.skip("scan_bundle.zip not found in test_files")
+
+        with open(bundle_path, "rb") as f:
+            files = {"file": ("scan_bundle.zip", f, "application/zip")}
+            response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 200  # nosec
+        data = response.json()
+        assert data["status"] == "ok"  # nosec
+
+        # Should extract multiple PDF files
+        assert len(data["files"]) >= 2  # nosec
+
+        # Check each extracted file has content
+        for file_data in data["files"]:
+            assert file_data["file_type"] == "pdf"  # nosec
+            assert len(file_data["content_preview"]) > 10  # nosec
+            assert file_data["content_preview"] != "[Processing failed]"  # nosec
+
+    def test_zip_with_subfolder(self, test_files_dir):
+        """Test uploading ZIP with PDF files in subfolder"""
+        # Create temporary ZIP with subfolder structure
+        import tempfile
+        import zipfile
+
+        scan1_path = test_files_dir / "scan1.pdf"
+        if not scan1_path.exists():
+            pytest.skip("scan1.pdf not found for subfolder test")
+
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as temp_zip:
+            with zipfile.ZipFile(temp_zip, "w") as zf:
+                # Add file in subfolder
+                with open(scan1_path, "rb") as pdf_file:
+                    zf.writestr("documents/subfolder/scan1.pdf", pdf_file.read())
+
+            temp_zip.flush()
+
+            with open(temp_zip.name, "rb") as f:
+                files = {"file": ("subfolder_test.zip", f, "application/zip")}
+                response = client.post("/etl/upload", files=files)
+
+        # Clean up
+        Path(temp_zip.name).unlink()
+
+        assert response.status_code == 200  # nosec
+        data = response.json()
+        assert data["status"] == "ok"  # nosec
+        assert len(data["files"]) == 1  # nosec
+
+        file_data = data["files"][0]
+        assert file_data["file_name"] == "scan1.pdf"  # nosec
+        assert len(file_data["content_preview"]) > 10  # nosec
+
+    def test_unsupported_file_type_txt(self):
+        """Test uploading .txt file (unsupported format)"""
+        txt_content = "This is a plain text file, not supported"
+        txt_buffer = io.BytesIO(txt_content.encode())
+
+        files = {"file": ("document.txt", txt_buffer, "text/plain")}
+        response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 400  # nosec
+        data = response.json()
+        assert "Unsupported file type" in data["detail"]  # nosec
+        assert ".txt" in data["detail"]  # nosec
+
+    def test_large_file_over_limit(self):
+        """Test uploading file larger than 50MB limit"""
+        # Create a mock large file (we don't want to create actual 50MB+ file)
+        # Instead, we'll mock the file size check
+
+        # Create small file but with mocked size
+        small_content = b"%PDF-1.4\nSmall content\n%%EOF"
+
+        class MockLargeFile:
+            def __init__(self, content):
+                self.content = content
+                self.position = 0
+
+            def read(self, size=-1):
+                if size == -1:
+                    result = self.content[self.position :]
+                    self.position = len(self.content)
+                    return result
+                else:
+                    result = self.content[self.position : self.position + size]
+                    self.position += len(result)
+                    return result
+
+            def seek(self, position, whence=0):
+                if whence == 0:
+                    self.position = position
+                elif whence == 2:
+                    # Simulate 51MB file size
+                    self.position = 51 * 1024 * 1024
+
+            def tell(self):
+                return self.position
+
+        mock_file = MockLargeFile(small_content)
+
+        # Create UploadFile-like object
+        from fastapi import UploadFile
+
+        upload_file = UploadFile(filename="large_file.pdf", file=mock_file)
+
+        # Test the upload directly (bypassing FastAPI's multipart parsing)
+        import pytest
+        from main import upload_file as upload_func
+
+        with pytest.raises(Exception) as exc_info:
+            # This should raise HTTPException with 413 status
+            import asyncio
+
+            asyncio.run(upload_func(upload_file))
+
+        # Check that it's the right type of error
+        assert "File too large" in str(exc_info.value)
+
+    def test_empty_post_request(self):
+        """Test POST request without file parameter"""
+        response = client.post("/etl/upload")
+
+        assert response.status_code == 422  # nosec
+        # FastAPI validation error for missing required file parameter
+
+    def test_corrupted_zip_file(self):
+        """Test uploading corrupted ZIP file"""
+        corrupted_content = b"Not a real ZIP file content"
+        zip_buffer = io.BytesIO(corrupted_content)
+
+        files = {"file": ("corrupted.zip", zip_buffer, "application/zip")}
+        response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 400  # nosec
+        data = response.json()
+        assert (
+            "corrupted" in data["detail"].lower() or "invalid" in data["detail"].lower()
+        )  # nosec
+
+    def test_zip_with_no_pdf_files(self):
+        """Test uploading ZIP file with no PDF files inside"""
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            zip_file.writestr("document.txt", "This is not a PDF")
+            zip_file.writestr("image.jpg", b"fake image content")
+
+        zip_buffer.seek(0)
+
+        files = {"file": ("no_pdfs.zip", zip_buffer, "application/zip")}
+        response = client.post("/etl/upload", files=files)
+
+        assert response.status_code == 200  # nosec
+        data = response.json()
+        assert data["status"] == "error"  # nosec
+        assert len(data["files"]) == 0  # nosec
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
