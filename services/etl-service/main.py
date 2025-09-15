@@ -1,20 +1,40 @@
+import io
+import logging
 import math
 import os
+import tempfile
+import zipfile
+from pathlib import Path
 
+import aiohttp
+import fitz  # PyMuPDF
 import psycopg2
 import psycopg2.extras
+import pytesseract
 from dotenv import load_dotenv
 from etl import ETLService
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from PIL import Image
 from pydantic import BaseModel, Field
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="ETL Service",
     description="ETL service for ZakupAI platform - loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
     version="1.0.0",
 )
+
+# Constants
+MAX_FILE_SIZE_MB = 50
+ALLOWED_EXTENSIONS = {".pdf", ".zip"}
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 class ETLRequest(BaseModel):
@@ -54,6 +74,211 @@ class AttachmentsResponse(BaseModel):
     pages: int
 
 
+class ProcessedFile(BaseModel):
+    file_name: str
+    file_type: str
+    content_preview: str
+
+
+class UploadResponse(BaseModel):
+    status: str
+    files: list[ProcessedFile]
+
+
+class OCRHealthResponse(BaseModel):
+    status: str
+    tesseract_available: bool = False
+    message: str
+
+
+async def process_pdf_ocr(file_path: Path, file_name: str) -> str:
+    """
+    Process PDF file with OCR using PyMuPDF and Tesseract
+
+    Args:
+        file_path: Path to the PDF file
+        file_name: Original file name
+
+    Returns:
+        Extracted text content
+    """
+    try:
+        # Try to extract text directly from PDF first
+        doc = fitz.open(file_path)
+        text_content = []
+
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+
+            # Try to get text directly
+            page_text = page.get_text("text").strip()
+
+            if page_text and len(page_text) > 50:  # PDF has readable text
+                text_content.append(page_text)
+                logger.info(f"Extracted text from page {page_num + 1} of {file_name}")
+            else:
+                # PDF is likely a scan, use OCR
+                logger.info(f"Running OCR on page {page_num + 1} of {file_name}")
+                try:
+                    # Get page as image
+                    pix = page.get_pixmap(
+                        matrix=fitz.Matrix(2.0, 2.0)
+                    )  # 2x scaling for better OCR
+                    img_data = pix.tobytes("png")
+                    img = Image.open(io.BytesIO(img_data))
+
+                    # Run Tesseract OCR
+                    ocr_text = pytesseract.image_to_string(
+                        img, lang="rus+eng", config="--oem 3 --psm 6"
+                    ).strip()
+
+                    if ocr_text:
+                        text_content.append(ocr_text)
+                        logger.info(
+                            f"OCR extracted {len(ocr_text)} characters from page {page_num + 1}"
+                        )
+                    else:
+                        logger.warning(
+                            f"No text extracted from page {page_num + 1} of {file_name}"
+                        )
+
+                except Exception as ocr_error:
+                    logger.error(
+                        f"OCR failed for page {page_num + 1} of {file_name}: {ocr_error}"
+                    )
+                    # Continue with other pages (fail-soft)
+                    continue
+
+        doc.close()
+
+        # Combine all pages
+        full_text = "\n\n".join(text_content)
+
+        if not full_text.strip():
+            logger.warning(f"No text extracted from {file_name}")
+            return "[No text content extracted]"
+
+        logger.info(
+            f"Successfully extracted {len(full_text)} characters from {file_name}"
+        )
+        return full_text
+
+    except Exception as e:
+        logger.error(f"PDF processing failed for {file_name}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"PDF processing failed: {str(e)}"
+        ) from e
+
+
+async def save_to_postgres(
+    file_name: str, file_type: str, content: str, lot_id: str | None = None
+) -> int:
+    """
+    Save processed document to PostgreSQL
+
+    Args:
+        file_name: Original file name
+        file_type: File type (pdf, etc.)
+        content: Extracted text content
+        lot_id: Optional lot identifier
+
+    Returns:
+        Document ID
+    """
+    try:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise HTTPException(
+                status_code=500, detail="DATABASE_URL environment variable not found"
+            )
+
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+
+        # Insert with ON CONFLICT to handle duplicates
+        cursor.execute(
+            """
+            INSERT INTO etl_documents (lot_id, file_name, file_type, content)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (lot_id, file_name)
+            DO UPDATE SET
+                file_type = EXCLUDED.file_type,
+                content = EXCLUDED.content,
+                created_at = now()
+            RETURNING id
+            """,
+            (lot_id, file_name, file_type, content),
+        )
+
+        doc_id = cursor.fetchone()[0]
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        logger.info(f"Saved document {file_name} to PostgreSQL with ID {doc_id}")
+        return doc_id
+
+    except Exception as e:
+        logger.error(f"PostgreSQL save failed for {file_name}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Database save failed: {str(e)}"
+        ) from e
+
+
+async def index_in_chromadb(
+    doc_id: int, file_name: str, content: str, lot_id: str | None = None
+) -> bool:
+    """
+    Index document content in ChromaDB via embedding-api
+
+    Args:
+        doc_id: Document ID from PostgreSQL
+        file_name: Original file name
+        content: Document content to index
+        lot_id: Optional lot identifier
+
+    Returns:
+        Success status
+    """
+    try:
+        embedding_api_url = os.getenv("EMBEDDING_API_URL", "http://localhost:8004")
+
+        # Prepare metadata
+        metadata = {"doc_id": doc_id, "file_name": file_name, "source": "etl_documents"}
+        if lot_id:
+            metadata["lot_id"] = lot_id
+
+        # Index in ChromaDB
+        index_payload = {
+            "ref_id": f"etl_doc:{doc_id}",
+            "text": content[:5000],  # Limit text size for embedding
+            "metadata": metadata,
+            "collection": "etl_documents",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{embedding_api_url}/index",
+                json=index_payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully indexed {file_name} in ChromaDB")
+                    return True
+                else:
+                    error_text = await response.text()
+                    logger.error(
+                        f"ChromaDB indexing failed for {file_name}: {error_text}"
+                    )
+                    return False
+
+    except Exception as e:
+        logger.error(f"ChromaDB indexing failed for {file_name}: {e}")
+        # Don't raise exception - indexing failure shouldn't break the upload
+        return False
+
+
 def check_env_variables():
     """Check if required environment variables are present"""
     api_token = os.getenv("GOSZAKUP_TOKEN")
@@ -76,6 +301,230 @@ def check_env_variables():
 async def health_check():
     """Health check endpoint"""
     return HealthResponse(status="ok")
+
+
+@app.get("/etl/ocr", response_model=OCRHealthResponse)
+async def ocr_health():
+    """OCR service health check and Tesseract availability"""
+    try:
+        import subprocess  # nosec B404 - subprocess needed for tesseract check
+
+        # Try to call tesseract
+        result = subprocess.run(  # nosec B603 B607 - tesseract command is safe
+            ["tesseract", "--version"], capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode == 0:
+            logger.info("Tesseract OCR is available")
+            return OCRHealthResponse(
+                status="ready",
+                tesseract_available=True,
+                message="Tesseract OCR ready for processing",
+            )
+        else:
+            logger.warning("Tesseract command failed")
+            return OCRHealthResponse(
+                status="not_ready",
+                tesseract_available=False,
+                message="Tesseract command failed",
+            )
+
+    except ImportError:
+        logger.warning("pytesseract not installed")
+        return OCRHealthResponse(
+            status="not_implemented",
+            tesseract_available=False,
+            message="pytesseract not installed",
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("Tesseract timeout")
+        return OCRHealthResponse(
+            status="timeout",
+            tesseract_available=False,
+            message="Tesseract command timeout",
+        )
+    except FileNotFoundError:
+        logger.warning("Tesseract not found in system")
+        return OCRHealthResponse(
+            status="not_implemented",
+            tesseract_available=False,
+            message="Tesseract not found in system - install tesseract-ocr package",
+        )
+    except Exception as e:
+        logger.error(f"OCR health check failed: {e}")
+        return OCRHealthResponse(
+            status="error",
+            tesseract_available=False,
+            message=f"Error checking Tesseract: {str(e)}",
+        )
+
+
+@app.post("/etl/upload", response_model=UploadResponse)
+async def upload_file(file: UploadFile = File(...), lot_id: str | None = None):
+    """
+    Upload and process PDF or ZIP files with OCR
+
+    - **file**: PDF or ZIP file (max 50MB)
+    - **lot_id**: Optional lot identifier for document association
+    - **Returns**: JSON with processed files and content previews
+
+    Supported formats: .pdf, .zip
+    Processing: PyMuPDF text extraction + Tesseract OCR for scans
+    Storage: PostgreSQL + ChromaDB indexing
+    """
+
+    try:
+        # Validate file size
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset to beginning
+
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB, got: {file_size / 1024 / 1024:.1f}MB",
+            )
+
+        # Validate file extension
+        file_path = Path(file.filename) if file.filename else Path("unknown")
+        file_extension = file_path.suffix.lower()
+
+        if file_extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {file_extension}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+
+        logger.info(
+            f"Processing upload: {file.filename} ({file_size / 1024 / 1024:.1f}MB)"
+        )
+
+        processed_files = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+
+            if file_extension == ".zip":
+                # Handle ZIP files
+                zip_path = temp_dir_path / file.filename
+                with zip_path.open("wb") as buffer:
+                    content = await file.read()
+                    buffer.write(content)
+
+                try:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        # Extract all PDF files
+                        for zip_file in zip_ref.namelist():
+                            if zip_file.endswith("/") or zip_file.startswith("."):
+                                continue
+
+                            zip_file_path = Path(zip_file)
+                            if zip_file_path.suffix.lower() == ".pdf":
+                                # Extract file
+                                extracted_path = temp_dir_path / zip_file_path.name
+                                with (
+                                    zip_ref.open(zip_file) as source,
+                                    extracted_path.open("wb") as target,
+                                ):
+                                    target.write(source.read())
+
+                                # Process PDF with OCR
+                                try:
+                                    content = await process_pdf_ocr(
+                                        extracted_path, zip_file_path.name
+                                    )
+
+                                    # Save to PostgreSQL
+                                    doc_id = await save_to_postgres(
+                                        zip_file_path.name, "pdf", content, lot_id
+                                    )
+
+                                    # Index in ChromaDB
+                                    await index_in_chromadb(
+                                        doc_id, zip_file_path.name, content, lot_id
+                                    )
+
+                                    # Add to results
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview=(
+                                                content[:200] + "..."
+                                                if len(content) > 200
+                                                else content
+                                            ),
+                                        )
+                                    )
+
+                                except Exception as process_error:
+                                    logger.error(
+                                        f"Failed to process {zip_file_path.name}: {process_error}"
+                                    )
+                                    # Add failed file to results
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview="[Processing failed]",
+                                        )
+                                    )
+
+                        if not processed_files:
+                            logger.warning(
+                                f"No PDF files found in ZIP: {file.filename}"
+                            )
+                            return UploadResponse(status="error", files=[])
+
+                except zipfile.BadZipFile as e:
+                    logger.error(f"Invalid ZIP file: {file.filename}")
+                    raise HTTPException(
+                        status_code=400, detail="Invalid or corrupted ZIP file"
+                    ) from e
+
+            elif file_extension == ".pdf":
+                # Handle single PDF file
+                pdf_path = temp_dir_path / file.filename
+                with pdf_path.open("wb") as buffer:
+                    content = await file.read()
+                    buffer.write(content)
+
+                # Process PDF with OCR
+                content = await process_pdf_ocr(pdf_path, file.filename)
+
+                # Save to PostgreSQL
+                doc_id = await save_to_postgres(file.filename, "pdf", content, lot_id)
+
+                # Index in ChromaDB
+                await index_in_chromadb(doc_id, file.filename, content, lot_id)
+
+                # Add to results
+                processed_files.append(
+                    ProcessedFile(
+                        file_name=file.filename,
+                        file_type="pdf",
+                        content_preview=(
+                            content[:200] + "..." if len(content) > 200 else content
+                        ),
+                    )
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=400, detail=f"Unexpected file type: {file_extension}"
+                )
+
+        logger.info(f"Successfully processed {len(processed_files)} files")
+        return UploadResponse(status="ok", files=processed_files)
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Upload processing failed for {file.filename}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"File processing failed: {str(e)}"
+        ) from e
 
 
 @app.post("/run", response_model=ETLResponse)

@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -179,3 +179,25 @@ chroma-test: ## Quick ChromaDB connectivity test
 	@curl -f http://localhost:8010/api/v2/heartbeat 2>/dev/null && echo "✅ ChromaDB OK" || echo "❌ ChromaDB failed"
 	@curl -f http://localhost:7010/health && echo "✅ Embedding API OK" || echo "❌ Embedding API failed"
 	@curl -f http://localhost:7005/health && echo "✅ Goszakup API OK" || echo "❌ Goszakup API failed"
+
+etl-test: ## Run pytest tests for ETL service
+	@echo "🧪 Running ETL service tests..."
+	@cd services/etl-service && $(PYTHON_EXEC) -m pytest test_upload.py -v
+
+test-priority2: ## Test Priority 2 integration (ETL service OCR pipeline + ChromaDB)
+	@echo "🚀 Testing Priority 2 integration..."
+	@echo "🗄️  Starting required services..."
+	@$(COMPOSE) up -d db chromadb embedding-api
+	@echo "⏳ Waiting for services to be ready..."
+	@timeout 60 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 2; done"
+	@timeout 60 bash -c "until curl -fsS http://localhost:8010/api/v2/heartbeat 2>/dev/null; do sleep 2; done"
+	@timeout 60 bash -c "until curl -fsS http://localhost:7010/health 2>/dev/null; do sleep 2; done"
+	@echo "📋 Running ETL service tests..."
+	@cd services/etl-service && $(PYTHON_EXEC) -m pytest test_upload.py -v
+	@echo "🧪 Running integration tests..."
+	@bash services/etl-service/test_etl_upload.sh
+	@echo "🔍 Testing ChromaDB search functionality..."
+	@curl -s -X POST http://localhost:7010/search \
+	  -H 'content-type: application/json' \
+	  -d '{"query":"тест OCR","top_k":5,"collection":"etl_documents"}' | jq '.'
+	@echo "✅ Priority 2 integration tests completed!"

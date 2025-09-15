@@ -195,6 +195,51 @@ jobs:
             services/etl-service/ocr_loader.log
           retention-days: 7
 
+  etl-upload-test:
+    runs-on: ubuntu-latest
+    needs: migrate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-etl-${{ hashFiles('services/etl-service/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-etl-
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          cd services/etl-service
+          pip install -r requirements.txt
+      - name: Run ETL upload tests (pytest)
+        run: |
+          cd services/etl-service
+          python -m pytest test_upload.py -v
+      - name: Build ETL service container
+        run: |
+          cd services/etl-service
+          docker build -t zakupai-etl-service .
+      - name: Run integration tests
+        run: |
+          cd services/etl-service
+          bash test_etl_upload.sh
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etl-upload-test-logs
+          path: |
+            services/etl-service/test_files/
+          retention-days: 7
+
   bandit-scan:
     runs-on: ubuntu-latest
     permissions:
