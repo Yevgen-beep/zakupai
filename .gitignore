@@ -47,4 +47,7 @@ __pycache__/
 data/
 volumes/
 n8n-nodes/*/node_modules/
-test_files/scan_bundle.zip
+
+# Test files (PDFs, ZIPs) - only needed locally
+test_files/
+services/etl-service/test_files/
