@@ -160,11 +160,11 @@ setup-workflows: ## Setup and configure workflow services
 
 # Priority 1 Integration Commands
 test-priority1: ## Test Priority 1 integration (API Gateway + ChromaDB)
-	@echo "🚀 Testing Priority 1 integration..."
+	@echo "🚀 Testing Priority 1 integration (optimized with fail-fast)..."
 	@if [ -f .venv/bin/activate ]; then \
-		source .venv/bin/activate && python test_priority1_integration.py; \
+		source .venv/bin/activate && python -m pytest tests/test_priority1.py -q --maxfail=1 --disable-warnings -v; \
 	else \
-		$(PYTHON_EXEC) test_priority1_integration.py; \
+		$(PYTHON_EXEC) -m pytest tests/test_priority1.py -q --maxfail=1 --disable-warnings -v; \
 	fi
 
 chroma-up: ## Start ChromaDB and related services
