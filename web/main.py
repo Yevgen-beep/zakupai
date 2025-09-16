@@ -7,12 +7,16 @@ from pathlib import Path
 
 import httpx
 import pandas as pd
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
+
+# Load environment variables from .env
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +25,17 @@ logger = logging.getLogger(__name__)
 # Configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway")
 API_KEY = os.getenv("ZAKUPAI_API_KEY", "changeme")
+GOSZAKUP_TOKEN = os.getenv("GOSZAKUP_TOKEN")
+GOSZAKUP_API_URL = os.getenv("GOSZAKUP_API_URL", "http://goszakup-api:8001")
+
+if not GOSZAKUP_TOKEN:
+    logger.warning("GOSZAKUP_TOKEN not set - goszakup-api integration may not work")
+
+if not GOSZAKUP_API_URL:
+    logger.warning("GOSZAKUP_API_URL not set - using default goszakup-api:8001")
+
+# ETL Service URL (internal network)
+ETL_SERVICE_URL = "http://etl-service:8000"
 
 # FastAPI app
 app = FastAPI(
@@ -301,15 +316,123 @@ async def attachments_page(request: Request, search: str = None, page: int = 1):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    return {"status": "ok", "service": "web-ui", "goszakup_api_url": GOSZAKUP_API_URL}
+
+
+@app.get("/lots")
+async def get_lots(keyword: str = "лак", limit: int = 10):
+    """Get lots from internal goszakup-api service"""
     try:
-        # Check if we can reach the gateway
-        response = await client.get(f"{GATEWAY_URL}/calc/health")
-        if response.status_code == 200:
-            return {"status": "ok", "gateway": "connected"}
-        else:
-            return {"status": "degraded", "gateway": "unreachable"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{GOSZAKUP_API_URL}/search",
+                params={"keyword": keyword, "limit": limit},
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    f"Goszakup-api service error: {response.status_code} - {response.text}"
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Goszakup-api service error: {response.status_code}",
+                )
+
+    except httpx.TimeoutException as e:
+        logger.error(f"Goszakup-api service timeout: {e}")
+        raise HTTPException(408, "Goszakup-api service timeout") from e
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        logger.error(f"Goszakup-api service error: {e}")
+        raise HTTPException(
+            500, "Failed to fetch lots from goszakup-api service"
+        ) from e
+
+
+@app.post("/etl/upload")
+async def etl_upload(file: UploadFile = File(...)):
+    """Proxy ETL upload requests to etl-service"""
+    try:
+        # Forward the file to etl-service
+        files = {"file": (file.filename, file.file, file.content_type)}
+
+        async with httpx.AsyncClient(timeout=60.0) as etl_client:
+            response = await etl_client.post(
+                f"{ETL_SERVICE_URL}/etl/upload", files=files
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    f"ETL upload error: {response.status_code} - {response.text}"
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"ETL upload error: {response.status_code}",
+                )
+
+    except httpx.TimeoutException as e:
+        logger.error(f"ETL upload timeout: {e}")
+        raise HTTPException(408, "ETL upload timeout") from e
+    except Exception as e:
+        logger.error(f"ETL upload error: {e}")
+        raise HTTPException(500, "Failed to upload file to ETL service") from e
+
+
+@app.get("/search")
+async def search_lots(query: str, limit: int = 10):
+    """Search lots through goszakup-api service"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{GOSZAKUP_API_URL}/search", params={"keyword": query, "limit": limit}
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    f"Lot search error: {response.status_code} - {response.text}"
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Lot search error: {response.status_code}",
+                )
+
+    except httpx.TimeoutException as e:
+        logger.error(f"Lot search timeout: {e}")
+        raise HTTPException(408, "Lot search timeout") from e
+    except Exception as e:
+        logger.error(f"Lot search error: {e}")
+        raise HTTPException(500, "Failed to search lots") from e
+
+
+@app.post("/search/documents")
+async def search_documents(request: dict):
+    """Proxy document search requests to etl-service"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as etl_client:
+            response = await etl_client.post(f"{ETL_SERVICE_URL}/search", json=request)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    f"Document search error: {response.status_code} - {response.text}"
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Document search error: {response.status_code}",
+                )
+
+    except httpx.TimeoutException as e:
+        logger.error(f"Document search timeout: {e}")
+        raise HTTPException(408, "Document search timeout") from e
+    except Exception as e:
+        logger.error(f"Document search error: {e}")
+        raise HTTPException(500, "Failed to search documents") from e
 
 
 if __name__ == "__main__":

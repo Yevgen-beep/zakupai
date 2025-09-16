@@ -1,0 +1,425 @@
+{
+  "name": "Goszakup ETL Pipeline Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "mode": "everyHour"
+        },
+        "options": {
+          "weekdaysOnly": true
+        }
+      },
+      "id": "trigger-node",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://goszakup-api:8000/lots",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GOSZAKUP_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "days",
+              "value": "7"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxRetries": 3,
+            "waitBetween": 1000
+          }
+        }
+      },
+      "id": "fetch-lots",
+      "name": "Fetch Lots from Goszakup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Filter lots by keywords and extract file URLs\nconst items = $input.all();\nconst keywords = ['лак', 'краска', 'покрытие', 'материал', 'строительство'];\nconst results = [];\n\nfor (const item of items) {\n  const lots = item.json?.lots || [];\n  \n  for (const lot of lots) {\n    // Check if lot title or description contains keywords\n    const title = (lot.nameRu || '').toLowerCase();\n    const description = (lot.descriptionRu || '').toLowerCase();\n    const searchText = `${title} ${description}`;\n    \n    const hasKeyword = keywords.some(keyword => \n      searchText.includes(keyword.toLowerCase())\n    );\n    \n    if (hasKeyword && lot.files && lot.files.length > 0) {\n      // Extract file URLs for processing\n      for (const file of lot.files) {\n        if (file.originalName?.toLowerCase().includes('.pdf')) {\n          results.push({\n            json: {\n              lot_id: lot.id,\n              file_url: file.filePath,\n              file_name: file.originalName,\n              customerBin: lot.customer?.bin || null,\n              supplierBin: lot.supplier?.bin || null,\n              lot_title: lot.nameRu,\n              lot_amount: lot.amount,\n              matched_keywords: keywords.filter(k => searchText.includes(k.toLowerCase()))\n            }\n          });\n        }\n      }\n    }\n  }\n}\n\n// Log filtering results\nconsole.log(`Processed ${items.length} API responses`);\nconsole.log(`Found ${results.length} matching documents`);\n\nreturn results;"
+      },
+      "id": "filter-lots",
+      "name": "Filter by Keywords",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://etl-service:8000/etl/upload",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "lot_id",
+              "value": "={{ $json.lot_id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file_url",
+              "value": "={{ $json.file_url }}"
+            },
+            {
+              "name": "file_name",
+              "value": "={{ $json.file_name }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "retry": {
+            "enabled": true,
+            "maxRetries": 2,
+            "waitBetween": 5000
+          }
+        }
+      },
+      "id": "upload-to-etl",
+      "name": "Upload to ETL Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "upload-success",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-upload",
+      "name": "Check Upload Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://etl-service:8000/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $('Filter by Keywords').item.json.matched_keywords.join(' ') }}"
+            },
+            {
+              "name": "collection",
+              "value": "etl_documents"
+            },
+            {
+              "name": "top_k",
+              "value": "3"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxRetries": 2,
+            "waitBetween": 2000
+          }
+        }
+      },
+      "id": "search-chromadb",
+      "name": "Search in ChromaDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "found-results",
+              "leftValue": "={{ $json.total_found }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-search-results",
+      "name": "Check Search Results",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format search results for Telegram notification\nconst searchResults = $json.results || [];\nconst lotInfo = $('Filter by Keywords').item.json;\n\nif (searchResults.length === 0) {\n  return [];\n}\n\nconst notifications = [];\n\nfor (const result of searchResults.slice(0, 3)) { // Top 3 results\n  const message = `🔍 *Найден релевантный документ*\\n\\n` +\n    `📄 *Лот*: ${lotInfo.lot_title}\\n` +\n    `🆔 *ID*: ${lotInfo.lot_id}\\n` +\n    `💰 *Сумма*: ${lotInfo.lot_amount || 'Не указана'}\\n\\n` +\n    `📋 *Документ*: ${result.file_name}\\n` +\n    `⭐ *Релевантность*: ${Math.round(result.score * 100)}%\\n\\n` +\n    `📝 *Фрагмент*: ${(result.content_preview || '').substring(0, 200)}...\\n\\n` +\n    `🔗 *Ссылка*: https://goszakup.gov.kz/lot/${lotInfo.lot_id}\\n` +\n    `🏷️ *Ключевые слова*: ${lotInfo.matched_keywords.join(', ')}`;\n    \n  notifications.push({\n    json: {\n      message: message,\n      lot_id: lotInfo.lot_id,\n      file_name: result.file_name,\n      score: result.score,\n      customerBin: lotInfo.customerBin,\n      supplierBin: lotInfo.supplierBin\n    }\n  });\n}\n\nconsole.log(`Prepared ${notifications.length} Telegram notifications`);\nreturn notifications;"
+      },
+      "id": "format-telegram",
+      "name": "Format for Telegram",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.message }}",
+        "parseMode": "Markdown",
+        "options": {
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "send-telegram",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        120
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "passThrough"
+      },
+      "id": "no-search-results",
+      "name": "No Search Results",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough"
+      },
+      "id": "upload-failed",
+      "name": "Upload Failed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        400
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Lots from Goszakup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Lots from Goszakup": {
+      "main": [
+        [
+          {
+            "node": "Filter by Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter by Keywords": {
+      "main": [
+        [
+          {
+            "node": "Upload to ETL Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to ETL Service": {
+      "main": [
+        [
+          {
+            "node": "Check Upload Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Upload Status": {
+      "main": [
+        [
+          {
+            "node": "Search in ChromaDB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upload Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search in ChromaDB": {
+      "main": [
+        [
+          {
+            "node": "Check Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Search Results": {
+      "main": [
+        [
+          {
+            "node": "Format for Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for Telegram": {
+      "main": [
+        [
+          {
+          "node": "Send to Telegram",
+          "type": "main",
+          "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "zakupai-n8n-instance"
+  },
+  "id": "goszakup-etl-pipeline",
+  "tags": []
+}

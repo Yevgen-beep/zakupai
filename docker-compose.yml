@@ -152,7 +152,7 @@ services:
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      web:
+      web-ui:
         condition: service_healthy  # Дожидаемся готовности веб-приложения
       calc-service:
         condition: service_started
@@ -255,9 +255,9 @@ services:
       - zakupai-network
     restart: unless-stopped
 
-  web:
+  web-ui:
     build: ./web
-    container_name: zakupai-web
+    container_name: zakupai-web-ui
     ports:
       - "8082:8000"  # Прямой доступ для отладки
     env_file:
@@ -265,9 +265,13 @@ services:
     environment:
       - GATEWAY_URL=http://gateway  # Внутренние вызовы к API через gateway
       - ZAKUPAI_API_KEY=changeme
+      - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
+      - GOSZAKUP_API_URL=http://goszakup-api:8001
     depends_on:
       db:
         condition: service_healthy  # Дожидаемся готовности БД
+      goszakup-api:
+        condition: service_started
       calc-service:
         condition: service_started
       risk-engine:

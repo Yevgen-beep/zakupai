@@ -267,11 +267,34 @@ run_tests() {
     fi
     echo ""
 
-    # Test 8: Test ETL service search endpoint
+    # Test 8: Test URL upload endpoint
+    log_info "Running test: URL Upload Endpoint Test"
+
+    # Mock URL for testing (would normally be a real Goszakup file URL)
+    test_url="https://httpbin.org/base64/JVBERi0xLjQKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PmVuZG9iago=="
+
+    url_upload_response=$(curl -s -X POST "$ETL_HOST/etl/upload-url" \
+        -H "Content-Type: application/json" \
+        -d "{\"file_url\":\"$test_url\",\"file_name\":\"test_from_url.pdf\",\"lot_id\":\"TEST_LOT_123\"}" 2>/dev/null)
+
+    url_upload_http_code=$(curl -s -w '%{http_code}' -X POST "$ETL_HOST/etl/upload-url" \
+        -H "Content-Type: application/json" \
+        -d "{\"file_url\":\"$test_url\",\"file_name\":\"test_from_url.pdf\",\"lot_id\":\"TEST_LOT_123\"}" \
+        -o /dev/null 2>/dev/null)
+
+    if [[ "$url_upload_http_code" == "200" ]]; then
+        log_success "URL Upload Test - HTTP 200 ✅"
+        echo "$url_upload_response" | python3 -m json.tool 2>/dev/null | head -10
+    else
+        log_warning "URL Upload Test - HTTP $url_upload_http_code (may be expected if httpbin is not available) ⚠️"
+    fi
+    echo ""
+
+    # Test 9: Test ETL service search endpoint
     log_info "Running test: ETL Search Endpoint Test"
 
     # First, wait a moment for indexing to complete after uploads
-    sleep 2
+    sleep 3
 
     # Test search for common Russian terms
     for search_term in "тест" "документ" "text"; do
@@ -319,10 +342,10 @@ except:
     # Summary
     echo "=================================================="
     if [[ $failed_tests -eq 0 ]]; then
-        log_success "🎉 All tests passed! (8 tests)"
+        log_success "🎉 All tests passed! (9 tests)"
         return 0
     else
-        log_error "❌ $failed_tests test(s) failed out of 8"
+        log_error "❌ $failed_tests test(s) failed out of 9"
         return 1
     fi
 }

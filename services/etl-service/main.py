@@ -115,6 +115,14 @@ class SearchResponse(BaseModel):
     total_found: int
 
 
+class URLUploadRequest(BaseModel):
+    file_url: str = Field(..., description="URL to download PDF/ZIP file")
+    file_name: str | None = Field(None, description="Optional file name")
+    lot_id: str | None = Field(
+        None, description="Lot identifier for document association"
+    )
+
+
 async def process_pdf_ocr(file_path: Path, file_name: str) -> str:
     """
     Process PDF file with OCR using PyMuPDF and Tesseract
@@ -546,6 +554,212 @@ async def upload_file(file: UploadFile = File(...), lot_id: str | None = None):
         raise
     except Exception as e:
         logger.error(f"Upload processing failed for {file.filename}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"File processing failed: {str(e)}"
+        ) from e
+
+
+@app.post("/etl/upload-url", response_model=UploadResponse)
+async def upload_file_from_url(request: URLUploadRequest):
+    """
+    Download and process PDF or ZIP files from URL with OCR
+
+    - **file_url**: URL to download PDF or ZIP file (max 50MB)
+    - **file_name**: Optional file name (auto-detected if not provided)
+    - **lot_id**: Optional lot identifier for document association
+    - **Returns**: JSON with processed files and content previews
+
+    Supported formats: .pdf, .zip
+    Processing: PyMuPDF text extraction + Tesseract OCR for scans
+    Storage: PostgreSQL + ChromaDB indexing
+    """
+    from urllib.parse import urlparse
+
+    import aiohttp
+
+    try:
+        # Download file from URL
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                request.file_url, timeout=aiohttp.ClientTimeout(total=60)
+            ) as response:
+                if response.status != 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to download file from URL: HTTP {response.status}",
+                    )
+
+                # Check content length
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > MAX_FILE_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB, got: {int(content_length) / 1024 / 1024:.1f}MB",
+                    )
+
+                file_content = await response.read()
+
+                # Check actual file size
+                if len(file_content) > MAX_FILE_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB, got: {len(file_content) / 1024 / 1024:.1f}MB",
+                    )
+
+        # Determine file name
+        if request.file_name:
+            file_name = request.file_name
+        else:
+            # Extract from URL
+            parsed_url = urlparse(request.file_url)
+            file_name = Path(parsed_url.path).name or "downloaded_file.pdf"
+
+        # Validate file extension
+        file_path = Path(file_name)
+        file_extension = file_path.suffix.lower()
+
+        if file_extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {file_extension}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+
+        logger.info(
+            f"Processing URL download: {file_name} from {request.file_url} ({len(file_content) / 1024 / 1024:.1f}MB)"
+        )
+
+        processed_files = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+
+            if file_extension == ".zip":
+                # Handle ZIP files
+                zip_path = temp_dir_path / file_name
+                with zip_path.open("wb") as buffer:
+                    buffer.write(file_content)
+
+                try:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        # Extract all PDF files
+                        for zip_file in zip_ref.namelist():
+                            if zip_file.endswith("/") or zip_file.startswith("."):
+                                continue
+
+                            zip_file_path = Path(zip_file)
+                            if zip_file_path.suffix.lower() == ".pdf":
+                                # Extract file
+                                extracted_path = temp_dir_path / zip_file_path.name
+                                with (
+                                    zip_ref.open(zip_file) as source,
+                                    extracted_path.open("wb") as target,
+                                ):
+                                    target.write(source.read())
+
+                                # Process PDF with OCR
+                                try:
+                                    content = await process_pdf_ocr(
+                                        extracted_path, zip_file_path.name
+                                    )
+
+                                    # Save to PostgreSQL
+                                    doc_id = await save_to_postgres(
+                                        zip_file_path.name,
+                                        "pdf",
+                                        content,
+                                        request.lot_id,
+                                    )
+
+                                    # Index in ChromaDB
+                                    await index_in_chromadb(
+                                        doc_id,
+                                        zip_file_path.name,
+                                        content,
+                                        request.lot_id,
+                                    )
+
+                                    # Add to results
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview=(
+                                                content[:200] + "..."
+                                                if len(content) > 200
+                                                else content
+                                            ),
+                                        )
+                                    )
+
+                                except Exception as process_error:
+                                    logger.error(
+                                        f"Failed to process {zip_file_path.name}: {process_error}"
+                                    )
+                                    # Add failed file to results with fail-soft behavior
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview="[Processing failed]",
+                                        )
+                                    )
+
+                        if not processed_files:
+                            logger.warning(f"No PDF files found in ZIP: {file_name}")
+                            return UploadResponse(status="error", files=[])
+
+                except zipfile.BadZipFile as e:
+                    logger.error(f"Invalid ZIP file: {file_name}")
+                    raise HTTPException(
+                        status_code=400, detail="Invalid or corrupted ZIP file"
+                    ) from e
+
+            elif file_extension == ".pdf":
+                # Handle single PDF file
+                pdf_path = temp_dir_path / file_name
+                with pdf_path.open("wb") as buffer:
+                    buffer.write(file_content)
+
+                # Process PDF with OCR
+                content = await process_pdf_ocr(pdf_path, file_name)
+
+                # Save to PostgreSQL
+                doc_id = await save_to_postgres(
+                    file_name, "pdf", content, request.lot_id
+                )
+
+                # Index in ChromaDB
+                await index_in_chromadb(doc_id, file_name, content, request.lot_id)
+
+                # Add to results
+                processed_files.append(
+                    ProcessedFile(
+                        file_name=file_name,
+                        file_type="pdf",
+                        content_preview=(
+                            content[:200] + "..." if len(content) > 200 else content
+                        ),
+                    )
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=400, detail=f"Unexpected file type: {file_extension}"
+                )
+
+        logger.info(f"Successfully processed {len(processed_files)} files from URL")
+        return UploadResponse(status="ok", files=processed_files)
+
+    except aiohttp.ClientError as e:
+        logger.error(f"Failed to download from URL {request.file_url}: {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to download file: {str(e)}"
+        ) from e
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"URL upload processing failed for {request.file_url}: {e}")
         raise HTTPException(
             status_code=500, detail=f"File processing failed: {str(e)}"
         ) from e
