@@ -1,35 +1,70 @@
 import io
-import logging
 import math
 import os
 import tempfile
+import uuid
 import zipfile
 from pathlib import Path
 
 import aiohttp
 import fitz  # PyMuPDF
+import pandas as pd
 import psycopg2
 import psycopg2.extras
 import pytesseract
+import structlog
 from dotenv import load_dotenv
 from etl import ETLService
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from middleware import FileSizeMiddleware
+from models import BatchUploadError, BatchUploadResponse, BatchUploadRow, ETLBatchUpload
 from PIL import Image
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# Configure logging with structlog
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.dev.ConsoleRenderer(),
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
 )
-logger = logging.getLogger(__name__)
+
+logger = structlog.get_logger(__name__)
+
+# Database setup
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://zakupai:password123@localhost:5432/zakupai"
+)
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 app = FastAPI(
     title="ETL Service",
     description="ETL service for ZakupAI platform - loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
     version="1.0.0",
 )
+
+# Add middleware
+app.add_middleware(FileSizeMiddleware)
 
 # Constants
 MAX_FILE_SIZE_MB = 50
@@ -1059,6 +1094,228 @@ async def get_attachment(attachment_id: int, _: bool = Depends(check_env_variabl
         ) from e
 
 
+async def process_csv_file(
+    file_content: bytes, batch_id: str
+) -> tuple[list[ETLBatchUpload], list[BatchUploadError]]:
+    """Process CSV file and return valid records and errors"""
+    records = []
+    errors = []
+
+    try:
+        # Read CSV with pandas
+        df = pd.read_csv(io.BytesIO(file_content))
+
+        for index, row in df.iterrows():
+            row_num = index + 2  # +2 because pandas is 0-indexed and we skip header
+
+            try:
+                # Validate row with Pydantic
+                validated_row = BatchUploadRow(
+                    bin=str(row.get("bin", "")).strip(),
+                    amount=float(row.get("amount", 0)),
+                    status=str(row.get("status", "")).strip(),
+                )
+
+                # Create SQLAlchemy record
+                record = ETLBatchUpload(
+                    bin=validated_row.bin,
+                    amount=validated_row.amount,
+                    status=validated_row.status,
+                    batch_id=batch_id,
+                )
+                records.append(record)
+
+            except (ValidationError, ValueError, TypeError) as e:
+                error_msg = str(e)
+                if "validation error" in error_msg.lower():
+                    # Extract specific validation errors
+                    error_msg = error_msg.split("\n")[0].replace(
+                        "1 validation error for BatchUploadRow\n", ""
+                    )
+
+                errors.append(BatchUploadError(row=row_num, error=error_msg))
+
+    except Exception as e:
+        errors.append(BatchUploadError(row=1, error=f"Failed to parse CSV: {str(e)}"))
+
+    return records, errors
+
+
+async def process_excel_file(
+    file_content: bytes, batch_id: str
+) -> tuple[list[ETLBatchUpload], list[BatchUploadError]]:
+    """Process Excel file and return valid records and errors"""
+    records = []
+    errors = []
+
+    try:
+        # Read Excel with pandas
+        df = pd.read_excel(io.BytesIO(file_content))
+
+        for index, row in df.iterrows():
+            row_num = index + 2  # +2 because pandas is 0-indexed and we skip header
+
+            try:
+                # Validate row with Pydantic
+                validated_row = BatchUploadRow(
+                    bin=str(row.get("bin", "")).strip(),
+                    amount=float(row.get("amount", 0)),
+                    status=str(row.get("status", "")).strip(),
+                )
+
+                # Create SQLAlchemy record
+                record = ETLBatchUpload(
+                    bin=validated_row.bin,
+                    amount=validated_row.amount,
+                    status=validated_row.status,
+                    batch_id=batch_id,
+                )
+                records.append(record)
+
+            except (ValidationError, ValueError, TypeError) as e:
+                error_msg = str(e)
+                if "validation error" in error_msg.lower():
+                    # Extract specific validation errors
+                    error_msg = error_msg.split("\n")[0].replace(
+                        "1 validation error for BatchUploadRow\n", ""
+                    )
+
+                errors.append(BatchUploadError(row=row_num, error=error_msg))
+
+    except Exception as e:
+        errors.append(BatchUploadError(row=1, error=f"Failed to parse Excel: {str(e)}"))
+
+    return records, errors
+
+
+@app.post("/etl/upload-batch", response_model=BatchUploadResponse)
+async def upload_batch(file: UploadFile = File(...), db=Depends(get_db)):
+    """
+    Upload and process CSV/XLSX files for batch data import
+
+    - **file**: CSV or XLSX file with columns: bin, amount, status
+    - Maximum file size: 10MB
+    - Supports chunk processing for large files
+
+    Expected CSV/XLSX columns:
+    - bin: 12-digit Business Identification Number
+    - amount: Transaction amount (>= 0)
+    - status: NEW, APPROVED, or REJECTED
+    """
+
+    # Validate file extension
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if file_ext not in {".csv", ".xlsx"}:
+        raise HTTPException(
+            status_code=400, detail="Only CSV and XLSX files are supported"
+        )
+
+    batch_id = str(uuid.uuid4())
+
+    try:
+        # Read file content
+        file_content = await file.read()
+
+        logger.info(
+            "Processing batch upload",
+            batch_id=batch_id,
+            filename=file.filename,
+            file_size=len(file_content),
+        )
+
+        # Process based on file type
+        if file_ext == ".csv":
+            # For large files, use chunk processing (>1MB)
+            if len(file_content) > 1024 * 1024:  # 1MB
+                # Implement chunk processing for CSV
+                records = []
+                errors = []
+
+                try:
+                    df_chunks = pd.read_csv(io.BytesIO(file_content), chunksize=1000)
+
+                    for chunk_num, chunk in enumerate(df_chunks):
+                        chunk_records, chunk_errors = await process_csv_chunk(
+                            chunk, batch_id, chunk_num
+                        )
+                        records.extend(chunk_records)
+                        errors.extend(chunk_errors)
+
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to process CSV chunks: {str(e)}",
+                    ) from e
+            else:
+                records, errors = await process_csv_file(file_content, batch_id)
+
+        elif file_ext == ".xlsx":
+            records, errors = await process_excel_file(file_content, batch_id)
+
+        # Save valid records to database
+        if records:
+            db.add_all(records)
+            db.commit()
+
+            logger.info(
+                "Batch upload completed",
+                batch_id=batch_id,
+                records_saved=len(records),
+                errors_count=len(errors),
+            )
+
+        return BatchUploadResponse(
+            success=True, batch_id=batch_id, rows_processed=len(records), errors=errors
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error("Batch upload failed", batch_id=batch_id, error=str(e))
+
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
+
+
+async def process_csv_chunk(
+    chunk, batch_id: str, chunk_num: int
+) -> tuple[list[ETLBatchUpload], list[BatchUploadError]]:
+    """Process a single CSV chunk"""
+    records = []
+    errors = []
+
+    for index, row in chunk.iterrows():
+        row_num = (chunk_num * 1000) + index + 2  # Account for chunk offset and header
+
+        try:
+            validated_row = BatchUploadRow(
+                bin=str(row.get("bin", "")).strip(),
+                amount=float(row.get("amount", 0)),
+                status=str(row.get("status", "")).strip(),
+            )
+
+            record = ETLBatchUpload(
+                bin=validated_row.bin,
+                amount=validated_row.amount,
+                status=validated_row.status,
+                batch_id=batch_id,
+            )
+            records.append(record)
+
+        except (ValidationError, ValueError, TypeError) as e:
+            error_msg = str(e)
+            if "validation error" in error_msg.lower():
+                error_msg = error_msg.split("\n")[0].replace(
+                    "1 validation error for BatchUploadRow\n", ""
+                )
+
+            errors.append(BatchUploadError(row=row_num, error=error_msg))
+
+    return records, errors
+
+
 @app.get("/")
 async def root():
     """Root endpoint with service information"""
@@ -1068,6 +1325,7 @@ async def root():
         "endpoints": {
             "/health": "Health check",
             "/run": "Run ETL process",
+            "/etl/upload-batch": "Upload CSV/XLSX for batch processing",
             "/attachments": "Get OCR processed attachments",
             "/docs": "API documentation",
         },

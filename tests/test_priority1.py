@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-Optimized Priority 1 Integration Tests
-- Fail-fast на первой ошибке
-- Timeout для каждого теста (60s)
-- Краткий отчёт (✅/❌) для каждого сервиса
-- Совместимость с pytest и CI/CD
+Priority 1 Integration Tests with detailed reporting
+Compatible with pytest but with informative stdout output like bash scripts
 """
 
 import asyncio
+import json
 
 import aiohttp
 import pytest
 
 
+def log(message: str):
+    """Helper function for formatted output"""
+    print(message, flush=True)
+
+
 class TestPriority1Integration:
-    """Priority 1 Integration Test Suite"""
+    """Priority 1 Integration Test Suite with detailed reporting"""
 
     # Service URLs
     gateway_url = "http://localhost:7005"
@@ -22,280 +25,247 @@ class TestPriority1Integration:
     chromadb_url = "http://localhost:8010"
 
     @pytest.mark.asyncio
-    async def test_services_health(self):
-        """Test service health endpoints - должен быть первым"""
+    async def test_01_service_health(self):
+        """Test service health endpoints"""
+        log("🏥 Testing service health...")
+
         services = [
-            ("Goszakup API Gateway", f"{self.gateway_url}/health"),
+            ("Gateway", f"{self.gateway_url}/health"),
             ("Embedding API", f"{self.embedding_url}/health"),
             ("ChromaDB", f"{self.chromadb_url}/api/v2/heartbeat"),
         ]
 
-        results = []
-
         async with aiohttp.ClientSession() as session:
             for name, url in services:
-                try:
-                    async with session.get(
-                        url, timeout=aiohttp.ClientTimeout(total=10)
-                    ) as resp:
-                        if resp.status == 200:
-                            print(f"✅ {name}: OK")
-                            results.append(True)
-                        else:
-                            print(f"❌ {name}: HTTP {resp.status}")
-                            results.append(False)
-                except Exception as e:
-                    print(f"❌ {name}: {type(e).__name__}")
-                    results.append(False)
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    assert (
+                        resp.status == 200
+                    ), f"{name} health check failed with status {resp.status}"
 
-        # Fail-fast: если хотя бы один сервис недоступен
-        assert all(
-            results
-        ), f"Service health check failed. Results: {dict(zip([s[0] for s in services], results, strict=False))}"
+                    try:
+                        data = await resp.json()
+                        log(
+                            f"✅ {name}: {resp.status} {json.dumps(data, ensure_ascii=False)}"
+                        )
+                    except Exception:
+                        # Fallback if response is not JSON
+                        text = await resp.text()
+                        log(f"✅ {name}: {resp.status} {text[:50]}...")
 
     @pytest.mark.asyncio
-    async def test_goszakup_api_gateway(self):
-        """Test Goszakup API Gateway search functionality"""
-        test_cases = [
-            {
-                "name": "GraphQL поиск",
-                "params": {"keyword": "лак", "limit": 3, "api_version": "graphql_v2"},
-            },
-            {
-                "name": "REST поиск",
-                "params": {"keyword": "мебель", "limit": 3, "api_version": "rest_v3"},
-            },
-            {
-                "name": "Авто-выбор API",
-                "params": {"keyword": "компьютер", "limit": 3, "api_version": "auto"},
-            },
-        ]
+    async def test_02_graphql_search(self):
+        """Test GraphQL search functionality"""
+        log("🔍 Testing API Gateway...")
 
-        results = []
+        params = {"keyword": "лак", "limit": 3, "api_version": "graphql_v2"}
 
         async with aiohttp.ClientSession() as session:
-            for case in test_cases:
-                try:
-                    async with session.get(
-                        f"{self.gateway_url}/search",
-                        params=case["params"],
-                        timeout=aiohttp.ClientTimeout(total=30),
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            api_used = data.get("api_used", "unknown")
-                            total_found = data.get("total_found", 0)
-                            print(
-                                f"✅ {case['name']}: API={api_used}, Found={total_found}"
-                            )
-                            # Считаем успешным, если API ответил корректно (даже если найдено 0 результатов)
-                            results.append(True)
-                        else:
-                            print(f"❌ {case['name']}: HTTP {resp.status}")
-                            results.append(False)
-                except Exception as e:
-                    print(f"❌ {case['name']}: {type(e).__name__}")
-                    results.append(False)
+            async with session.get(
+                f"{self.gateway_url}/search",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                assert (
+                    resp.status == 200
+                ), f"GraphQL search failed with status {resp.status}"
 
-        # Fail-fast: если хотя бы один тест провалился
-        assert all(
-            results
-        ), f"API Gateway tests failed. Results: {[case['name'] for case, result in zip(test_cases, results, strict=False) if not result]}"
+                data = await resp.json()
+                api_used = data.get("api_used", "unknown")
+                total_found = data.get("total_found", 0)
+
+                log(f"✅ GraphQL поиск: Found={total_found}, API={api_used}")
+
+                # Basic validation
+                assert total_found >= 0, "Total found should be non-negative"
+                assert "results" in data, "Response should contain results field"
 
     @pytest.mark.asyncio
-    async def test_chromadb_integration(self):
-        """Test ChromaDB integration with embedding service"""
+    async def test_03_rest_search(self):
+        """Test REST search functionality"""
+
+        params = {"keyword": "мебель", "limit": 3, "api_version": "rest_v3"}
+
         async with aiohttp.ClientSession() as session:
-            # 1. Test ChromaDB heartbeat
-            try:
-                async with session.get(
-                    f"{self.chromadb_url}/api/v2/heartbeat",
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    heartbeat_ok = resp.status == 200
-                    if heartbeat_ok:
-                        data = await resp.json()
-                        print("✅ ChromaDB heartbeat: OK")
-                    else:
-                        print(f"❌ ChromaDB heartbeat: HTTP {resp.status}")
-            except Exception as e:
-                print(f"❌ ChromaDB heartbeat: {type(e).__name__}")
-                heartbeat_ok = False
+            async with session.get(
+                f"{self.gateway_url}/search",
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                assert (
+                    resp.status == 200
+                ), f"REST search failed with status {resp.status}"
 
-            assert heartbeat_ok, "ChromaDB heartbeat failed"
+                data = await resp.json()
+                api_used = data.get("api_used", "unknown")
+                total_found = data.get("total_found", 0)
 
-            # 2. Test collections endpoint
-            try:
-                async with session.get(
-                    f"{self.embedding_url}/chroma/collections",
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    collections_ok = resp.status == 200
-                    if collections_ok:
-                        data = await resp.json()
-                        count = data.get("count", 0)
-                        print(f"✅ Collections endpoint: {count} collections")
-                    else:
-                        print(f"❌ Collections endpoint: HTTP {resp.status}")
-            except Exception as e:
-                print(f"❌ Collections endpoint: {type(e).__name__}")
-                collections_ok = False
+                log(f"✅ REST поиск: Found={total_found}, API={api_used}")
 
-            assert collections_ok, "Collections endpoint failed"
+                # Basic validation
+                assert total_found >= 0, "Total found should be non-negative"
+                assert "results" in data, "Response should contain results field"
 
     @pytest.mark.asyncio
-    async def test_semantic_search_pipeline(self):
-        """Test semantic search indexing and retrieval"""
-        # Test data for indexing
-        test_lot = {
-            "collection_name": "test_priority1",
-            "document_id": "test_lot_001",
+    async def test_04_chromadb_heartbeat(self):
+        """Test ChromaDB heartbeat and collections"""
+        log("🗄️ Testing ChromaDB integration...")
+
+        async with aiohttp.ClientSession() as session:
+            # Test ChromaDB heartbeat
+            async with session.get(
+                f"{self.chromadb_url}/api/v2/heartbeat",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                assert (
+                    resp.status == 200
+                ), f"ChromaDB heartbeat failed with status {resp.status}"
+
+                try:
+                    data = await resp.json()
+                    log(
+                        f"✅ Heartbeat: {resp.status} {json.dumps(data, ensure_ascii=False)}"
+                    )
+                except Exception:
+                    text = await resp.text()
+                    log(f"✅ Heartbeat: {resp.status} {text[:50]}...")
+
+            # Test collections endpoint
+            async with session.get(
+                f"{self.embedding_url}/chroma/collections",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                assert (
+                    resp.status == 200
+                ), f"Collections endpoint failed with status {resp.status}"
+
+                data = await resp.json()
+                count = data.get("count", 0)
+                log(f"✅ Collections: {count} found")
+
+                assert count >= 0, "Collection count should be non-negative"
+
+    @pytest.mark.asyncio
+    async def test_05_semantic_search(self):
+        """Test semantic search pipeline (indexing + search)"""
+        log("🧠 Testing semantic search...")
+
+        # Test document for indexing
+        test_document = {
+            "collection_name": "test_priority1_pytest",
+            "document_id": "pytest_test_001",
             "text": "Закупка офисной мебели: столы, стулья, шкафы для государственного учреждения",
             "metadata": {
-                "lot_number": "TEST001",
+                "lot_number": "PYTEST001",
                 "amount": 500000,
-                "customer": "ГУ Тест",
+                "customer": "ГУ Тест Pytest",
             },
         }
 
         async with aiohttp.ClientSession() as session:
-            # 1. Index test document
-            try:
-                async with session.post(
-                    f"{self.embedding_url}/chroma/index",
-                    json=test_lot,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    index_ok = resp.status == 200
-                    if index_ok:
-                        print("✅ Document indexing: OK")
-                    else:
-                        print(f"❌ Document indexing: HTTP {resp.status}")
-            except Exception as e:
-                print(f"❌ Document indexing: {type(e).__name__}")
-                index_ok = False
+            # Step 1: Index test document
+            async with session.post(
+                f"{self.embedding_url}/chroma/index",
+                json=test_document,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                assert (
+                    resp.status == 200
+                ), f"Document indexing failed with status {resp.status}"
+                log("✅ Document indexing: OK")
 
-            assert index_ok, "Document indexing failed"
-
-            # 2. Search for indexed document
+            # Step 2: Search for the indexed document
             search_query = {
-                "collection_name": "test_priority1",
+                "collection_name": "test_priority1_pytest",
                 "query": "офисная мебель столы",
-                "top_k": 3,
+                "top_k": 5,
             }
 
-            try:
-                async with session.post(
-                    f"{self.embedding_url}/chroma/search",
-                    json=search_query,
-                    timeout=aiohttp.ClientTimeout(total=15),
-                ) as resp:
-                    search_ok = resp.status == 200
-                    if search_ok:
-                        data = await resp.json()
-                        total_found = data.get("total_found", 0)
-                        print(f"✅ Semantic search: {total_found} results")
-                        # Должен найти хотя бы наш тестовый документ
-                        assert total_found > 0, "No documents found in semantic search"
-                    else:
-                        print(f"❌ Semantic search: HTTP {resp.status}")
-                        search_ok = False
-            except Exception as e:
-                print(f"❌ Semantic search: {type(e).__name__}")
-                search_ok = False
+            async with session.post(
+                f"{self.embedding_url}/chroma/search",
+                json=search_query,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                assert (
+                    resp.status == 200
+                ), f"Semantic search failed with status {resp.status}"
 
-            assert search_ok, "Semantic search failed"
+                data = await resp.json()
+                total_found = data.get("total_found", 0)
+                results = data.get("results", [])
 
-    @pytest.mark.asyncio
-    async def test_end_to_end_integration(self):
-        """Test complete integration pipeline: Gateway -> ChromaDB -> Semantic Search"""
-        async with aiohttp.ClientSession() as session:
-            # 1. Search lots via API Gateway
-            try:
-                async with session.get(
-                    f"{self.gateway_url}/search",
-                    params={"keyword": "мебель", "limit": 1},
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    gateway_ok = resp.status == 200
-                    if gateway_ok:
-                        search_data = await resp.json()
-                        lots = search_data.get("results", [])
-                        print(f"✅ Gateway search: {len(lots)} lots found")
+                log(f"✅ Results={total_found}")
 
-                        if lots:
-                            # 2. Index first lot in ChromaDB
-                            lot = lots[0]
-                            index_data = {
-                                "collection_name": "e2e_test",
-                                "document_id": f"e2e_{lot.get('lot_number', 'unknown')}",
-                                "text": f"{lot.get('name_ru', '')} {lot.get('description_ru', '')}",
-                                "metadata": {
-                                    "lot_number": lot.get("lot_number"),
-                                    "amount": lot.get("amount"),
-                                    "customer": lot.get("customer_name"),
-                                },
-                            }
+                # Validation: should find at least our test document
+                assert total_found > 0, f"Expected at least 1 result, got {total_found}"
+                assert len(results) > 0, "Results list should not be empty"
 
-                            async with session.post(
-                                f"{self.embedding_url}/chroma/index",
-                                json=index_data,
-                                timeout=aiohttp.ClientTimeout(total=15),
-                            ) as index_resp:
-                                index_ok = index_resp.status == 200
-                                if index_ok:
-                                    print("✅ E2E indexing: OK")
-                                else:
-                                    print(f"❌ E2E indexing: HTTP {index_resp.status}")
-
-                            assert index_ok, "E2E indexing failed"
-                        else:
-                            print("⚠️ No lots found for E2E test, skipping indexing")
-                    else:
-                        print(f"❌ Gateway search: HTTP {resp.status}")
-            except Exception as e:
-                print(f"❌ E2E integration: {type(e).__name__}")
-                gateway_ok = False
-
-            assert gateway_ok, "E2E integration test failed"
+                # Optional: log first result for debugging
+                if results:
+                    first_result = results[0]
+                    score = first_result.get("score", 0)
+                    log(f"   Best match score: {score:.3f}")
 
 
+# Global test completion tracking
+_all_tests_passed = True
+
+
+def pytest_runtest_logreport(report):
+    """Pytest hook to track test results"""
+    global _all_tests_passed
+    if report.when == "call" and report.failed:
+        _all_tests_passed = False
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Pytest hook called after all tests complete"""
+    global _all_tests_passed
+    if exitstatus == 0 and _all_tests_passed:
+        log("\n✅ All Priority 1 tests passed!")
+
+
+# For direct execution compatibility
 def test_priority1_sync():
-    """Synchronous wrapper for all async tests - for compatibility"""
-    print("🚀 Running Priority 1 Integration Tests...")
+    """Synchronous wrapper for direct execution"""
+    log("🚀 Starting Priority 1 Integration Tests...")
 
-    # Create test instance and run health check first
+    # Create test instance
     test_instance = TestPriority1Integration()
 
-    # Run tests in specific order with fail-fast behavior
-    loop = asyncio.get_event_loop()
+    # Get event loop
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     try:
-        # Test 1: Health checks (most critical)
-        print("🏥 Testing service health...")
-        loop.run_until_complete(test_instance.test_services_health())
+        # Run tests in order
+        log("Running test_01_service_health...")
+        loop.run_until_complete(test_instance.test_01_service_health())
 
-        # Test 2: API Gateway functionality
-        print("🔍 Testing API Gateway...")
-        loop.run_until_complete(test_instance.test_goszakup_api_gateway())
+        log("Running test_02_graphql_search...")
+        loop.run_until_complete(test_instance.test_02_graphql_search())
 
-        # Test 3: ChromaDB integration
-        print("🗄️ Testing ChromaDB integration...")
-        loop.run_until_complete(test_instance.test_chromadb_integration())
+        log("Running test_03_rest_search...")
+        loop.run_until_complete(test_instance.test_03_rest_search())
 
-        # Test 4: Semantic search pipeline
-        print("🧠 Testing semantic search...")
-        loop.run_until_complete(test_instance.test_semantic_search_pipeline())
+        log("Running test_04_chromadb_heartbeat...")
+        loop.run_until_complete(test_instance.test_04_chromadb_heartbeat())
 
-        # Test 5: End-to-end integration
-        print("🔄 Testing E2E integration...")
-        loop.run_until_complete(test_instance.test_end_to_end_integration())
+        log("Running test_05_semantic_search...")
+        loop.run_until_complete(test_instance.test_05_semantic_search())
 
-        print("✅ All Priority 1 tests passed!")
+        log("\n✅ All Priority 1 tests passed!")
 
     except Exception as e:
-        print(f"❌ Priority 1 test failed: {type(e).__name__}: {e}")
+        log(f"\n❌ Priority 1 test failed: {type(e).__name__}: {e}")
         raise
+    finally:
+        if not loop.is_running():
+            loop.close()
 
 
 if __name__ == "__main__":

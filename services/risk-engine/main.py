@@ -9,8 +9,11 @@ from typing import Any
 
 import psycopg2
 import yaml
-from fastapi import FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, Field, validator
+
+# Import RNU client
+from rnu_client import RNUClient, RNUValidationError, get_rnu_client
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -389,6 +392,75 @@ def risk_score(req: ScoreRequest):
         "saved": saved,
         "ts": datetime.now(UTC).isoformat(),
     }
+
+
+# ---------- RNU Validation Models ----------
+class RNUValidationResponse(BaseModel):
+    supplier_bin: str = Field(..., description="Business Identification Number")
+    is_blocked: bool = Field(
+        ..., description="Whether the supplier is blocked in RNU registry"
+    )
+    source: str = Field(..., description="Data source: 'cache' or 'api'")
+    validated_at: str = Field(..., description="ISO timestamp of validation")
+
+    @validator("supplier_bin")
+    def validate_supplier_bin(cls, v):
+        if not v or not v.isdigit() or len(v) != 12:
+            raise ValueError("Supplier BIN must be exactly 12 digits")
+        return v
+
+
+# ---------- RNU Validation Endpoint ----------
+@app.get("/validate_rnu/{supplier_bin}", response_model=RNUValidationResponse)
+async def validate_rnu_supplier(
+    supplier_bin: str, rnu_client: RNUClient = Depends(get_rnu_client)
+):
+    """
+    Validate supplier BIN through RNU registry with caching
+
+    - **supplier_bin**: Business Identification Number (12 digits)
+
+    Returns validation result with caching:
+    - Checks Redis cache first (TTL=24h)
+    - Falls back to PostgreSQL cache
+    - Calls external RNU API if not cached
+    - Updates both caches with result
+
+    Performance targets:
+    - Cache response: <500ms (95%)
+    - API response: <2sec (95%)
+    - Availability: ≥95%
+    """
+    try:
+        # Validate BIN format early
+        if not supplier_bin.isdigit() or len(supplier_bin) != 12:
+            raise HTTPException(
+                status_code=400, detail="Invalid BIN format: must be exactly 12 digits"
+            )
+
+        result = await rnu_client.validate_supplier(supplier_bin)
+
+        return RNUValidationResponse(**result)
+
+    except RNUValidationError as e:
+        log.error(f"RNU validation error for BIN {supplier_bin}: {str(e)}")
+
+        if "Invalid BIN format" in str(e):
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        elif "Rate limit exceeded" in str(e):
+            raise HTTPException(
+                status_code=429, detail="Rate limit exceeded, please try again later"
+            ) from e
+        else:
+            raise HTTPException(
+                status_code=503, detail="RNU service temporarily unavailable"
+            ) from e
+
+    except Exception as e:
+        log.error(
+            f"Unexpected error in RNU validation for BIN {supplier_bin}: {str(e)}"
+        )
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @app.get("/risk/explain/{lot_id}")

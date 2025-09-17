@@ -4,7 +4,9 @@
 """
 
 import logging
+import re
 
+import httpx
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
@@ -835,3 +837,156 @@ async def auto_cleanup_command(message: Message):
     except Exception as e:
         logger.error(f"Auto cleanup command error: {e}")
         await message.answer(f"❌ Ошибка автоочистки: {str(e)}")
+
+
+# ---------- RNU Validation Command ----------
+@router.message(Command("rnu"))
+async def cmd_rnu_validation(message: Message):
+    """
+    Команда /rnu для валидации поставщика через RNU реестр
+
+    Использование:
+    /rnu <БИН>
+
+    Где БИН - 12-значный номер поставщика
+    """
+    user_id = message.from_user.id
+
+    try:
+        # Проверяем API ключ и права доступа
+        api_key = await require_api_key_and_log_usage(message, "rnu", cost=1)
+        if not api_key:
+            return
+
+        # Парсим аргументы команды
+        command_args = message.text.split()
+
+        if len(command_args) != 2:
+            await message.answer(
+                "❌ Неверный формат команды!\n\n"
+                "📋 Использование: `/rnu <БИН>`\n"
+                "📝 Пример: `/rnu 123456789012`\n\n"
+                "БИН должен содержать ровно 12 цифр.",
+                parse_mode="Markdown",
+            )
+            return
+
+        supplier_bin = command_args[1].strip()
+
+        # Валидация БИН формата
+        if not re.match(r"^\d{12}$", supplier_bin):
+            await message.answer(
+                "❌ Некорректный формат БИН!\n\n"
+                "БИН должен содержать ровно 12 цифр без пробелов и других символов.\n"
+                "📝 Пример: `123456789012`",
+                parse_mode="Markdown",
+            )
+            return
+
+        # Показываем индикатор загрузки
+        loading_msg = await message.answer("🔍 Проверяем БИН в реестре RNU...")
+
+        # Вызываем RNU API через risk-engine
+        risk_engine_url = "http://risk-engine:8000"  # Docker service name
+        rnu_url = f"{risk_engine_url}/validate_rnu/{supplier_bin}"
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                response = await client.get(rnu_url)
+
+                # Удаляем индикатор загрузки
+                await loading_msg.delete()
+
+                if response.status_code == 200:
+                    result = response.json()
+
+                    # Форматируем результат
+                    status_icon = "🔴" if result["is_blocked"] else "🟢"
+                    status_text = (
+                        "Заблокирован" if result["is_blocked"] else "Не заблокирован"
+                    )
+                    source_text = "кэш" if result["source"] == "cache" else "API"
+
+                    # Парсим дату валидации
+                    from datetime import datetime
+
+                    try:
+                        validated_dt = datetime.fromisoformat(
+                            result["validated_at"].replace("Z", "+00:00")
+                        )
+                        validated_str = validated_dt.strftime("%d.%m.%Y %H:%M")
+                    except Exception:
+                        validated_str = result["validated_at"]
+
+                    response_text = (
+                        f"📊 **Результат проверки RNU**\n\n"
+                        f"🏢 **БИН:** `{supplier_bin}`\n"
+                        f"{status_icon} **Статус:** {status_text}\n"
+                        f"📅 **Проверено:** {validated_str}\n"
+                        f"💾 **Источник:** {source_text}\n\n"
+                    )
+
+                    if result["is_blocked"]:
+                        response_text += (
+                            "⚠️ **Внимание!** Поставщик находится в реестре недобросовестных участников (RNU).\n"
+                            "Рекомендуется проявить осторожность при работе с данным контрагентом."
+                        )
+                    else:
+                        response_text += (
+                            "✅ Поставщик не найден в реестре недобросовестных участников.\n"
+                            "Это не гарантирует отсутствие рисков, но является положительным фактором."
+                        )
+
+                    await message.answer(response_text, parse_mode="Markdown")
+
+                    # Логируем использование биллинга
+                    await billing_service.log_usage(
+                        user_id=user_id, service="rnu_validation", requests=1, cost=1
+                    )
+
+                elif response.status_code == 400:
+                    error_detail = response.json().get("detail", "Неизвестная ошибка")
+                    await message.answer(f"❌ Ошибка валидации: {error_detail}")
+
+                elif response.status_code == 429:
+                    await message.answer(
+                        "⏳ Превышен лимит запросов к RNU API.\n"
+                        "Попробуйте повторить запрос через несколько минут."
+                    )
+
+                elif response.status_code == 503:
+                    await message.answer(
+                        "🔧 Сервис RNU временно недоступен.\n"
+                        "Попробуйте повторить запрос позже."
+                    )
+
+                else:
+                    logger.error(
+                        f"RNU API returned unexpected status: {response.status_code}"
+                    )
+                    await message.answer(
+                        "❌ Ошибка при обращении к сервису RNU.\n"
+                        "Попробуйте повторить запрос позже."
+                    )
+
+            except httpx.TimeoutException:
+                await loading_msg.delete()
+                await message.answer(
+                    "⏰ Время ожидания ответа от сервиса истекло.\n"
+                    "Попробуйте повторить запрос позже."
+                )
+
+            except httpx.RequestError as e:
+                logger.error(f"RNU request error: {e}")
+                await loading_msg.delete()
+                await message.answer(
+                    "❌ Ошибка подключения к сервису RNU.\n"
+                    "Проверьте подключение к интернету и повторите попытку."
+                )
+
+    except Exception as e:
+        logger.error(f"RNU command error for user {user_id}: {e}")
+        await message.answer(
+            "❌ Произошла внутренняя ошибка.\n"
+            "Обратитесь в службу поддержки или повторите попытку позже."
+        )
