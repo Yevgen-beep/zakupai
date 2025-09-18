@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -25,6 +26,23 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 RNU_API_BASE_URL = "https://api.goszakup.gov.kz/rnu/validate"
 RNU_CACHE_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 RNU_REDIS_PREFIX = "rnu:"
+
+# RNU Status mapping from API to our ENUM
+RNU_STATUS_MAPPING = {
+    "active": "ACTIVE",
+    "действующий": "ACTIVE",
+    "blocked": "BLOCKED",
+    "заблокирован": "BLOCKED",
+    "suspended": "SUSPENDED",
+    "приостановлен": "SUSPENDED",
+    "liquidated": "LIQUIDATED",
+    "ликвидирован": "LIQUIDATED",
+    "blacklisted": "BLACKLISTED",
+    "черный_список": "BLACKLISTED",
+    "чёрный_список": "BLACKLISTED",
+    "unknown": "UNKNOWN",
+    "неизвестно": "UNKNOWN",
+}
 
 
 class RNUValidationError(Exception):
@@ -59,31 +77,78 @@ class RNUClient:
         return supplier_bin.isdigit() and len(supplier_bin) == 12
 
     async def get_from_redis_cache(self, supplier_bin: str) -> dict | None:
-        """Get validation result from Redis cache"""
+        """Get validation result from Redis cache with TTL expiry check"""
+        start_time = time.time()
         try:
             cache_key = f"{RNU_REDIS_PREFIX}{supplier_bin}"
+
+            # Check if we need to acquire lock for race condition protection
+            lock_key = f"lock:{cache_key}"
+            lock_acquired = False
+
             cached_data = await self.redis_client.get(cache_key)
 
             if cached_data:
                 import json
 
                 result = json.loads(cached_data)
-                result["source"] = "cache"
 
+                # Check TTL expiry in JSON data
+                if "expires_at" in result:
+                    from datetime import datetime
+
+                    expires_at = datetime.fromisoformat(
+                        result["expires_at"].replace("Z", "+00:00")
+                    )
+                    if datetime.now(UTC) > expires_at:
+                        # Cache expired, acquire lock and clean up
+                        lock_acquired = await self.redis_client.set(
+                            lock_key, "1", nx=True, ex=10
+                        )
+                        if lock_acquired:
+                            await self.redis_client.delete(cache_key)
+                            logger.info(
+                                "Cache expired and deleted",
+                                action="rnu_cache_expired",
+                                bin=supplier_bin,
+                                latency_ms=int((time.time() - start_time) * 1000),
+                            )
+                        return None
+
+                result["source"] = "cache"
                 logger.info(
                     "Cache hit for RNU validation",
-                    supplier_bin=supplier_bin,
+                    action="rnu_cache_hit",
+                    bin=supplier_bin,
                     is_blocked=result["is_blocked"],
+                    latency_ms=int((time.time() - start_time) * 1000),
                 )
                 return result
 
         except Exception as e:
             logger.warning(
                 "Failed to get from Redis cache",
-                supplier_bin=supplier_bin,
+                action="rnu_cache_error",
+                bin=supplier_bin,
                 error=str(e),
+                latency_ms=int((time.time() - start_time) * 1000),
             )
+        finally:
+            # Release lock if acquired
+            if "lock_acquired" in locals() and lock_acquired:
+                try:
+                    await self.redis_client.delete(
+                        f"lock:{RNU_REDIS_PREFIX}{supplier_bin}"
+                    )
+                except Exception:  # nosec B110
+                    pass
 
+        logger.info(
+            "Cache miss for RNU validation",
+            action="rnu_cache_miss",
+            bin=supplier_bin,
+            latency_ms=int((time.time() - start_time) * 1000),
+        )
         return None
 
     async def get_from_database_cache(self, supplier_bin: str) -> dict | None:
@@ -130,13 +195,18 @@ class RNUClient:
 
         return None
 
+    def map_rnu_status(self, api_status: str) -> str:
+        """Map API status to our ENUM values"""
+        api_status_lower = api_status.lower().strip()
+        return RNU_STATUS_MAPPING.get(api_status_lower, "UNKNOWN")
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
         reraise=True,
     )
     async def call_rnu_api(self, supplier_bin: str) -> dict:
-        """Call RNU API with retry logic"""
+        """Call RNU API with retry logic and status mapping"""
         url = f"{RNU_API_BASE_URL}/{supplier_bin}"
 
         try:
@@ -145,10 +215,22 @@ class RNUClient:
             if response.status_code == 200:
                 api_result = response.json()
 
-                # Map API response to our format
+                # Extract status from API response
+                api_status = api_result.get("status", "unknown")
+                mapped_status = self.map_rnu_status(api_status)
+
+                # Determine is_blocked based on status
+                is_blocked = mapped_status in [
+                    "BLOCKED",
+                    "SUSPENDED",
+                    "LIQUIDATED",
+                    "BLACKLISTED",
+                ]
+
                 validation_result = {
                     "supplier_bin": supplier_bin,
-                    "is_blocked": api_result.get("blocked", False),
+                    "status": mapped_status,
+                    "is_blocked": is_blocked,
                     "validated_at": datetime.now(UTC).isoformat(),
                     "source": "api",
                 }
@@ -156,16 +238,18 @@ class RNUClient:
                 logger.info(
                     "Successful RNU API call",
                     supplier_bin=supplier_bin,
-                    is_blocked=validation_result["is_blocked"],
+                    status=mapped_status,
+                    is_blocked=is_blocked,
                     response_status=response.status_code,
                 )
 
                 return validation_result
 
             elif response.status_code == 404:
-                # Supplier not found in registry - treat as not blocked
+                # Supplier not found in registry - treat as unknown
                 validation_result = {
                     "supplier_bin": supplier_bin,
+                    "status": "UNKNOWN",
                     "is_blocked": False,
                     "validated_at": datetime.now(UTC).isoformat(),
                     "source": "api",
@@ -210,13 +294,20 @@ class RNUClient:
             raise RNUValidationError(f"API request failed: {str(e)}") from e
 
     async def save_to_redis_cache(self, supplier_bin: str, result: dict):
-        """Save validation result to Redis cache"""
+        """Save validation result to Redis cache with TTL"""
         try:
             cache_key = f"{RNU_REDIS_PREFIX}{supplier_bin}"
             import json
 
-            # Remove source field for caching
+            # Add expires_at timestamp to cache data
+            from datetime import datetime, timedelta
+
+            expires_at = (
+                datetime.now(UTC) + timedelta(seconds=RNU_CACHE_TTL_SECONDS)
+            ).isoformat()
+
             cache_data = {k: v for k, v in result.items() if k != "source"}
+            cache_data["expires_at"] = expires_at
 
             await self.redis_client.setex(
                 cache_key, RNU_CACHE_TTL_SECONDS, json.dumps(cache_data)
@@ -226,6 +317,7 @@ class RNUClient:
                 "Saved to Redis cache",
                 supplier_bin=supplier_bin,
                 ttl=RNU_CACHE_TTL_SECONDS,
+                expires_at=expires_at,
             )
 
         except Exception as e:
@@ -242,15 +334,16 @@ class RNUClient:
             )
 
             with SessionLocal() as db:
-                # Use UPSERT to handle conflicts
+                # Use UPSERT to handle conflicts, include status
                 query = text(
                     """
                     INSERT INTO rnu_validation_cache
-                    (supplier_bin, is_blocked, validated_at, expires_at)
-                    VALUES (:supplier_bin, :is_blocked, :validated_at, :expires_at)
+                    (supplier_bin, is_blocked, status, validated_at, expires_at)
+                    VALUES (:supplier_bin, :is_blocked, :status, :validated_at, :expires_at)
                     ON CONFLICT (supplier_bin)
                     DO UPDATE SET
                         is_blocked = EXCLUDED.is_blocked,
+                        status = EXCLUDED.status,
                         validated_at = EXCLUDED.validated_at,
                         expires_at = EXCLUDED.expires_at
                 """
@@ -261,6 +354,7 @@ class RNUClient:
                     {
                         "supplier_bin": supplier_bin,
                         "is_blocked": result["is_blocked"],
+                        "status": result.get("status", "UNKNOWN"),
                         "validated_at": validated_at,
                         "expires_at": expires_at,
                     },

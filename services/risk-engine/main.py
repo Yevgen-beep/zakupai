@@ -9,6 +9,7 @@ from typing import Any
 
 import psycopg2
 import yaml
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field, validator
 
@@ -22,12 +23,35 @@ try:
 except ImportError:
     from typing import Annotated
 
-# ---------- логирование JSON ----------
+# ---------- структурированное логирование ----------
+import structlog
+
+# Configure structlog
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    context_class=dict,
+    cache_logger_on_first_use=True,
+)
+
+# Fallback logging for stdlib
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
-log = logging.getLogger("risk-engine")
+
+log = structlog.get_logger("risk-engine")
 
 
 def _rid(x: str | None) -> str:
@@ -258,6 +282,145 @@ def _save_eval(
         return False
 
 
+# ---------- RNU Notification System ----------
+async def check_rnu_status_changes():
+    """Check for new RNU status changes and send notifications"""
+    try:
+        conn, _ = _get_conn_and_host()
+        with conn, conn.cursor() as cur:
+            # Find new blocked suppliers without notifications
+            cur.execute(
+                """
+                SELECT rvc.supplier_bin, rvc.status, rvc.validated_at
+                FROM rnu_validation_cache rvc
+                WHERE rvc.status != 'ACTIVE'
+                AND NOT EXISTS (
+                    SELECT 1 FROM rnu_alerts ra
+                    WHERE ra.supplier_bin = rvc.supplier_bin
+                    AND ra.status = rvc.status
+                    AND ra.notified_at > rvc.validated_at - INTERVAL '10 minutes'
+                )
+                ORDER BY rvc.validated_at DESC
+                LIMIT 100
+                """
+            )
+
+            status_changes = cur.fetchall()
+
+            for supplier_bin, status, validated_at in status_changes:
+                await send_rnu_notifications(supplier_bin, status, validated_at)
+
+        if status_changes:
+            log.info(f"Processed {len(status_changes)} RNU status change notifications")
+
+    except Exception as e:
+        log.error(f"Error checking RNU status changes: {e}")
+
+
+async def send_rnu_notifications(supplier_bin: str, status: str, validated_at):
+    """Send notifications for RNU status change"""
+    try:
+        conn, _ = _get_conn_and_host()
+        with conn, conn.cursor() as cur:
+            # Get all subscribers for this BIN
+            cur.execute(
+                """
+                SELECT user_id, telegram_user_id, email
+                FROM rnu_subscriptions
+                WHERE supplier_bin = %s AND is_active = true
+                """,
+                (supplier_bin,),
+            )
+
+            subscribers = cur.fetchall()
+            notifications_sent = 0
+
+            for user_id, telegram_user_id, _email in subscribers:
+                # Send Telegram notification if telegram_user_id exists
+                if telegram_user_id:
+                    success = await send_telegram_notification(
+                        telegram_user_id, supplier_bin, status
+                    )
+                    if success:
+                        notifications_sent += 1
+
+                # Record alert in database
+                cur.execute(
+                    """
+                    INSERT INTO rnu_alerts (supplier_bin, status, user_id, notified_at)
+                    VALUES (%s, %s, %s, now())
+                    """,
+                    (supplier_bin, status, user_id),
+                )
+
+            log.info(
+                f"Sent {notifications_sent} notifications for BIN {supplier_bin} status {status}"
+            )
+
+    except Exception as e:
+        log.error(f"Error sending RNU notifications for {supplier_bin}: {e}")
+
+
+async def send_telegram_notification(
+    telegram_user_id: int, supplier_bin: str, status: str
+) -> bool:
+    """Send Telegram notification about RNU status change"""
+    try:
+        import httpx
+
+        # Get Telegram bot token from environment
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not bot_token:
+            log.warning("TELEGRAM_BOT_TOKEN not set, skipping Telegram notification")
+            return False
+
+        # Status emoji mapping
+        status_emoji = {
+            "BLOCKED": "🔴",
+            "SUSPENDED": "🟡",
+            "LIQUIDATED": "⚫",
+            "BLACKLISTED": "🚫",
+            "ACTIVE": "🟢",
+            "UNKNOWN": "❓",
+        }
+
+        emoji = status_emoji.get(status, "⚠️")
+
+        # Web UI link
+        web_url = os.getenv("WEB_UI_URL", "http://localhost:8000")
+
+        message = f"Alert: BIN {supplier_bin} {emoji} {status}.\nℹ️ Подробнее в Web UI: {web_url}/rnu/{supplier_bin}"
+
+        # Send via Telegram Bot API
+        telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                telegram_url,
+                json={
+                    "chat_id": telegram_user_id,
+                    "text": message,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+
+            if response.status_code == 200:
+                log.info(
+                    f"Telegram notification sent to {telegram_user_id} for BIN {supplier_bin}"
+                )
+                return True
+            else:
+                log.warning(
+                    f"Telegram API error {response.status_code}: {response.text}"
+                )
+                return False
+
+    except Exception as e:
+        log.error(f"Error sending Telegram notification: {e}")
+        return False
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path == "/health":
@@ -335,10 +498,29 @@ app = FastAPI(
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
 
+# Initialize scheduler
+scheduler = AsyncIOScheduler()
+
 
 @app.on_event("startup")
-def _startup():
+async def _startup():
     _ensure_schema()
+
+    # Start RNU notification scheduler (every 5 minutes)
+    scheduler.add_job(
+        check_rnu_status_changes,
+        trigger="interval",
+        minutes=5,
+        id="rnu_status_checker",
+        replace_existing=True,
+    )
+    scheduler.start()
+    log.info("RNU notification scheduler started")
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    scheduler.shutdown()
 
 
 @app.middleware("http")
@@ -371,32 +553,85 @@ class ScoreRequest(BaseModel):
 
 
 @app.post("/risk/score")
-def risk_score(req: ScoreRequest):
-    lot = _get_lot(req.lot_id)
-    if not lot:
-        raise HTTPException(404, f"lot {req.lot_id} not found")
-    market_sum = _get_market_sum(req.lot_id)
-    flags = _compute_flags(lot, market_sum)
-    score = _score(flags)
-    explain = {
-        "weights": WEIGHTS,
-        "thresholds": TH,
-        "lot": lot,
-        "calc": {"market_sum": flags.get("market_sum")},
-    }
-    saved = _save_eval(req.lot_id, score, flags, explain)
-    return {
-        "lot_id": req.lot_id,
-        "score": score,
-        "flags": flags,
-        "saved": saved,
-        "ts": datetime.now(UTC).isoformat(),
-    }
+def risk_score(req: ScoreRequest, request: Request):
+    import time
+
+    start_time = time.time()
+    request_id = getattr(request.state, "rid", str(uuid.uuid4()))
+
+    log.info(
+        "Risk score calculation started",
+        action="risk_score_start",
+        lot_id=req.lot_id,
+        request_id=request_id,
+    )
+
+    try:
+        lot = _get_lot(req.lot_id)
+        if not lot:
+            log.warning(
+                "Lot not found",
+                action="risk_score_not_found",
+                lot_id=req.lot_id,
+                request_id=request_id,
+            )
+            raise HTTPException(404, f"lot {req.lot_id} not found")
+
+        market_sum = _get_market_sum(req.lot_id)
+        flags = _compute_flags(lot, market_sum)
+        score = _score(flags)
+
+        explain = {
+            "weights": WEIGHTS,
+            "thresholds": TH,
+            "lot": lot,
+            "calc": {"market_sum": flags.get("market_sum")},
+        }
+
+        saved = _save_eval(req.lot_id, score, flags, explain)
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        log.info(
+            "Risk score calculation completed",
+            action="risk_score_completed",
+            lot_id=req.lot_id,
+            score=score,
+            market_sum=market_sum,
+            saved=saved,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
+
+        return {
+            "lot_id": req.lot_id,
+            "score": score,
+            "flags": flags,
+            "saved": saved,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        log.error(
+            "Risk score calculation failed",
+            action="risk_score_error",
+            lot_id=req.lot_id,
+            error=str(e),
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
+        raise HTTPException(500, "Internal server error") from e
 
 
 # ---------- RNU Validation Models ----------
 class RNUValidationResponse(BaseModel):
     supplier_bin: str = Field(..., description="Business Identification Number")
+    status: str = Field(
+        ...,
+        description="RNU supplier status: ACTIVE, BLOCKED, SUSPENDED, LIQUIDATED, BLACKLISTED, UNKNOWN",
+    )
     is_blocked: bool = Field(
         ..., description="Whether the supplier is blocked in RNU registry"
     )
@@ -409,11 +644,25 @@ class RNUValidationResponse(BaseModel):
             raise ValueError("Supplier BIN must be exactly 12 digits")
         return v
 
+    @validator("status")
+    def validate_status(cls, v):
+        allowed_statuses = {
+            "ACTIVE",
+            "BLOCKED",
+            "SUSPENDED",
+            "LIQUIDATED",
+            "BLACKLISTED",
+            "UNKNOWN",
+        }
+        if v not in allowed_statuses:
+            raise ValueError(f"Status must be one of: {allowed_statuses}")
+        return v
+
 
 # ---------- RNU Validation Endpoint ----------
 @app.get("/validate_rnu/{supplier_bin}", response_model=RNUValidationResponse)
 async def validate_rnu_supplier(
-    supplier_bin: str, rnu_client: RNUClient = Depends(get_rnu_client)
+    supplier_bin: str, request: Request, rnu_client: RNUClient = Depends(get_rnu_client)
 ):
     """
     Validate supplier BIN through RNU registry with caching
@@ -431,19 +680,70 @@ async def validate_rnu_supplier(
     - API response: <2sec (95%)
     - Availability: ≥95%
     """
+    import time
+
+    start_time = time.time()
+    request_id = getattr(request.state, "rid", str(uuid.uuid4()))
+
+    log.info(
+        "RNU validation started",
+        action="rnu_validation_start",
+        bin=supplier_bin,
+        request_id=request_id,
+    )
+
     try:
         # Validate BIN format early
         if not supplier_bin.isdigit() or len(supplier_bin) != 12:
+            log.warning(
+                "Invalid BIN format",
+                action="rnu_validation_invalid_format",
+                bin=supplier_bin,
+                request_id=request_id,
+            )
             raise HTTPException(
                 status_code=400, detail="Invalid BIN format: must be exactly 12 digits"
             )
 
         result = await rnu_client.validate_supplier(supplier_bin)
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        log.info(
+            "RNU validation completed",
+            action="rnu_validation_completed",
+            bin=supplier_bin,
+            status=result.get("status"),
+            is_blocked=result.get("is_blocked"),
+            source=result.get("source"),
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
+
+        # Log performance warning if too slow
+        if latency_ms > 2000:
+            log.warning(
+                "RNU validation latency exceeded target",
+                action="rnu_validation_slow",
+                bin=supplier_bin,
+                latency_ms=latency_ms,
+                target_ms=2000,
+                request_id=request_id,
+            )
 
         return RNUValidationResponse(**result)
 
     except RNUValidationError as e:
-        log.error(f"RNU validation error for BIN {supplier_bin}: {str(e)}")
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        log.error(
+            "RNU validation error",
+            action="rnu_validation_error",
+            bin=supplier_bin,
+            error=str(e),
+            error_type=type(e).__name__,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
 
         if "Invalid BIN format" in str(e):
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -457,8 +757,16 @@ async def validate_rnu_supplier(
             ) from e
 
     except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+
         log.error(
-            f"Unexpected error in RNU validation for BIN {supplier_bin}: {str(e)}"
+            "Unexpected error in RNU validation",
+            action="rnu_validation_unexpected_error",
+            bin=supplier_bin,
+            error=str(e),
+            error_type=type(e).__name__,
+            latency_ms=latency_ms,
+            request_id=request_id,
         )
         raise HTTPException(status_code=500, detail="Internal server error") from e
 
@@ -480,3 +788,135 @@ def risk_explain(lot_id: int):
         "lot": lot,
         "ts": datetime.now(UTC).isoformat(),
     }
+
+
+# ---------- RNU Subscription Management ----------
+class RNUSubscriptionRequest(BaseModel):
+    supplier_bin: str = Field(..., description="Business Identification Number")
+    telegram_user_id: int = Field(..., description="Telegram user ID for notifications")
+
+    @validator("supplier_bin")
+    def validate_supplier_bin(cls, v):
+        if not v or not v.isdigit() or len(v) != 12:
+            raise ValueError("Supplier BIN must be exactly 12 digits")
+        return v
+
+
+@app.post("/rnu/subscribe")
+async def subscribe_rnu_notifications(req: RNUSubscriptionRequest):
+    """Subscribe to RNU status change notifications for a supplier"""
+    try:
+        conn, _ = _get_conn_and_host()
+        with conn, conn.cursor() as cur:
+            # Check subscription limit
+            cur.execute(
+                "SELECT COUNT(*) FROM rnu_subscriptions WHERE user_id = %s AND is_active = true",
+                (req.telegram_user_id,),
+            )
+            count = cur.fetchone()[0]
+
+            if count >= 100:
+                raise HTTPException(400, "Maximum 100 subscriptions per user")
+
+            # Insert or update subscription
+            cur.execute(
+                """
+                INSERT INTO rnu_subscriptions (user_id, supplier_bin, telegram_user_id, is_active)
+                VALUES (%s, %s, %s, true)
+                ON CONFLICT (user_id, supplier_bin)
+                DO UPDATE SET is_active = true, updated_at = now()
+                """,
+                (req.telegram_user_id, req.supplier_bin, req.telegram_user_id),
+            )
+
+            log.info(
+                f"User {req.telegram_user_id} subscribed to RNU alerts for BIN {req.supplier_bin}"
+            )
+
+            return {
+                "status": "success",
+                "message": f"Subscribed to RNU notifications for BIN {req.supplier_bin}",
+                "supplier_bin": req.supplier_bin,
+                "user_id": req.telegram_user_id,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error creating RNU subscription: {e}")
+        raise HTTPException(500, "Internal server error") from e
+
+
+@app.delete("/rnu/subscribe/{supplier_bin}/{user_id}")
+async def unsubscribe_rnu_notifications(supplier_bin: str, user_id: int):
+    """Unsubscribe from RNU status change notifications"""
+    try:
+        if not supplier_bin.isdigit() or len(supplier_bin) != 12:
+            raise HTTPException(400, "Invalid BIN format")
+
+        conn, _ = _get_conn_and_host()
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE rnu_subscriptions SET is_active = false, updated_at = now()
+                WHERE user_id = %s AND supplier_bin = %s
+                """,
+                (user_id, supplier_bin),
+            )
+
+            if cur.rowcount == 0:
+                raise HTTPException(404, "Subscription not found")
+
+            log.info(
+                f"User {user_id} unsubscribed from RNU alerts for BIN {supplier_bin}"
+            )
+
+            return {
+                "status": "success",
+                "message": f"Unsubscribed from RNU notifications for BIN {supplier_bin}",
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error removing RNU subscription: {e}")
+        raise HTTPException(500, "Internal server error") from e
+
+
+@app.get("/rnu/subscriptions/{user_id}")
+async def get_user_rnu_subscriptions(user_id: int):
+    """Get user's active RNU subscriptions"""
+    try:
+        conn, _ = _get_conn_and_host()
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT rs.supplier_bin, rs.subscribed_at, rvc.status, rvc.validated_at
+                FROM rnu_subscriptions rs
+                LEFT JOIN rnu_validation_cache rvc ON rs.supplier_bin = rvc.supplier_bin
+                WHERE rs.user_id = %s AND rs.is_active = true
+                ORDER BY rs.subscribed_at DESC
+                """,
+                (user_id,),
+            )
+
+            subscriptions = []
+            for row in cur.fetchall():
+                subscriptions.append(
+                    {
+                        "supplier_bin": row[0],
+                        "subscribed_at": row[1].isoformat() if row[1] else None,
+                        "current_status": row[2] or "UNKNOWN",
+                        "last_validated": row[3].isoformat() if row[3] else None,
+                    }
+                )
+
+            return {
+                "user_id": user_id,
+                "subscriptions": subscriptions,
+                "total": len(subscriptions),
+            }
+
+    except Exception as e:
+        log.error(f"Error getting RNU subscriptions: {e}")
+        raise HTTPException(500, "Internal server error") from e

@@ -5,6 +5,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import wraps
 
+import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -47,6 +48,42 @@ api_client = ZakupaiAPIClient()
 
 # Хранилище состояний поиска для пагинации
 user_search_sessions = {}
+
+
+def format_advanced_search_results(
+    search_results: dict, query: str, filters: list[str]
+) -> str:
+    """
+    Форматирование результатов расширенного поиска для Telegram (короткий формат)
+    """
+    results = search_results.get("results", [])
+    total_count = search_results.get("total_count", 0)
+
+    if not results:
+        return "❌ Лоты не найдены по вашему запросу"
+
+    # Краткий заголовок
+    header = f"🔍 Найдено {total_count} лот(ов)"
+    if filters:
+        header += f" ({', '.join(filters)})"
+    header += ":\n\n"
+
+    # Показываем только первые 3 лота для экономии места
+    formatted_results = []
+    for i, lot in enumerate(results[:3], 1):
+        lot_text = f"{i}. {lot.get('nameRu', 'Название отсутствует')[:50]}..."
+        lot_text += (
+            f"\n💰 {lot.get('amount', 0):,.0f} тг | ID: {lot.get('id', 'N/A')}\n"
+        )
+        formatted_results.append(lot_text)
+
+    # Краткий футер
+    footer = ""
+    if total_count > 3:
+        footer = f"\n... и ещё {total_count - 3} лот(ов)"
+
+    return header + "\n".join(formatted_results) + footer
+
 
 # Режим работы: webhook или polling
 USE_WEBHOOK = bool(
@@ -324,51 +361,181 @@ async def command_key_handler(message: Message) -> None:
 @validate_and_log_bot(require_key=True)
 async def command_search_handler(message: Message) -> None:
     """
-    Обработчик команды /search для поиска лотов через новую поисковую систему
+    Обработчик команды /search для расширенного поиска лотов
+
+    Поддерживаемые параметры:
+    - min_amount:X - минимальная сумма лота
+    - max_amount:X - максимальная сумма лота
+    - status:X - статус лота (1-10)
     """
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
 
-    logger.info(f"Processing search command for user {user_id} (@{username})")
+    logger.info(f"Processing advanced search command for user {user_id} (@{username})")
 
     # Извлекаем поисковый запрос
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         await message.answer(
-            "🔍 Использование: /search &lt;ключевые слова&gt;\n\n"
+            "🔍 Расширенный поиск - использование:\n"
+            f"{hcode('/search <ключевые слова> [параметры]')}\n\n"
+            "Параметры фильтрации:\n"
+            f"• {hcode('min_amount:1000')} - минимальная сумма\n"
+            f"• {hcode('max_amount:50000')} - максимальная сумма\n"
+            f"• {hcode('status:1')} - статус лота (1-10)\n\n"
             "Примеры:\n"
-            f"• {hcode('/search ЛАК')}\n"
-            f"• {hcode('/search компьютеры')}\n"
-            f"• {hcode('/search строительство дорог')}\n"
-            f"• {hcode('/search медицинское оборудование')}"
+            f"• {hcode('/search компьютеры min_amount:10000')}\n"
+            f"• {hcode('/search строительство max_amount:1000000 status:1')}\n"
+            f"• {hcode('/search медицинское оборудование min_amount:5000 max_amount:100000')}"
         )
         return
 
-    raw_query = args[1].strip()
+    search_text = args[1].strip()
+
+    # Парсинг параметров поиска с помощью регулярных выражений
+    import re
+
+    # Извлекаем параметры
+    params = {}
+    param_patterns = {
+        "min_amount": r"min_amount:(\d+(?:\.\d+)?)",
+        "max_amount": r"max_amount:(\d+(?:\.\d+)?)",
+        "status": r"status:(\d+)",
+    }
+
+    query_text = search_text
+
+    for param_name, pattern in param_patterns.items():
+        match = re.search(pattern, search_text, re.IGNORECASE)
+        if match:
+            params[param_name] = match.group(1)
+            # Удаляем параметр из текста запроса
+            query_text = re.sub(pattern, "", query_text, flags=re.IGNORECASE).strip()
+
+    # Очищаем лишние пробелы в запросе
+    query_text = " ".join(query_text.split())
 
     # Валидация запроса
-    if len(raw_query) < 2:
+    if len(query_text) < 2:
         await message.answer("❌ Поисковый запрос слишком короткий (минимум 2 символа)")
         return
 
-    if len(raw_query) > 200:
+    if len(query_text) > 200:
         await message.answer(
             "❌ Поисковый запрос слишком длинный (максимум 200 символов)"
         )
         return
 
-    # Показываем индикатор поиска
-    loading_message = await message.answer(
-        "🔍 Ищу лоты... Это может занять несколько секунд"
-    )
+    # Валидация параметров
+    try:
+        if "min_amount" in params:
+            min_amount = float(params["min_amount"])
+            if min_amount < 0:
+                await message.answer("❌ Минимальная сумма не может быть отрицательной")
+                return
+        else:
+            min_amount = None
+
+        if "max_amount" in params:
+            max_amount = float(params["max_amount"])
+            if max_amount < 0:
+                await message.answer(
+                    "❌ Максимальная сумма не может быть отрицательной"
+                )
+                return
+        else:
+            max_amount = None
+
+        if (
+            min_amount is not None
+            and max_amount is not None
+            and max_amount < min_amount
+        ):
+            await message.answer(
+                "❌ Максимальная сумма не может быть меньше минимальной"
+            )
+            return
+
+        if "status" in params:
+            status = int(params["status"])
+            if status not in range(1, 11):
+                await message.answer("❌ Статус должен быть от 1 до 10")
+                return
+        else:
+            status = None
+
+    except ValueError:
+        await message.answer(
+            "❌ Некорректные значения параметров. Проверьте синтаксис."
+        )
+        return
+
+    # Показываем индикатор поиска с параметрами
+    filters_text = []
+    if min_amount is not None:
+        filters_text.append(f"от {min_amount:,.0f} тенге")
+    if max_amount is not None:
+        filters_text.append(f"до {max_amount:,.0f} тенге")
+    if status is not None:
+        filters_text.append(f"статус {status}")
+
+    loading_text = "🔍 Ищу лоты"
+    if filters_text:
+        loading_text += f" ({', '.join(filters_text)})"
+    loading_text += "... Это может занять несколько секунд"
+
+    loading_message = await message.answer(loading_text)
 
     try:
-        # Используем новую логику поиска с нормализацией и n8n fallback
-        from services_v2 import search_lots_for_telegram_v2
+        # Используем расширенный поиск через новые Web API эндпоинты
 
-        results_text = await search_lots_for_telegram_v2(
-            raw_query, limit=10, show_source=True, user_id=user_id
+        import aiohttp
+
+        # Формируем запрос к нашему расширенному поиску
+        search_payload = {"query": query_text, "limit": 10, "offset": 0}
+
+        if min_amount is not None:
+            search_payload["min_amount"] = min_amount
+        if max_amount is not None:
+            search_payload["max_amount"] = max_amount
+        if status is not None:
+            search_payload["status"] = str(status)
+
+        # Вызываем локальный Web API
+        web_url = (
+            config.web.base_url
+            if hasattr(config.web, "base_url")
+            else "http://localhost:8000"
         )
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{web_url}/api/search/advanced",
+                json=search_payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status == 200:
+                    search_results = await resp.json()
+                    results_text = format_advanced_search_results(
+                        search_results, query_text, filters_text
+                    )
+
+                    # Add Web UI CTA
+                    web_url = getattr(config.web, "base_url", "http://localhost:8000")
+                    if search_results.get("total_count", 0) > 3:
+                        results_text += f"\n\nℹ️ Полный список в Web UI: {web_url}/search?q={query_text.replace(' ', '+')}"
+                else:
+                    error_text = await resp.text()
+                    logger.error(
+                        f"Advanced search API error: {resp.status} - {error_text}"
+                    )
+
+                    # Fallback to old search method
+                    from services_v2 import search_lots_for_telegram_v2
+
+                    results_text = await search_lots_for_telegram_v2(
+                        query_text, limit=10, show_source=True, user_id=user_id
+                    )
 
         # Удаляем индикатор загрузки
         await loading_message.delete()
@@ -380,21 +547,22 @@ async def command_search_handler(message: Message) -> None:
 
         # Сохраняем состояние поиска для пагинации
         user_search_sessions[user_id] = {
-            "query": raw_query,
+            "query": query_text,
+            "params": params,
             "offset": 10,  # Следующая страница начинается с 10-го элемента
             "limit": 10,
             "timestamp": message.date.timestamp(),
         }
 
         logger.info(
-            f"Search completed for user {user_id} (@{username}) with query '{raw_query}'"
+            f"Advanced search completed for user {user_id} (@{username}) with query '{query_text}' and params {params}"
         )
 
     except Exception as e:
         await loading_message.delete()
-        await message.answer(f"⚠️ Ошибка поиска: {type(e).__name__}")
+        await message.answer(f"⚠️ Ошибка расширенного поиска: {type(e).__name__}")
         logger.error(
-            f"Error searching for '{raw_query}' by user {user_id}: {type(e).__name__}"
+            f"Error in advanced search for '{query_text}' by user {user_id}: {type(e).__name__}: {str(e)}"
         )
 
 
@@ -538,6 +706,216 @@ async def command_lot_handler(message: Message) -> None:
             await message.answer("❌ Ошибка анализа лота")
 
 
+@dp.message(Command("rnu"))
+@validate_and_log_bot(require_key=True)
+async def command_rnu_handler(message: Message) -> None:
+    """
+    Обработчик команды /rnu для валидации BIN через RNU
+    Формат: /rnu 123456789012
+    """
+    user_id = message.from_user.id
+    args = message.text.split(maxsplit=1)
+
+    if len(args) < 2:
+        await message.answer(
+            f"❌ Укажите BIN поставщика.\nПример: {hcode('/rnu 123456789012')}"
+        )
+        return
+
+    supplier_bin = args[1].strip()
+
+    # Validate BIN format
+    if not supplier_bin.isdigit() or len(supplier_bin) != 12:
+        await message.answer("❌ BIN должен содержать ровно 12 цифр")
+        return
+
+    try:
+        # Get RNU validation via API
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{config.api.zakupai_base_url}/risk/validate_rnu/{supplier_bin}"
+            )
+
+            if response.status_code == 200:
+                rnu_data = response.json()
+                status = rnu_data.get("status", "UNKNOWN")
+
+                # Status emoji mapping
+                status_emoji = {
+                    "ACTIVE": "🟢",
+                    "BLOCKED": "🔴",
+                    "SUSPENDED": "🟡",
+                    "LIQUIDATED": "⚫",
+                    "BLACKLISTED": "🚫",
+                    "UNKNOWN": "❓",
+                }
+
+                emoji = status_emoji.get(status, "⚠️")
+                web_url = getattr(config.web, "base_url", "http://localhost:8000")
+
+                # Short response with CTA
+                response_text = f"BIN {supplier_bin}: {emoji} {status}.\nℹ️ Подробнее в Web UI: {web_url}/rnu/{supplier_bin}"
+
+                await message.answer(response_text, disable_web_page_preview=True)
+            else:
+                await message.answer(f"❌ Ошибка проверки BIN {supplier_bin}")
+
+    except Exception as e:
+        logger.error(f"RNU command error for user {user_id}: {e}")
+        await message.answer("❌ Ошибка сервиса RNU")
+
+
+@dp.message(Command("supplier"))
+@validate_and_log_bot(require_key=True)
+async def command_supplier_handler(message: Message) -> None:
+    """
+    Обработчик команды /supplier для поиска поставщиков
+    Формат: /supplier офисная мебель
+    """
+    user_id = message.from_user.id
+    args = message.text.split(maxsplit=1)
+
+    if len(args) < 2:
+        await message.answer(
+            f"❌ Укажите название товара/услуги.\nПример: {hcode('/supplier компьютеры')}"
+        )
+        return
+
+    lot_name = args[1].strip()
+
+    if len(lot_name) < 3:
+        await message.answer("❌ Название должно содержать минимум 3 символа")
+        return
+
+    try:
+        # Search suppliers via Web API
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                f"{config.api.zakupai_base_url}/api/supplier/{lot_name}"
+            )
+
+            if response.status_code == 200:
+                supplier_data = response.json()
+                suppliers = supplier_data.get("suppliers", [])
+
+                if suppliers:
+                    count = len(suppliers)
+                    web_url = getattr(config.web, "base_url", "http://localhost:8000")
+
+                    # Show top 3 suppliers briefly
+                    top_suppliers = []
+                    for i, supplier in enumerate(suppliers[:3], 1):
+                        rating = supplier.get("rating", 0)
+                        stars = "⭐" * min(int(rating), 5)
+                        top_suppliers.append(f"{i}. {supplier['name']} {stars}")
+
+                    response_text = f"Найдено {count} поставщиков!\n" + "\n".join(
+                        top_suppliers
+                    )
+                    response_text += f"\n\nℹ️ Подробнее: {web_url}/supplier/{lot_name}"
+                else:
+                    response_text = f"❌ Поставщики не найдены для '{lot_name}'"
+
+                await message.answer(response_text, disable_web_page_preview=True)
+            else:
+                await message.answer("❌ Ошибка поиска поставщиков")
+
+    except Exception as e:
+        logger.error(f"Supplier command error for user {user_id}: {e}")
+        await message.answer("❌ Ошибка сервиса поиска поставщиков")
+
+
+@dp.message(Command("complaint"))
+@validate_and_log_bot(require_key=True)
+async def command_complaint_handler(message: Message) -> None:
+    """
+    Обработчик команды /complaint для создания жалобы
+    Формат: /complaint 12345 завышенная цена
+    """
+    user_id = message.from_user.id
+    parts = message.text.split(maxsplit=2)
+
+    if len(parts) < 3:
+        await message.answer(
+            f"❌ Неверный формат.\nПример: {hcode('/complaint 12345 завышенная цена')}"
+        )
+        return
+
+    try:
+        lot_id = int(parts[1])
+        reason = parts[2].strip()
+    except ValueError:
+        await message.answer("❌ ID лота должно быть числом")
+        return
+
+    if len(reason) < 5:
+        await message.answer("❌ Укажите причину жалобы (минимум 5 символов)")
+        return
+
+    try:
+        # Generate complaint via Web API
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                f"{config.api.zakupai_base_url}/api/complaint/{lot_id}",
+                json={"lot_id": lot_id, "reason": reason},
+            )
+
+            if response.status_code == 200:
+                web_url = getattr(config.web, "base_url", "http://localhost:8000")
+                response_text = f"✅ Жалоба создана для лота {lot_id}!\nℹ️ Полная версия: {web_url}/complaint/{lot_id}"
+
+                await message.answer(response_text, disable_web_page_preview=True)
+            else:
+                await message.answer(f"❌ Ошибка создания жалобы для лота {lot_id}")
+
+    except Exception as e:
+        logger.error(f"Complaint command error for user {user_id}: {e}")
+        await message.answer("❌ Ошибка сервиса жалоб")
+
+
+@dp.message(Command("subscribe"))
+@validate_and_log_bot(require_key=True)
+async def command_subscribe_handler(message: Message) -> None:
+    """
+    Обработчик команды /subscribe для подписки на уведомления RNU
+    Формат: /subscribe 123456789012
+    """
+    user_id = message.from_user.id
+    args = message.text.split(maxsplit=1)
+
+    if len(args) < 2:
+        await message.answer(
+            f"❌ Укажите BIN поставщика.\nПример: {hcode('/subscribe 123456789012')}"
+        )
+        return
+
+    supplier_bin = args[1].strip()
+
+    # Validate BIN format
+    if not supplier_bin.isdigit() or len(supplier_bin) != 12:
+        await message.answer("❌ BIN должен содержать ровно 12 цифр")
+        return
+
+    try:
+        # Subscribe via API
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{config.api.zakupai_base_url}/risk/rnu/subscribe",
+                json={"supplier_bin": supplier_bin, "telegram_user_id": user_id},
+            )
+
+            if response.status_code == 200:
+                await message.answer(f"✅ Подписка на BIN {supplier_bin} активирована!")
+            elif response.status_code == 400:
+                await message.answer("❌ Достигнут лимит подписок (максимум 100)")
+            else:
+                await message.answer("❌ Ошибка активации подписки")
+
+    except Exception as e:
+        logger.error(f"Subscribe command error for user {user_id}: {e}")
+        await message.answer("❌ Ошибка сервиса подписок")
+
+
 @dp.message(Command("help"))
 @validate_and_log_bot(require_key=False)
 async def command_help_handler(message: Message) -> None:
@@ -546,24 +924,18 @@ async def command_help_handler(message: Message) -> None:
     """
     help_text = (
         "🤖 ZakupAI Telegram Bot\n\n"
-        "📋 Доступные команды:\n"
-        f"• {hcode('/start')} - начать работу\n"
-        f"• {hcode('/key <api_key>')} - установить API ключ\n"
-        f"• {hcode('/search')} &lt;запрос&gt; - поиск лотов по ключевым словам\n"
-        f"• {hcode('/lot <id|url>')} - анализ лота\n"
-        f"• {hcode('/help')} - эта справка\n\n"
-        "🔍 Примеры поиска:\n"
+        "📋 Основные команды:\n"
+        f"• {hcode('/search')} &lt;запрос&gt; - поиск лотов\n"
+        f"• {hcode('/lot <id>')} - анализ лота\n"
+        f"• {hcode('/rnu <BIN>')} - проверка поставщика\n"
+        f"• {hcode('/supplier <товар>')} - поиск поставщиков\n"
+        f"• {hcode('/complaint <lot_id> <причина>')} - создать жалобу\n"
+        f"• {hcode('/subscribe <BIN>')} - подписка на уведомления\n\n"
+        "🔍 Примеры:\n"
         f"{hcode('/search компьютеры')}\n"
-        f"{hcode('/search строительство дорог')}\n\n"
-        "📊 Пример анализа лота:\n"
-        f"{hcode('/lot 12345')}\n"
-        f"{hcode('/lot https://goszakup.gov.kz/ru/announce/index/12345')}\n\n"
-        "💰 Тарифы:\n"
-        "• Free: 100 запросов/день, 20/час\n"
-        "• Premium: 5000 запросов/день, 500/час\n\n"
-        "⚡ Лимиты:\n"
-        "• Поиск: 1 запрос в секунду\n"
-        "• Остальные команды: 10 запросов в минуту\n\n"
+        f"{hcode('/rnu 123456789012')}\n"
+        f"{hcode('/supplier офисная мебель')}\n\n"
+        "ℹ️ Полный функционал в Web UI\n"
         "🔧 Поддержка: @zakupai_support"
     )
     await message.answer(help_text)
