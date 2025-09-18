@@ -1,5 +1,8 @@
 import asyncio
+import hashlib
+import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -9,9 +12,19 @@ from pathlib import Path
 import chromadb
 import httpx
 import pandas as pd
+import redis
 import structlog
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -54,6 +67,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # ChromaDB setup
 CHROMADB_URL = os.getenv("CHROMADB_URL", "http://chromadb:8000")
 chroma_client = chromadb.HttpClient(host="chromadb", port=8000)
+
+# Redis setup for caching
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 # Configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway")
@@ -816,73 +833,6 @@ async def advanced_search(request: AdvancedSearchRequest):
         raise HTTPException(status_code=500, detail="Search failed") from e
 
 
-@app.get("/api/search/autocomplete", response_model=AutocompleteResponse)
-async def search_autocomplete(query: str):
-    """
-    Get autocomplete suggestions from ChromaDB with improved performance
-
-    - **query**: Search query text (minimum 2 characters)
-
-    Returns up to 5 autocomplete suggestions based on lot names
-    Target latency: ≤500ms (95th percentile)
-    """
-    start_time = time.time()
-    request_id = str(uuid.uuid4())
-
-    # Validate input length
-    if len(query.strip()) < 2:
-        return AutocompleteResponse(suggestions=[])
-
-    if len(query.strip()) > 100:  # Prevent very long queries
-        return AutocompleteResponse(suggestions=[])
-
-    normalized_query = query.lower().strip()
-
-    logger.info("Autocomplete request", request_id=request_id, query=normalized_query)
-
-    try:
-        # Try ChromaDB first for semantic similarity
-        suggestions = await get_chromadb_suggestions(normalized_query)
-
-        # If ChromaDB fails or returns few results, fallback to SQL prefix search
-        if len(suggestions) < 3:
-            sql_suggestions = await get_sql_autocomplete_fallback(normalized_query)
-            # Merge and deduplicate
-            all_suggestions = suggestions + sql_suggestions
-            suggestions = list(dict.fromkeys(all_suggestions))[:5]
-
-        latency_ms = int((time.time() - start_time) * 1000)
-
-        logger.info(
-            "Autocomplete completed",
-            request_id=request_id,
-            suggestions_count=len(suggestions),
-            latency_ms=latency_ms,
-        )
-
-        # Log performance warning if too slow
-        if latency_ms > 500:
-            logger.warning(
-                "Autocomplete latency exceeded target",
-                request_id=request_id,
-                latency_ms=latency_ms,
-                target_ms=500,
-            )
-
-        return AutocompleteResponse(suggestions=suggestions)
-
-    except Exception as e:
-        latency_ms = int((time.time() - start_time) * 1000)
-        logger.error(
-            "Autocomplete error",
-            request_id=request_id,
-            error=str(e),
-            latency_ms=latency_ms,
-        )
-        # Don't fail hard on autocomplete errors, return empty suggestions
-        return AutocompleteResponse(suggestions=[])
-
-
 async def get_chromadb_suggestions(query: str) -> list[str]:
     """Get suggestions from ChromaDB with timeout"""
     try:
@@ -1354,6 +1304,594 @@ def generate_complaint_pdf(
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+
+# =============================================================================
+# Week 4.1: Web UI Enhancements
+# =============================================================================
+
+
+class CSVImportProgress(BaseModel):
+    """WebSocket progress update for CSV import"""
+
+    progress: float = Field(..., ge=0, le=100, description="Progress percentage")
+    rows_ok: int = Field(..., ge=0, description="Successfully processed rows")
+    rows_error: int = Field(..., ge=0, description="Failed rows")
+    current_row: int = Field(default=0, ge=0, description="Current processing row")
+    message: str | None = Field(default="", description="Status message")
+
+
+class ImportLogResponse(BaseModel):
+    """Response model for import log"""
+
+    id: int
+    file_name: str
+    status: str
+    total_rows: int
+    success_rows: int
+    error_rows: int
+    error_details: list[dict] | None = None
+    processing_time_ms: int | None = None
+    imported_at: datetime
+
+
+class LotSummaryResponse(BaseModel):
+    """Response model for lot TL;DR summary"""
+
+    lot_id: int
+    summary: str
+    source: str  # 'cache', 'flowise', 'fallback'
+    cached: bool
+    generated_at: datetime
+
+
+# WebSocket connection manager for CSV import progress
+class WSConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+        logger.info("WebSocket connected", client_id=client_id)
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+            logger.info("WebSocket disconnected", client_id=client_id)
+
+    async def send_progress(self, client_id: str, progress: CSVImportProgress):
+        if client_id in self.active_connections:
+            try:
+                await self.active_connections[client_id].send_text(progress.json())
+            except Exception as e:
+                logger.error(
+                    "Failed to send WebSocket message",
+                    client_id=client_id,
+                    error=str(e),
+                )
+                self.disconnect(client_id)
+
+
+ws_manager = WSConnectionManager()
+
+
+@app.websocket("/ws/import/{client_id}")
+async def websocket_import_progress(websocket: WebSocket, client_id: str):
+    """WebSocket endpoint for CSV import progress updates"""
+    await ws_manager.connect(websocket, client_id)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(client_id)
+
+
+@app.post("/web-ui/import-prices")
+async def import_prices_csv(file: UploadFile = File(...), client_id: str = Form(...)):
+    """
+    Import prices from CSV file with WebSocket progress updates
+    Week 4.1: CSV import ≤5 MB, WebSocket progress, validation
+    """
+    request_id = str(uuid.uuid4())
+    start_time = time.time()
+
+    logger.info(
+        "CSV import started",
+        request_id=request_id,
+        filename=file.filename,
+        client_id=client_id,
+    )
+
+    # Validate file
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(400, "Only CSV files are supported")
+
+    # Check file size (5MB limit)
+    file_content = await file.read()
+    file_size_mb = len(file_content) / (1024 * 1024)
+    if file_size_mb > 5:
+        raise HTTPException(400, f"File too large: {file_size_mb:.1f}MB (max 5MB)")
+
+    # Create import log
+    with SessionLocal() as db:
+        log_result = db.execute(
+            text(
+                """
+                INSERT INTO import_logs (file_name, status, file_size_mb)
+                VALUES (:filename, 'PROCESSING', :size_mb)
+                RETURNING id
+            """
+            ),
+            {"filename": file.filename, "size_mb": file_size_mb},
+        )
+        log_id = log_result.scalar()
+        db.commit()
+
+    # Process CSV in chunks
+    try:
+        # Reset file pointer
+        csv_data = BytesIO(file_content)
+
+        # Validate headers
+        df_sample = pd.read_csv(csv_data, nrows=0)
+        required_columns = {"product_name", "amount", "supplier_bin"}
+        if not required_columns.issubset(df_sample.columns):
+            missing = required_columns - set(df_sample.columns)
+            raise HTTPException(400, f"Missing required columns: {missing}")
+
+        # Process in chunks
+        csv_data.seek(0)
+        chunk_size = 1000
+        total_rows = 0
+        success_rows = 0
+        error_rows = 0
+        errors = []
+
+        # Count total rows first for progress
+        total_df = pd.read_csv(csv_data)
+        total_rows = len(total_df)
+        csv_data.seek(0)
+
+        row_count = 0
+        for chunk_num, chunk in enumerate(pd.read_csv(csv_data, chunksize=chunk_size)):
+            chunk_errors = []
+            chunk_success = 0
+
+            for _idx, row in chunk.iterrows():
+                row_count += 1
+                try:
+                    # Validate row data
+                    product_name = str(row["product_name"]).strip()
+                    amount = float(row["amount"])
+                    supplier_bin = str(row["supplier_bin"]).strip()
+
+                    # Validation checks
+                    if not product_name or product_name == "nan":
+                        raise ValueError("product_name cannot be empty")
+                    if amount < 0:
+                        raise ValueError("amount must be >= 0")
+                    if not re.match(r"^[0-9]{12}$", supplier_bin):
+                        raise ValueError("supplier_bin must be 12 digits")
+
+                    # Insert to database
+                    with SessionLocal() as db:
+                        db.execute(
+                            text(
+                                """
+                                INSERT INTO prices (product_name, amount, supplier_bin)
+                                VALUES (:name, :amount, :bin)
+                            """
+                            ),
+                            {
+                                "name": product_name,
+                                "amount": amount,
+                                "bin": supplier_bin,
+                            },
+                        )
+                        db.commit()
+
+                    chunk_success += 1
+
+                except Exception as e:
+                    error_rows += 1
+                    chunk_errors.append(
+                        {
+                            "row": row_count,
+                            "error": str(e),
+                            "data": (
+                                row.to_dict() if hasattr(row, "to_dict") else str(row)
+                            ),
+                        }
+                    )
+
+            success_rows += chunk_success
+            errors.extend(chunk_errors)
+
+            # Send progress update via WebSocket
+            progress = (row_count / total_rows) * 100
+            progress_update = CSVImportProgress(
+                progress=progress,
+                rows_ok=success_rows,
+                rows_error=error_rows,
+                current_row=row_count,
+                message=f"Processing chunk {chunk_num + 1}...",
+            )
+            await ws_manager.send_progress(client_id, progress_update)
+
+            # Small delay to prevent overwhelming
+            if chunk_num % 10 == 0:  # Every 10 chunks (10k rows)
+                await asyncio.sleep(0.1)
+
+        # Determine final status
+        if error_rows == 0:
+            final_status = "SUCCESS"
+        elif success_rows == 0:
+            final_status = "FAILED"
+        else:
+            final_status = "PARTIAL"
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        # Update import log
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    """
+                    SELECT update_import_status(
+                        :log_id, :status, :success, :errors, :error_details, :time_ms
+                    )
+                """
+                ),
+                {
+                    "log_id": log_id,
+                    "status": final_status,
+                    "success": success_rows,
+                    "errors": error_rows,
+                    "error_details": (
+                        json.dumps(errors[:100]) if errors else None
+                    ),  # Limit errors
+                    "time_ms": processing_time_ms,
+                },
+            )
+            db.execute(
+                text("UPDATE import_logs SET total_rows = :total WHERE id = :log_id"),
+                {"total": total_rows, "log_id": log_id},
+            )
+            db.commit()
+
+        # Send final progress
+        final_progress = CSVImportProgress(
+            progress=100.0,
+            rows_ok=success_rows,
+            rows_error=error_rows,
+            current_row=total_rows,
+            message=f"Complete! Status: {final_status}",
+        )
+        await ws_manager.send_progress(client_id, final_progress)
+
+        logger.info(
+            "CSV import completed",
+            request_id=request_id,
+            status=final_status,
+            success_rows=success_rows,
+            error_rows=error_rows,
+            processing_time_ms=processing_time_ms,
+        )
+
+        return {
+            "import_log_id": log_id,
+            "status": final_status,
+            "total_rows": total_rows,
+            "success_rows": success_rows,
+            "error_rows": error_rows,
+            "processing_time_ms": processing_time_ms,
+            "errors": errors[:10],  # Return first 10 errors only
+        }
+
+    except Exception as e:
+        # Update log with failure
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    """
+                    SELECT update_import_status(
+                        :log_id, 'FAILED', 0, 0, :error_details, :time_ms
+                    )
+                """
+                ),
+                {
+                    "log_id": log_id,
+                    "error_details": json.dumps([{"error": str(e)}]),
+                    "time_ms": int((time.time() - start_time) * 1000),
+                },
+            )
+            db.commit()
+
+        logger.error(
+            "CSV import failed",
+            request_id=request_id,
+            error=str(e),
+            filename=file.filename,
+        )
+
+        raise HTTPException(500, f"Import failed: {str(e)}") from e
+
+
+@app.get("/web-ui/import-status/{log_id}")
+async def get_import_status(log_id: int):
+    """Get import log status by ID"""
+    with SessionLocal() as db:
+        result = db.execute(
+            text(
+                """
+                SELECT id, file_name, status, total_rows, success_rows, error_rows,
+                       error_details, processing_time_ms, imported_at
+                FROM import_logs WHERE id = :log_id
+            """
+            ),
+            {"log_id": log_id},
+        ).fetchone()
+
+        if not result:
+            raise HTTPException(404, "Import log not found")
+
+        return {
+            "id": result[0],
+            "file_name": result[1],
+            "status": result[2],
+            "total_rows": result[3],
+            "success_rows": result[4],
+            "error_rows": result[5],
+            "error_details": json.loads(result[6]) if result[6] else [],
+            "processing_time_ms": result[7],
+            "imported_at": result[8],
+        }
+
+
+@app.get("/web-ui/lot/{lot_id}")
+async def get_lot_tldr(lot_id: int):
+    """
+    Get lot TL;DR summary with Redis cache and Flowise integration
+    Week 4.1: <1 sec, Redis TTL 24h, Flowise fallback
+    """
+    request_id = str(uuid.uuid4())
+    start_time = time.time()
+
+    logger.info("Lot TL;DR request", request_id=request_id, lot_id=lot_id)
+
+    # Check Redis cache first
+    cache_key = f"lot_summary:{lot_id}"
+    try:
+        cached_summary = redis_client.get(cache_key)
+        if cached_summary:
+            summary_data = json.loads(cached_summary)
+            logger.info(
+                "TL;DR cache hit",
+                request_id=request_id,
+                lot_id=lot_id,
+                latency_ms=int((time.time() - start_time) * 1000),
+            )
+
+            return LotSummaryResponse(
+                lot_id=lot_id,
+                summary=summary_data["summary"],
+                source="cache",
+                cached=True,
+                generated_at=datetime.fromisoformat(summary_data["generated_at"]),
+            )
+    except Exception as e:
+        logger.warning("Redis cache error", error=str(e))
+
+    # Get lot data from database
+    with SessionLocal() as db:
+        lot_result = db.execute(
+            text(
+                """
+                SELECT l.id, l.nameRu, l.amount, COALESCE(t.refBuyStatusId, 0) as status,
+                       t.customerNameRu
+                FROM lots l
+                LEFT JOIN trdbuy t ON l.trdBuyId = t.id
+                WHERE l.id = :lot_id
+            """
+            ),
+            {"lot_id": lot_id},
+        ).fetchone()
+
+        if not lot_result:
+            raise HTTPException(404, "Lot not found")
+
+    lot_name = lot_result[1] or "Без названия"
+    lot_amount = lot_result[2] or 0
+    lot_status = lot_result[3]
+    customer_name = lot_result[4] or "Неизвестно"
+
+    # Status mapping
+    status_names = {
+        1: "ACTIVE",
+        2: "COMPLETED",
+        3: "CANCELLED",
+        4: "DRAFT",
+        5: "PUBLISHED",
+        0: "UNKNOWN",
+    }
+    status_name = status_names.get(lot_status, "UNKNOWN")
+
+    # Try Flowise summarizer
+    summary = None
+    source = "fallback"
+
+    try:
+        flowise_prompt = f"""Summarize lot {lot_id}: {lot_name}, {lot_amount} тенге, status: {status_name}, customer: {customer_name}.
+        Create concise summary ≤500 characters in Russian focusing on key details for procurement analysis."""
+
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            flowise_response = await client.post(
+                f"{FLOWISE_API_URL}/api/v1/prediction/lot-summarizer",
+                json={
+                    "question": flowise_prompt,
+                    "overrideConfig": {"temperature": 0.3, "maxTokens": 150},
+                },
+                headers={"Content-Type": "application/json"},
+            )
+
+            if flowise_response.status_code == 200:
+                flowise_data = flowise_response.json()
+                summary = flowise_data.get("text", "").strip()
+                if summary and len(summary) <= 500:
+                    source = "flowise"
+                    logger.info(
+                        "Flowise TL;DR success", request_id=request_id, lot_id=lot_id
+                    )
+    except Exception as e:
+        logger.warning("Flowise TL;DR failed", request_id=request_id, error=str(e))
+
+    # Fallback summary if Flowise failed
+    if not summary or source == "fallback":
+        summary = f"Лот {lot_id}: {lot_name[:100]}{'...' if len(lot_name) > 100 else ''}, {lot_amount:,.0f} ₸, {status_name}, Заказчик: {customer_name[:50]}"
+        source = "fallback"
+
+    # Cache successful result
+    try:
+        cache_data = {
+            "summary": summary,
+            "source": source,
+            "generated_at": datetime.now().isoformat(),
+        }
+        redis_client.setex(cache_key, 86400, json.dumps(cache_data))  # 24h TTL
+    except Exception as e:
+        logger.warning("Redis cache set error", error=str(e))
+
+    processing_time_ms = int((time.time() - start_time) * 1000)
+    logger.info(
+        "TL;DR generated",
+        request_id=request_id,
+        lot_id=lot_id,
+        source=source,
+        latency_ms=processing_time_ms,
+    )
+
+    return LotSummaryResponse(
+        lot_id=lot_id,
+        summary=summary,
+        source=source,
+        cached=False,
+        generated_at=datetime.now(),
+    )
+
+
+@app.get("/api/search/autocomplete")
+async def search_autocomplete(query: str):
+    """
+    Search autocomplete with ChromaDB + SQL fallback
+    Week 4.1: ≥2 chars, ≤500ms, Cyrillic support, Redis cache
+    """
+    request_id = str(uuid.uuid4())
+    start_time = time.time()
+
+    # Validate query
+    if len(query) < 2:
+        return {"suggestions": []}
+
+    # Normalize query: trim, lowercase, filter non-letters/spaces
+    normalized_query = re.sub(r"[^\w\sа-яё]", "", query.lower().strip())
+    if not normalized_query:
+        return {"suggestions": []}
+
+    logger.info(
+        "Autocomplete request",
+        request_id=request_id,
+        query=query,
+        normalized=normalized_query,
+    )
+
+    # Check Redis cache
+    cache_key = f"autocomplete:{hashlib.md5(normalized_query.encode(), usedforsecurity=False).hexdigest()}"
+    try:
+        cached_suggestions = redis_client.get(cache_key)
+        if cached_suggestions:
+            suggestions = json.loads(cached_suggestions)
+            logger.info(
+                "Autocomplete cache hit",
+                request_id=request_id,
+                query=normalized_query,
+                suggestions_count=len(suggestions),
+                latency_ms=int((time.time() - start_time) * 1000),
+            )
+            return {"suggestions": suggestions}
+    except Exception as e:
+        logger.warning("Redis autocomplete cache error", error=str(e))
+
+    suggestions = []
+
+    # Try ChromaDB first
+    try:
+        collection = chroma_client.get_collection("lot_names")
+        results = collection.query(query_texts=[normalized_query], n_results=5)
+
+        if results["documents"] and results["documents"][0]:
+            suggestions = list(set(results["documents"][0]))  # Remove duplicates
+            suggestions = [s for s in suggestions if normalized_query in s.lower()][:5]
+
+        logger.info(
+            "ChromaDB autocomplete",
+            request_id=request_id,
+            suggestions_count=len(suggestions),
+        )
+
+    except Exception as e:
+        logger.warning(
+            "ChromaDB autocomplete failed", request_id=request_id, error=str(e)
+        )
+
+    # SQL fallback if ChromaDB failed or empty results
+    if not suggestions:
+        try:
+            with SessionLocal() as db:
+                sql_results = db.execute(
+                    text(
+                        """
+                        SELECT DISTINCT nameRu
+                        FROM lots
+                        WHERE nameRu ILIKE :query
+                        ORDER BY nameRu
+                        LIMIT 5
+                    """
+                    ),
+                    {"query": f"%{normalized_query}%"},
+                ).fetchall()
+
+                suggestions = [row[0] for row in sql_results if row[0]]
+
+            logger.info(
+                "SQL fallback autocomplete",
+                request_id=request_id,
+                suggestions_count=len(suggestions),
+            )
+
+        except Exception as e:
+            logger.error(
+                "Autocomplete fallback failed", request_id=request_id, error=str(e)
+            )
+
+    # Cache results
+    try:
+        if suggestions:
+            redis_client.setex(cache_key, 86400, json.dumps(suggestions))  # 24h TTL
+    except Exception as e:
+        logger.warning("Autocomplete cache set error", error=str(e))
+
+    processing_time_ms = int((time.time() - start_time) * 1000)
+    logger.info(
+        "Autocomplete completed",
+        request_id=request_id,
+        query=normalized_query,
+        suggestions_count=len(suggestions),
+        latency_ms=processing_time_ms,
+    )
+
+    return {"suggestions": suggestions}
 
 
 if __name__ == "__main__":

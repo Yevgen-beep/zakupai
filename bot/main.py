@@ -941,6 +941,142 @@ async def command_help_handler(message: Message) -> None:
     await message.answer(help_text)
 
 
+# =============================================================================
+# Week 4.1: New Telegram Bot Commands
+# =============================================================================
+
+
+@dp.message(Command("import_status"))
+@validate_and_log_bot(require_key=True)
+async def command_import_status_handler(message: Message) -> None:
+    """
+    Check CSV import status by log ID
+    Week 4.1: /import_status <log_id> → short status + Web UI link
+    """
+    args = message.text.split()[1:] if message.text else []
+
+    if not args:
+        await message.answer(
+            "Usage: /import_status <log_id>\nExample: /import_status 123"
+        )
+        return
+
+    try:
+        log_id = int(args[0])
+    except ValueError:
+        await message.answer("❌ Invalid log ID. Must be a number.")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{config.api.zakupai_base_url}/web-ui/import-status/{log_id}"
+            )
+
+            if response.status_code == 404:
+                await message.answer(f"❌ Import log {log_id} not found.")
+                return
+
+            if response.status_code != 200:
+                await message.answer(f"❌ API error: {response.status_code}")
+                return
+
+            data = response.json()
+            status = data["status"]
+            success_rows = data["success_rows"]
+            error_rows = data["error_rows"]
+
+            # Status emoji mapping
+            status_emoji = {
+                "SUCCESS": "✅",
+                "PARTIAL": "⚠️",
+                "FAILED": "❌",
+                "PROCESSING": "⏳",
+            }
+
+            emoji = status_emoji.get(status, "❓")
+
+            # Short response (≤1 line) + CTA
+            web_url = config.api.zakupai_base_url.replace(":8000", "").replace(
+                "http://", "http://"
+            )
+
+            response_text = f"{emoji} Import {log_id}: {status}. Rows OK: {success_rows}, Errors: {error_rows}"
+            if error_rows > 0:
+                response_text += f"\nℹ️ Details: {web_url}/import/{log_id}"
+
+            await message.answer(response_text)
+
+    except Exception as e:
+        logger.error(
+            "Import status check failed", user_id=message.from_user.id, error=str(e)
+        )
+        await message.answer("❌ Service temporarily unavailable")
+
+
+@dp.message(Command("lot"))
+@validate_and_log_bot(require_key=True)
+async def command_lot_tldr_handler(message: Message) -> None:
+    """
+    Get lot TL;DR summary
+    Week 4.1: /lot <id> → short TL;DR + Web UI link
+    Enhanced from existing lot command
+    """
+    args = message.text.split()[1:] if message.text else []
+
+    if not args:
+        await message.answer("Usage: /lot <lot_id>\nExample: /lot 123456")
+        return
+
+    lot_id_str = args[0]
+    lot_id = extract_lot_id(lot_id_str)
+
+    if not lot_id or not lot_id.isdigit():
+        await message.answer("❌ Invalid lot ID")
+        return
+
+    try:
+        # Get TL;DR from Web UI API
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{config.api.zakupai_base_url}/web-ui/lot/{lot_id}"
+            )
+
+            if response.status_code == 404:
+                await message.answer(f"❌ Lot {lot_id} not found")
+                return
+
+            if response.status_code != 200:
+                await message.answer(f"❌ API error: {response.status_code}")
+                return
+
+            data = response.json()
+            summary = data["summary"]
+
+            # Short response + Web UI link
+            web_url = config.api.zakupai_base_url.replace(":8000", "").replace(
+                "http://", "http://"
+            )
+
+            # Truncate summary to fit in 1 line (≤100 chars)
+            short_summary = summary[:100] + "..." if len(summary) > 100 else summary
+
+            response_text = (
+                f"📋 {short_summary}\nℹ️ Full analysis: {web_url}/lot/{lot_id}"
+            )
+
+            await message.answer(response_text)
+
+    except Exception as e:
+        logger.error(
+            "Lot TL;DR failed",
+            user_id=message.from_user.id,
+            lot_id=lot_id,
+            error=str(e),
+        )
+        await message.answer("❌ Service temporarily unavailable")
+
+
 def extract_lot_id(lot_input: str) -> str:
     """
     Извлекает ID лота из строки (ID или URL)
