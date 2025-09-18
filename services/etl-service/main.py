@@ -1,20 +1,75 @@
+import io
 import math
 import os
+import tempfile
+import uuid
+import zipfile
+from pathlib import Path
 
+import aiohttp
+import fitz  # PyMuPDF
+import pandas as pd
 import psycopg2
 import psycopg2.extras
+import pytesseract
+import structlog
 from dotenv import load_dotenv
 from etl import ETLService
-from fastapi import Depends, FastAPI, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from middleware import FileSizeMiddleware
+from models import BatchUploadError, BatchUploadResponse, BatchUploadRow, ETLBatchUpload
+from PIL import Image
+from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 load_dotenv()
+
+# Configure logging with structlog
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.dev.ConsoleRenderer(),
+    ],
+    wrapper_class=structlog.stdlib.BoundLogger,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger(__name__)
+
+# Database setup
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql://zakupai:password123@localhost:5432/zakupai"
+)
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 app = FastAPI(
     title="ETL Service",
     description="ETL service for ZakupAI platform - loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
     version="1.0.0",
 )
+
+# Add middleware
+app.add_middleware(FileSizeMiddleware)
+
+# Constants
+MAX_FILE_SIZE_MB = 50
+ALLOWED_EXTENSIONS = {".pdf", ".zip"}
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
 
 class ETLRequest(BaseModel):
@@ -54,14 +109,251 @@ class AttachmentsResponse(BaseModel):
     pages: int
 
 
+class ProcessedFile(BaseModel):
+    file_name: str
+    file_type: str
+    content_preview: str
+
+
+class UploadResponse(BaseModel):
+    status: str
+    files: list[ProcessedFile]
+
+
+class OCRHealthResponse(BaseModel):
+    status: str
+    tesseract_available: bool = False
+    message: str
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="Search query text")
+    collection: str = Field(
+        default="etl_documents", description="ChromaDB collection name"
+    )
+    top_k: int = Field(
+        default=5, ge=1, le=20, description="Number of results to return"
+    )
+
+
+class SearchResult(BaseModel):
+    doc_id: str
+    file_name: str
+    score: float
+    metadata: dict
+    content_preview: str | None = None
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult]
+    total_found: int
+
+
+class URLUploadRequest(BaseModel):
+    file_url: str = Field(..., description="URL to download PDF/ZIP file")
+    file_name: str | None = Field(None, description="Optional file name")
+    lot_id: str | None = Field(
+        None, description="Lot identifier for document association"
+    )
+
+
+async def process_pdf_ocr(file_path: Path, file_name: str) -> str:
+    """
+    Process PDF file with OCR using PyMuPDF and Tesseract
+
+    Args:
+        file_path: Path to the PDF file
+        file_name: Original file name
+
+    Returns:
+        Extracted text content
+    """
+    try:
+        # Try to extract text directly from PDF first
+        doc = fitz.open(file_path)
+        text_content = []
+
+        for page_num in range(doc.page_count):
+            page = doc.load_page(page_num)
+
+            # Try to get text directly
+            page_text = page.get_text("text").strip()
+
+            if page_text and len(page_text) > 50:  # PDF has readable text
+                text_content.append(page_text)
+                logger.info(f"Extracted text from page {page_num + 1} of {file_name}")
+            else:
+                # PDF is likely a scan, use OCR
+                logger.info(f"Running OCR on page {page_num + 1} of {file_name}")
+                try:
+                    # Get page as image
+                    pix = page.get_pixmap(
+                        matrix=fitz.Matrix(2.0, 2.0)
+                    )  # 2x scaling for better OCR
+                    img_data = pix.tobytes("png")
+                    img = Image.open(io.BytesIO(img_data))
+
+                    # Run Tesseract OCR
+                    ocr_text = pytesseract.image_to_string(
+                        img, lang="rus+eng", config="--oem 3 --psm 6"
+                    ).strip()
+
+                    if ocr_text:
+                        text_content.append(ocr_text)
+                        logger.info(
+                            f"OCR extracted {len(ocr_text)} characters from page {page_num + 1}"
+                        )
+                    else:
+                        logger.warning(
+                            f"No text extracted from page {page_num + 1} of {file_name}"
+                        )
+
+                except Exception as ocr_error:
+                    logger.error(
+                        f"OCR failed for page {page_num + 1} of {file_name}: {ocr_error}"
+                    )
+                    # Continue with other pages (fail-soft)
+                    continue
+
+        doc.close()
+
+        # Combine all pages
+        full_text = "\n\n".join(text_content)
+
+        if not full_text.strip():
+            logger.warning(f"No text extracted from {file_name}")
+            return "[No text content extracted]"
+
+        logger.info(
+            f"Successfully extracted {len(full_text)} characters from {file_name}"
+        )
+        return full_text
+
+    except Exception as e:
+        logger.error(f"PDF processing failed for {file_name}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"PDF processing failed: {str(e)}"
+        ) from e
+
+
+async def save_to_postgres(
+    file_name: str, file_type: str, content: str, lot_id: str | None = None
+) -> int:
+    """
+    Save processed document to PostgreSQL
+
+    Args:
+        file_name: Original file name
+        file_type: File type (pdf, etc.)
+        content: Extracted text content
+        lot_id: Optional lot identifier
+
+    Returns:
+        Document ID
+    """
+    try:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise HTTPException(
+                status_code=500, detail="DATABASE_URL environment variable not found"
+            )
+
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+
+        # Insert with ON CONFLICT to handle duplicates
+        cursor.execute(
+            """
+            INSERT INTO etl_documents (lot_id, file_name, file_type, content)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (lot_id, file_name)
+            DO UPDATE SET
+                file_type = EXCLUDED.file_type,
+                content = EXCLUDED.content,
+                created_at = now()
+            RETURNING id
+            """,
+            (lot_id, file_name, file_type, content),
+        )
+
+        doc_id = cursor.fetchone()[0]
+        conn.commit()
+
+        cursor.close()
+        conn.close()
+
+        logger.info(f"Saved document {file_name} to PostgreSQL with ID {doc_id}")
+        return doc_id
+
+    except Exception as e:
+        logger.error(f"PostgreSQL save failed for {file_name}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Database save failed: {str(e)}"
+        ) from e
+
+
+async def index_in_chromadb(
+    doc_id: int, file_name: str, content: str, lot_id: str | None = None
+) -> bool:
+    """
+    Index document content in ChromaDB via embedding-api
+
+    Args:
+        doc_id: Document ID from PostgreSQL
+        file_name: Original file name
+        content: Document content to index
+        lot_id: Optional lot identifier
+
+    Returns:
+        Success status
+    """
+    try:
+        embedding_api_url = os.getenv("EMBEDDING_API_URL", "http://localhost:8004")
+
+        # Prepare metadata
+        metadata = {"doc_id": doc_id, "file_name": file_name, "source": "etl_documents"}
+        if lot_id:
+            metadata["lot_id"] = lot_id
+
+        # Index in ChromaDB
+        index_payload = {
+            "ref_id": f"etl_doc:{doc_id}",
+            "text": content[:5000],  # Limit text size for embedding
+            "metadata": metadata,
+            "collection": "etl_documents",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{embedding_api_url}/index",
+                json=index_payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully indexed {file_name} in ChromaDB")
+                    return True
+                else:
+                    error_text = await response.text()
+                    logger.error(
+                        f"ChromaDB indexing failed for {file_name}: {error_text}"
+                    )
+                    return False
+
+    except Exception as e:
+        logger.error(f"ChromaDB indexing failed for {file_name}: {e}")
+        # Don't raise exception - indexing failure shouldn't break the upload
+        return False
+
+
 def check_env_variables():
     """Check if required environment variables are present"""
-    api_token = os.getenv("API_TOKEN")
+    api_token = os.getenv("GOSZAKUP_TOKEN")
     database_url = os.getenv("DATABASE_URL")
 
     if not api_token:
         raise HTTPException(
-            status_code=500, detail="API_TOKEN environment variable not found"
+            status_code=500, detail="GOSZAKUP_TOKEN environment variable not found"
         )
 
     if not database_url:
@@ -76,6 +368,551 @@ def check_env_variables():
 async def health_check():
     """Health check endpoint"""
     return HealthResponse(status="ok")
+
+
+@app.get("/etl/ocr", response_model=OCRHealthResponse)
+async def ocr_health():
+    """OCR service health check and Tesseract availability"""
+    try:
+        import subprocess  # nosec B404 - subprocess needed for tesseract check
+
+        # Try to call tesseract
+        result = subprocess.run(  # nosec B603 B607 - tesseract command is safe
+            ["tesseract", "--version"], capture_output=True, text=True, timeout=5
+        )
+
+        if result.returncode == 0:
+            logger.info("Tesseract OCR is available")
+            return OCRHealthResponse(
+                status="ready",
+                tesseract_available=True,
+                message="Tesseract OCR ready for processing",
+            )
+        else:
+            logger.warning("Tesseract command failed")
+            return OCRHealthResponse(
+                status="not_ready",
+                tesseract_available=False,
+                message="Tesseract command failed",
+            )
+
+    except ImportError:
+        logger.warning("pytesseract not installed")
+        return OCRHealthResponse(
+            status="not_implemented",
+            tesseract_available=False,
+            message="pytesseract not installed",
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("Tesseract timeout")
+        return OCRHealthResponse(
+            status="timeout",
+            tesseract_available=False,
+            message="Tesseract command timeout",
+        )
+    except FileNotFoundError:
+        logger.warning("Tesseract not found in system")
+        return OCRHealthResponse(
+            status="not_implemented",
+            tesseract_available=False,
+            message="Tesseract not found in system - install tesseract-ocr package",
+        )
+    except Exception as e:
+        logger.error(f"OCR health check failed: {e}")
+        return OCRHealthResponse(
+            status="error",
+            tesseract_available=False,
+            message=f"Error checking Tesseract: {str(e)}",
+        )
+
+
+@app.post("/etl/upload", response_model=UploadResponse)
+async def upload_file(file: UploadFile = File(...), lot_id: str | None = None):
+    """
+    Upload and process PDF or ZIP files with OCR
+
+    - **file**: PDF or ZIP file (max 50MB)
+    - **lot_id**: Optional lot identifier for document association
+    - **Returns**: JSON with processed files and content previews
+
+    Supported formats: .pdf, .zip
+    Processing: PyMuPDF text extraction + Tesseract OCR for scans
+    Storage: PostgreSQL + ChromaDB indexing
+    """
+
+    try:
+        # Validate file size
+        file.file.seek(0, 2)  # Seek to end
+        file_size = file.file.tell()
+        file.file.seek(0)  # Reset to beginning
+
+        if file_size > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB, got: {file_size / 1024 / 1024:.1f}MB",
+            )
+
+        # Validate file extension
+        file_path = Path(file.filename) if file.filename else Path("unknown")
+        file_extension = file_path.suffix.lower()
+
+        if file_extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {file_extension}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+
+        logger.info(
+            f"Processing upload: {file.filename} ({file_size / 1024 / 1024:.1f}MB)"
+        )
+
+        processed_files = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+
+            if file_extension == ".zip":
+                # Handle ZIP files
+                zip_path = temp_dir_path / file.filename
+                with zip_path.open("wb") as buffer:
+                    content = await file.read()
+                    buffer.write(content)
+
+                try:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        # Extract all PDF files
+                        for zip_file in zip_ref.namelist():
+                            if zip_file.endswith("/") or zip_file.startswith("."):
+                                continue
+
+                            zip_file_path = Path(zip_file)
+                            if zip_file_path.suffix.lower() == ".pdf":
+                                # Extract file
+                                extracted_path = temp_dir_path / zip_file_path.name
+                                with (
+                                    zip_ref.open(zip_file) as source,
+                                    extracted_path.open("wb") as target,
+                                ):
+                                    target.write(source.read())
+
+                                # Process PDF with OCR
+                                try:
+                                    content = await process_pdf_ocr(
+                                        extracted_path, zip_file_path.name
+                                    )
+
+                                    # Save to PostgreSQL
+                                    doc_id = await save_to_postgres(
+                                        zip_file_path.name, "pdf", content, lot_id
+                                    )
+
+                                    # Index in ChromaDB
+                                    await index_in_chromadb(
+                                        doc_id, zip_file_path.name, content, lot_id
+                                    )
+
+                                    # Add to results
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview=(
+                                                content[:200] + "..."
+                                                if len(content) > 200
+                                                else content
+                                            ),
+                                        )
+                                    )
+
+                                except Exception as process_error:
+                                    logger.error(
+                                        f"Failed to process {zip_file_path.name}: {process_error}"
+                                    )
+                                    # Add failed file to results
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview="[Processing failed]",
+                                        )
+                                    )
+
+                        if not processed_files:
+                            logger.warning(
+                                f"No PDF files found in ZIP: {file.filename}"
+                            )
+                            return UploadResponse(status="error", files=[])
+
+                except zipfile.BadZipFile as e:
+                    logger.error(f"Invalid ZIP file: {file.filename}")
+                    raise HTTPException(
+                        status_code=400, detail="Invalid or corrupted ZIP file"
+                    ) from e
+
+            elif file_extension == ".pdf":
+                # Handle single PDF file
+                pdf_path = temp_dir_path / file.filename
+                with pdf_path.open("wb") as buffer:
+                    content = await file.read()
+                    buffer.write(content)
+
+                # Process PDF with OCR
+                content = await process_pdf_ocr(pdf_path, file.filename)
+
+                # Save to PostgreSQL
+                doc_id = await save_to_postgres(file.filename, "pdf", content, lot_id)
+
+                # Index in ChromaDB
+                await index_in_chromadb(doc_id, file.filename, content, lot_id)
+
+                # Add to results
+                processed_files.append(
+                    ProcessedFile(
+                        file_name=file.filename,
+                        file_type="pdf",
+                        content_preview=(
+                            content[:200] + "..." if len(content) > 200 else content
+                        ),
+                    )
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=400, detail=f"Unexpected file type: {file_extension}"
+                )
+
+        logger.info(f"Successfully processed {len(processed_files)} files")
+        return UploadResponse(status="ok", files=processed_files)
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Upload processing failed for {file.filename}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"File processing failed: {str(e)}"
+        ) from e
+
+
+@app.post("/etl/upload-url", response_model=UploadResponse)
+async def upload_file_from_url(request: URLUploadRequest):
+    """
+    Download and process PDF or ZIP files from URL with OCR
+
+    - **file_url**: URL to download PDF or ZIP file (max 50MB)
+    - **file_name**: Optional file name (auto-detected if not provided)
+    - **lot_id**: Optional lot identifier for document association
+    - **Returns**: JSON with processed files and content previews
+
+    Supported formats: .pdf, .zip
+    Processing: PyMuPDF text extraction + Tesseract OCR for scans
+    Storage: PostgreSQL + ChromaDB indexing
+    """
+    from urllib.parse import urlparse
+
+    import aiohttp
+
+    try:
+        # Download file from URL
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                request.file_url, timeout=aiohttp.ClientTimeout(total=60)
+            ) as response:
+                if response.status != 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to download file from URL: HTTP {response.status}",
+                    )
+
+                # Check content length
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > MAX_FILE_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB, got: {int(content_length) / 1024 / 1024:.1f}MB",
+                    )
+
+                file_content = await response.read()
+
+                # Check actual file size
+                if len(file_content) > MAX_FILE_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB, got: {len(file_content) / 1024 / 1024:.1f}MB",
+                    )
+
+        # Determine file name
+        if request.file_name:
+            file_name = request.file_name
+        else:
+            # Extract from URL
+            parsed_url = urlparse(request.file_url)
+            file_name = Path(parsed_url.path).name or "downloaded_file.pdf"
+
+        # Validate file extension
+        file_path = Path(file_name)
+        file_extension = file_path.suffix.lower()
+
+        if file_extension not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {file_extension}. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+
+        logger.info(
+            f"Processing URL download: {file_name} from {request.file_url} ({len(file_content) / 1024 / 1024:.1f}MB)"
+        )
+
+        processed_files = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+
+            if file_extension == ".zip":
+                # Handle ZIP files
+                zip_path = temp_dir_path / file_name
+                with zip_path.open("wb") as buffer:
+                    buffer.write(file_content)
+
+                try:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        # Extract all PDF files
+                        for zip_file in zip_ref.namelist():
+                            if zip_file.endswith("/") or zip_file.startswith("."):
+                                continue
+
+                            zip_file_path = Path(zip_file)
+                            if zip_file_path.suffix.lower() == ".pdf":
+                                # Extract file
+                                extracted_path = temp_dir_path / zip_file_path.name
+                                with (
+                                    zip_ref.open(zip_file) as source,
+                                    extracted_path.open("wb") as target,
+                                ):
+                                    target.write(source.read())
+
+                                # Process PDF with OCR
+                                try:
+                                    content = await process_pdf_ocr(
+                                        extracted_path, zip_file_path.name
+                                    )
+
+                                    # Save to PostgreSQL
+                                    doc_id = await save_to_postgres(
+                                        zip_file_path.name,
+                                        "pdf",
+                                        content,
+                                        request.lot_id,
+                                    )
+
+                                    # Index in ChromaDB
+                                    await index_in_chromadb(
+                                        doc_id,
+                                        zip_file_path.name,
+                                        content,
+                                        request.lot_id,
+                                    )
+
+                                    # Add to results
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview=(
+                                                content[:200] + "..."
+                                                if len(content) > 200
+                                                else content
+                                            ),
+                                        )
+                                    )
+
+                                except Exception as process_error:
+                                    logger.error(
+                                        f"Failed to process {zip_file_path.name}: {process_error}"
+                                    )
+                                    # Add failed file to results with fail-soft behavior
+                                    processed_files.append(
+                                        ProcessedFile(
+                                            file_name=zip_file_path.name,
+                                            file_type="pdf",
+                                            content_preview="[Processing failed]",
+                                        )
+                                    )
+
+                        if not processed_files:
+                            logger.warning(f"No PDF files found in ZIP: {file_name}")
+                            return UploadResponse(status="error", files=[])
+
+                except zipfile.BadZipFile as e:
+                    logger.error(f"Invalid ZIP file: {file_name}")
+                    raise HTTPException(
+                        status_code=400, detail="Invalid or corrupted ZIP file"
+                    ) from e
+
+            elif file_extension == ".pdf":
+                # Handle single PDF file
+                pdf_path = temp_dir_path / file_name
+                with pdf_path.open("wb") as buffer:
+                    buffer.write(file_content)
+
+                # Process PDF with OCR
+                content = await process_pdf_ocr(pdf_path, file_name)
+
+                # Save to PostgreSQL
+                doc_id = await save_to_postgres(
+                    file_name, "pdf", content, request.lot_id
+                )
+
+                # Index in ChromaDB
+                await index_in_chromadb(doc_id, file_name, content, request.lot_id)
+
+                # Add to results
+                processed_files.append(
+                    ProcessedFile(
+                        file_name=file_name,
+                        file_type="pdf",
+                        content_preview=(
+                            content[:200] + "..." if len(content) > 200 else content
+                        ),
+                    )
+                )
+
+            else:
+                raise HTTPException(
+                    status_code=400, detail=f"Unexpected file type: {file_extension}"
+                )
+
+        logger.info(f"Successfully processed {len(processed_files)} files from URL")
+        return UploadResponse(status="ok", files=processed_files)
+
+    except aiohttp.ClientError as e:
+        logger.error(f"Failed to download from URL {request.file_url}: {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to download file: {str(e)}"
+        ) from e
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"URL upload processing failed for {request.file_url}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"File processing failed: {str(e)}"
+        ) from e
+
+
+@app.post("/search", response_model=SearchResponse)
+async def search_documents(request: SearchRequest):
+    """
+    Search documents in ChromaDB collection
+
+    - **query**: Text to search for
+    - **collection**: ChromaDB collection name (default: etl_documents)
+    - **top_k**: Number of results to return (1-20, default: 5)
+
+    Returns documents with similarity scores and metadata
+    """
+    try:
+        embedding_api_url = os.getenv("EMBEDDING_API_URL", "http://localhost:7010")
+
+        search_payload = {
+            "query": request.query,
+            "top_k": request.top_k,
+            "collection": request.collection,
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{embedding_api_url}/search",
+                json=search_payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status == 200:
+                    search_data = await response.json()
+
+                    results = []
+                    for item in search_data.get("results", []):
+                        # Extract document info from ChromaDB results
+                        metadata = item.get("metadata", {})
+                        doc_id = metadata.get("doc_id", "unknown")
+                        file_name = metadata.get("file_name", "unknown")
+
+                        # Get content preview from PostgreSQL if doc_id available
+                        content_preview = None
+                        if doc_id != "unknown" and doc_id.startswith("etl_doc:"):
+                            try:
+                                db_doc_id = int(doc_id.split(":")[-1])
+                                content_preview = await get_document_preview(db_doc_id)
+                            except (ValueError, IndexError):
+                                pass
+
+                        results.append(
+                            SearchResult(
+                                doc_id=item.get("id", doc_id),
+                                file_name=file_name,
+                                score=item.get("score", 0.0),
+                                metadata=metadata,
+                                content_preview=content_preview,
+                            )
+                        )
+
+                    return SearchResponse(
+                        query=request.query, results=results, total_found=len(results)
+                    )
+                else:
+                    error_text = await response.text()
+                    logger.error(f"ChromaDB search failed: {error_text}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Search service unavailable: {error_text}",
+                    )
+
+    except aiohttp.ClientError as e:
+        logger.error(f"ChromaDB connection failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="Search service unavailable - ChromaDB connection failed",
+        ) from e
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}") from e
+
+
+async def get_document_preview(doc_id: int, max_length: int = 200) -> str | None:
+    """
+    Get document content preview from PostgreSQL
+
+    Args:
+        doc_id: Document ID
+        max_length: Maximum length of preview text
+
+    Returns:
+        Content preview or None if not found
+    """
+    try:
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            return None
+
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT content FROM etl_documents WHERE id = %s", (doc_id,))
+
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if result and result[0]:
+            content = result[0]
+            if len(content) > max_length:
+                return content[:max_length] + "..."
+            return content
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to get document preview for ID {doc_id}: {e}")
+        return None
 
 
 @app.post("/run", response_model=ETLResponse)
@@ -212,9 +1049,11 @@ async def get_attachments(
         )
 
     except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
 
 
 @app.get("/attachments/{attachment_id}", response_model=Attachment)
@@ -248,9 +1087,233 @@ async def get_attachment(attachment_id: int, _: bool = Depends(check_env_variabl
         )
 
     except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
+
+
+async def process_csv_file(
+    file_content: bytes, batch_id: str
+) -> tuple[list[ETLBatchUpload], list[BatchUploadError]]:
+    """Process CSV file and return valid records and errors"""
+    records = []
+    errors = []
+
+    try:
+        # Read CSV with pandas
+        df = pd.read_csv(io.BytesIO(file_content))
+
+        for index, row in df.iterrows():
+            row_num = index + 2  # +2 because pandas is 0-indexed and we skip header
+
+            try:
+                # Validate row with Pydantic
+                validated_row = BatchUploadRow(
+                    bin=str(row.get("bin", "")).strip(),
+                    amount=float(row.get("amount", 0)),
+                    status=str(row.get("status", "")).strip(),
+                )
+
+                # Create SQLAlchemy record
+                record = ETLBatchUpload(
+                    bin=validated_row.bin,
+                    amount=validated_row.amount,
+                    status=validated_row.status,
+                    batch_id=batch_id,
+                )
+                records.append(record)
+
+            except (ValidationError, ValueError, TypeError) as e:
+                error_msg = str(e)
+                if "validation error" in error_msg.lower():
+                    # Extract specific validation errors
+                    error_msg = error_msg.split("\n")[0].replace(
+                        "1 validation error for BatchUploadRow\n", ""
+                    )
+
+                errors.append(BatchUploadError(row=row_num, error=error_msg))
+
+    except Exception as e:
+        errors.append(BatchUploadError(row=1, error=f"Failed to parse CSV: {str(e)}"))
+
+    return records, errors
+
+
+async def process_excel_file(
+    file_content: bytes, batch_id: str
+) -> tuple[list[ETLBatchUpload], list[BatchUploadError]]:
+    """Process Excel file and return valid records and errors"""
+    records = []
+    errors = []
+
+    try:
+        # Read Excel with pandas
+        df = pd.read_excel(io.BytesIO(file_content))
+
+        for index, row in df.iterrows():
+            row_num = index + 2  # +2 because pandas is 0-indexed and we skip header
+
+            try:
+                # Validate row with Pydantic
+                validated_row = BatchUploadRow(
+                    bin=str(row.get("bin", "")).strip(),
+                    amount=float(row.get("amount", 0)),
+                    status=str(row.get("status", "")).strip(),
+                )
+
+                # Create SQLAlchemy record
+                record = ETLBatchUpload(
+                    bin=validated_row.bin,
+                    amount=validated_row.amount,
+                    status=validated_row.status,
+                    batch_id=batch_id,
+                )
+                records.append(record)
+
+            except (ValidationError, ValueError, TypeError) as e:
+                error_msg = str(e)
+                if "validation error" in error_msg.lower():
+                    # Extract specific validation errors
+                    error_msg = error_msg.split("\n")[0].replace(
+                        "1 validation error for BatchUploadRow\n", ""
+                    )
+
+                errors.append(BatchUploadError(row=row_num, error=error_msg))
+
+    except Exception as e:
+        errors.append(BatchUploadError(row=1, error=f"Failed to parse Excel: {str(e)}"))
+
+    return records, errors
+
+
+@app.post("/etl/upload-batch", response_model=BatchUploadResponse)
+async def upload_batch(file: UploadFile = File(...), db=Depends(get_db)):
+    """
+    Upload and process CSV/XLSX files for batch data import
+
+    - **file**: CSV or XLSX file with columns: bin, amount, status
+    - Maximum file size: 10MB
+    - Supports chunk processing for large files
+
+    Expected CSV/XLSX columns:
+    - bin: 12-digit Business Identification Number
+    - amount: Transaction amount (>= 0)
+    - status: NEW, APPROVED, or REJECTED
+    """
+
+    # Validate file extension
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if file_ext not in {".csv", ".xlsx"}:
+        raise HTTPException(
+            status_code=400, detail="Only CSV and XLSX files are supported"
+        )
+
+    batch_id = str(uuid.uuid4())
+
+    try:
+        # Read file content
+        file_content = await file.read()
+
+        logger.info(
+            "Processing batch upload",
+            batch_id=batch_id,
+            filename=file.filename,
+            file_size=len(file_content),
+        )
+
+        # Process based on file type
+        if file_ext == ".csv":
+            # For large files, use chunk processing (>1MB)
+            if len(file_content) > 1024 * 1024:  # 1MB
+                # Implement chunk processing for CSV
+                records = []
+                errors = []
+
+                try:
+                    df_chunks = pd.read_csv(io.BytesIO(file_content), chunksize=1000)
+
+                    for chunk_num, chunk in enumerate(df_chunks):
+                        chunk_records, chunk_errors = await process_csv_chunk(
+                            chunk, batch_id, chunk_num
+                        )
+                        records.extend(chunk_records)
+                        errors.extend(chunk_errors)
+
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to process CSV chunks: {str(e)}",
+                    ) from e
+            else:
+                records, errors = await process_csv_file(file_content, batch_id)
+
+        elif file_ext == ".xlsx":
+            records, errors = await process_excel_file(file_content, batch_id)
+
+        # Save valid records to database
+        if records:
+            db.add_all(records)
+            db.commit()
+
+            logger.info(
+                "Batch upload completed",
+                batch_id=batch_id,
+                records_saved=len(records),
+                errors_count=len(errors),
+            )
+
+        return BatchUploadResponse(
+            success=True, batch_id=batch_id, rows_processed=len(records), errors=errors
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error("Batch upload failed", batch_id=batch_id, error=str(e))
+
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
+
+
+async def process_csv_chunk(
+    chunk, batch_id: str, chunk_num: int
+) -> tuple[list[ETLBatchUpload], list[BatchUploadError]]:
+    """Process a single CSV chunk"""
+    records = []
+    errors = []
+
+    for index, row in chunk.iterrows():
+        row_num = (chunk_num * 1000) + index + 2  # Account for chunk offset and header
+
+        try:
+            validated_row = BatchUploadRow(
+                bin=str(row.get("bin", "")).strip(),
+                amount=float(row.get("amount", 0)),
+                status=str(row.get("status", "")).strip(),
+            )
+
+            record = ETLBatchUpload(
+                bin=validated_row.bin,
+                amount=validated_row.amount,
+                status=validated_row.status,
+                batch_id=batch_id,
+            )
+            records.append(record)
+
+        except (ValidationError, ValueError, TypeError) as e:
+            error_msg = str(e)
+            if "validation error" in error_msg.lower():
+                error_msg = error_msg.split("\n")[0].replace(
+                    "1 validation error for BatchUploadRow\n", ""
+                )
+
+            errors.append(BatchUploadError(row=row_num, error=error_msg))
+
+    return records, errors
 
 
 @app.get("/")
@@ -262,6 +1325,7 @@ async def root():
         "endpoints": {
             "/health": "Health check",
             "/run": "Run ETL process",
+            "/etl/upload-batch": "Upload CSV/XLSX for batch processing",
             "/attachments": "Get OCR processed attachments",
             "/docs": "API documentation",
         },

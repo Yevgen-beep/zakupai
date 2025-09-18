@@ -103,7 +103,7 @@ async def health():
     return {"status": "ok", "service": "mock-billing"}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7004)
+    uvicorn.run(app, host="0.0.0.0", port=7004)  # nosec B104
 EOF
 
 EXPOSE 7004

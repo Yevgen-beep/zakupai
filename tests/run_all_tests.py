@@ -108,7 +108,7 @@ def main():
     print(f"  Total test suites: {total_suites}")
     print(f"  Passed: {passed_suites}")
     print(f"  Failed: {failed_suites}")
-    print(f"  Success rate: {passed_suites/total_suites*100:.1f}%")
+    print(f"  Success rate: {passed_suites / total_suites * 100:.1f}%")
 
     if failed_suites == 0:
         print("\n🎉 ALL TESTS PASSED! 🎉")

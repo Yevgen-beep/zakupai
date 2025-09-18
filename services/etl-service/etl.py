@@ -39,11 +39,11 @@ logger.addHandler(stream_handler)
 class ETLService:
     def __init__(self):
         self.api_url = "https://ows.goszakup.gov.kz/v3/graphql"
-        self.api_token = os.getenv("API_TOKEN")
+        self.api_token = os.getenv("GOSZAKUP_TOKEN")
         self.database_url = os.getenv("DATABASE_URL")
 
         if not self.api_token:
-            raise ValueError("API_TOKEN not found in environment variables")
+            raise ValueError("GOSZAKUP_TOKEN not found in environment variables")
         if not self.database_url:
             raise ValueError("DATABASE_URL not found in environment variables")
 

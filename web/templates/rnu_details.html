@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}RNU Details - {{ supplier_bin }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1>RNU Details</h1>
+                    <p class="text-muted">BIN: <code>{{ supplier_bin }}</code></p>
+                </div>
+                <div>
+                    <a href="/rnu" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Dashboard
+                    </a>
+                    <button id="export-pdf-btn" class="btn btn-primary ml-2">
+                        <i class="fas fa-file-pdf"></i> Export PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Status Card -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Current Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <h6 class="text-muted">Status</h6>
+                            <span class="badge badge-lg
+                                {% if rnu_data.status == 'ACTIVE' %}badge-success
+                                {% elif rnu_data.status == 'BLOCKED' %}badge-danger
+                                {% elif rnu_data.status == 'SUSPENDED' %}badge-warning
+                                {% elif rnu_data.status == 'LIQUIDATED' %}badge-dark
+                                {% elif rnu_data.status == 'BLACKLISTED' %}badge-danger
+                                {% else %}badge-secondary{% endif %}">
+                                {{ rnu_data.status }}
+                            </span>
+                        </div>
+                        <div class="col-md-3">
+                            <h6 class="text-muted">Blocked</h6>
+                            <span class="badge badge-lg {% if rnu_data.is_blocked %}badge-danger{% else %}badge-success{% endif %}">
+                                {% if rnu_data.is_blocked %}YES{% else %}NO{% endif %}
+                            </span>
+                        </div>
+                        <div class="col-md-3">
+                            <h6 class="text-muted">Last Validated</h6>
+                            <p class="mb-0">{{ rnu_data.validated_at[:19] | replace('T', ' ') }}</p>
+                        </div>
+                        <div class="col-md-3">
+                            <h6 class="text-muted">Data Source</h6>
+                            <small class="text-muted">{{ rnu_data.source.upper() }}</small>
+                        </div>
+                    </div>
+
+                    <!-- Subscription Controls -->
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <hr>
+                            <h6 class="text-muted">Notification Settings</h6>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="email-alerts">
+                                <label class="form-check-label" for="email-alerts">Email Alerts</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="telegram-alerts" checked>
+                                <label class="form-check-label" for="telegram-alerts">Telegram Alerts</label>
+                            </div>
+                            <button class="btn btn-sm btn-warning ml-3">
+                                <i class="fas fa-bell"></i> Subscribe to Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status History Chart -->
+    {% if validation_history %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Status History Chart</h5>
+                </div>
+                <div class="card-body">
+                    <div style="height: 300px;">
+                        <canvas id="status-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="row">
+        <!-- Validation History Table -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Validation History</h5>
+                    <small class="text-muted">Last {{ validation_history|length }} checks</small>
+                </div>
+                <div class="card-body">
+                    {% if validation_history %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Blocked</th>
+                                    <th>Cache Expires</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for record in validation_history %}
+                                <tr>
+                                    <td>
+                                        <small>{{ record.validated_at[:19] | replace('T', ' ') if record.validated_at else 'N/A' }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge
+                                            {% if record.status == 'ACTIVE' %}badge-success
+                                            {% elif record.status == 'BLOCKED' %}badge-danger
+                                            {% elif record.status == 'SUSPENDED' %}badge-warning
+                                            {% elif record.status == 'LIQUIDATED' %}badge-dark
+                                            {% elif record.status == 'BLACKLISTED' %}badge-danger
+                                            {% else %}badge-secondary{% endif %}">
+                                            {{ record.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge {% if record.is_blocked %}badge-danger{% else %}badge-success{% endif %}">
+                                            {% if record.is_blocked %}YES{% else %}NO{% endif %}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">
+                                            {{ record.expires_at[:19] | replace('T', ' ') if record.expires_at else 'N/A' }}
+                                        </small>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center text-muted">
+                        <i class="fas fa-inbox fa-3x mb-3"></i>
+                        <p>No validation history available</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Alert History -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Alert History</h5>
+                </div>
+                <div class="card-body">
+                    {% if alert_history %}
+                    <div class="timeline">
+                        {% for alert in alert_history %}
+                        <div class="timeline-item">
+                            <div class="timeline-marker
+                                {% if alert.status == 'BLOCKED' %}bg-danger
+                                {% elif alert.status == 'SUSPENDED' %}bg-warning
+                                {% elif alert.status == 'ACTIVE' %}bg-success
+                                {% else %}bg-secondary{% endif %}"></div>
+                            <div class="timeline-content">
+                                <h6 class="timeline-title">Status Changed</h6>
+                                <p class="timeline-text">
+                                    {% if alert.previous_status %}
+                                        From <strong>{{ alert.previous_status }}</strong> to
+                                    {% endif %}
+                                    <strong>{{ alert.status }}</strong>
+                                </p>
+                                <small class="text-muted">
+                                    {{ alert.notified_at[:19] | replace('T', ' ') if alert.notified_at else 'N/A' }}
+                                </small>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center text-muted">
+                        <i class="fas fa-bell-slash fa-2x mb-3"></i>
+                        <p>No alerts yet</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.timeline {
+    position: relative;
+    padding-left: 20px;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -25px;
+    top: 5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px #ddd;
+}
+
+.timeline-item:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: -21px;
+    top: 15px;
+    width: 2px;
+    height: calc(100% + 10px);
+    background-color: #ddd;
+}
+
+.timeline-title {
+    font-size: 0.9rem;
+    margin-bottom: 5px;
+}
+
+.timeline-text {
+    font-size: 0.8rem;
+    margin-bottom: 5px;
+}
+
+.badge-lg {
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    {% if validation_history %}
+    // Status History Chart
+    const ctx = document.getElementById('status-chart').getContext('2d');
+    const validationHistory = {{ validation_history | safe }};
+
+    // Prepare data for chart
+    const dates = validationHistory.map(record => {
+        if (record.validated_at) {
+            return new Date(record.validated_at).toLocaleDateString();
+        }
+        return 'N/A';
+    }).reverse();
+
+    const statuses = validationHistory.map(record => {
+        const statusMap = {
+            'ACTIVE': 1,
+            'SUSPENDED': 2,
+            'BLOCKED': 3,
+            'LIQUIDATED': 4,
+            'BLACKLISTED': 5,
+            'UNKNOWN': 0
+        };
+        return statusMap[record.status] || 0;
+    }).reverse();
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [{
+                label: 'Status Changes',
+                data: statuses,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                tension: 0.1,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 5,
+                    ticks: {
+                        stepSize: 1,
+                        callback: function(value) {
+                            const statusMap = {
+                                0: 'UNKNOWN',
+                                1: 'ACTIVE',
+                                2: 'SUSPENDED',
+                                3: 'BLOCKED',
+                                4: 'LIQUIDATED',
+                                5: 'BLACKLISTED'
+                            };
+                            return statusMap[value] || '';
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const statusMap = {
+                                0: 'UNKNOWN',
+                                1: 'ACTIVE',
+                                2: 'SUSPENDED',
+                                3: 'BLOCKED',
+                                4: 'LIQUIDATED',
+                                5: 'BLACKLISTED'
+                            };
+                            return `Status: ${statusMap[context.parsed.y] || 'UNKNOWN'}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+    {% endif %}
+
+    // PDF Export
+    document.getElementById('export-pdf-btn').addEventListener('click', function() {
+        const bin = '{{ supplier_bin }}';
+        const reason = prompt('Enter reason for export (optional):') || 'Status report';
+        const date = new Date().toISOString();
+
+        const url = `/api/complaint/${bin}/pdf?reason=${encodeURIComponent(reason)}&date=${encodeURIComponent(date)}`;
+        window.open(url, '_blank');
+    });
+});
+</script>
+{% endblock %}

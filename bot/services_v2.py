@@ -3,6 +3,7 @@
 Использует новый универсальный клиент GraphQL v3 API
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -19,12 +20,7 @@ from goszakup_client_v3 import LotStatus, TradeMethod
 # Для обратной совместимости
 try:
     # Импортируем старую поисковую систему как fallback
-    from search import (
-        GoszakupSearchService,
-        LotResult,
-        SearchStrategy,
-        search_lots_for_telegram,
-    )
+    from search import GoszakupSearchService, SearchStrategy, search_lots_for_telegram
 
     # Импортируем гибридную поисковую систему
     from search.hybrid_search import HybridSearchService
@@ -33,9 +29,6 @@ try:
 
     LEGACY_SEARCH_AVAILABLE = True
 except ImportError:
-    logger.warning(
-        "Legacy search system not available, using only new GraphQL v3 client"
-    )
     LEGACY_SEARCH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)

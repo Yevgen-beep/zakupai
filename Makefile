@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -157,3 +157,86 @@ workflows-down: ## Stop workflow services
 setup-workflows: ## Setup and configure workflow services
 	@echo "🔄 Setting up workflows..."
 	./scripts/setup-workflows.sh
+
+# Priority 1 Integration Commands
+test-priority1: ## Test Priority 1 integration (API Gateway + ChromaDB)
+	@echo "🚀 Testing Priority 1 integration (optimized with fail-fast)..."
+	@if [ -f .venv/bin/activate ]; then \
+		source .venv/bin/activate && python -m pytest tests/test_priority1.py -q --maxfail=1 --disable-warnings -v; \
+	else \
+		$(PYTHON_EXEC) -m pytest tests/test_priority1.py -q --maxfail=1 --disable-warnings -v; \
+	fi
+
+chroma-up: ## Start ChromaDB and related services
+	$(COMPOSE) up -d chromadb embedding-api goszakup-api
+	@echo "✅ ChromaDB services started:"
+	@echo "   ChromaDB: http://localhost:8010"
+	@echo "   Embedding API: http://localhost:7010"
+	@echo "   Goszakup API Gateway: http://localhost:7005"
+
+chroma-test: ## Quick ChromaDB connectivity test
+	@echo "🔍 Testing ChromaDB connectivity..."
+	@curl -f http://localhost:8010/api/v2/heartbeat 2>/dev/null && echo "✅ ChromaDB OK" || echo "❌ ChromaDB failed"
+	@curl -f http://localhost:7010/health && echo "✅ Embedding API OK" || echo "❌ Embedding API failed"
+	@curl -f http://localhost:7005/health && echo "✅ Goszakup API OK" || echo "❌ Goszakup API failed"
+
+etl-migrate: ## Run Alembic migrations for ETL service
+	@echo "🗄️  Running ETL service migrations..."
+	@cd services/etl-service && $(PYTHON_EXEC) -m alembic upgrade head
+
+etl-test: ## Run pytest tests for ETL service
+	@echo "🧪 Running ETL service tests..."
+	@cd services/etl-service && $(PYTHON_EXEC) -m pytest test_upload.py -v
+
+test-priority2: ## Test Priority 2 integration (ETL service OCR pipeline + ChromaDB)
+	@echo "🚀 Testing Priority 2 integration..."
+	@echo "🗄️  Starting required services..."
+	@$(COMPOSE) up -d db chromadb embedding-api
+	@echo "⏳ Waiting for services to be ready..."
+	@timeout 60 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 2; done"
+	@timeout 60 bash -c "until curl -fsS http://localhost:8010/api/v2/heartbeat 2>/dev/null; do sleep 2; done"
+	@timeout 60 bash -c "until curl -fsS http://localhost:7010/health 2>/dev/null; do sleep 2; done"
+	@echo "🗄️  Running migrations..."
+	@$(MAKE) etl-migrate
+	@echo "📋 Running ETL service tests..."
+	@cd services/etl-service && $(PYTHON_EXEC) -m pytest test_upload.py -v
+	@echo "🧪 Running integration tests..."
+	@bash services/etl-service/test_etl_upload.sh
+	@echo "🔍 Testing ChromaDB search functionality..."
+	@curl -s -X POST http://localhost:7010/search \
+	  -H 'content-type: application/json' \
+	  -d '{"query":"тест OCR","top_k":5,"collection":"etl_documents"}' | jq '.'
+	@echo "✅ Priority 2 integration tests completed!"
+
+test-priority3: ## Test Priority 3 E2E workflow (Goszakup API → ETL → ChromaDB → Telegram + Web UI)
+	@echo "🚀 Testing Priority 3 E2E workflow..."
+	@echo "🗄️  Starting all required services..."
+	@$(COMPOSE) up -d db chromadb embedding-api etl-service goszakup-api web-ui n8n
+	@echo "⏳ Waiting for services to be ready..."
+	@timeout 90 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 2; done"
+	@timeout 90 bash -c "until curl -fsS http://localhost:8010/api/v2/heartbeat 2>/dev/null; do sleep 2; done"
+	@timeout 90 bash -c "until curl -fsS http://localhost:7010/health 2>/dev/null; do sleep 2; done"
+	@timeout 90 bash -c "until curl -fsS http://localhost:7011/health 2>/dev/null; do sleep 2; done"
+	@timeout 90 bash -c "until curl -fsS http://localhost:7005/health 2>/dev/null; do sleep 2; done"
+	@timeout 90 bash -c "until curl -fsS http://localhost:8082/health 2>/dev/null; do sleep 2; done"
+	@echo "🗄️  Running migrations..."
+	@$(MAKE) etl-migrate
+	@echo "🧪 Running E2E workflow tests..."
+	@bash services/etl-service/test_e2e_workflow.sh
+	@echo "🔍 Testing URL upload functionality..."
+	@bash services/etl-service/test_etl_upload.sh
+	@echo "🌐 Running Web UI E2E tests..."
+	@$(MAKE) webui-test
+	@echo "✅ Priority 3 E2E workflow tests completed!"
+
+n8n-up: ## Start n8n workflow automation service
+	@echo "🔄 Starting n8n workflow service..."
+	@$(COMPOSE) up -d n8n
+	@echo "✅ n8n available at: http://localhost:5678"
+	@echo "📋 Import workflow from: n8n/workflows/goszakup-etl-workflow.json"
+
+webui-test: ## Run E2E tests for Web UI (pytest + bash script)
+	@echo "🧪 Running Web UI E2E tests..."
+	@cd web && $(PYTHON_EXEC) -m pytest test_e2e_webui.py -v
+	@echo "🔍 Running Web UI smoke tests..."
+	@bash web/test_e2e_webui.sh

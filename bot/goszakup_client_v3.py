@@ -329,7 +329,9 @@ class AsyncCache:
     def _make_key(self, *args, **kwargs) -> str:
         """Создание ключа кеша"""
         key_data = json.dumps({"args": args, "kwargs": kwargs}, sort_keys=True)
-        return hashlib.md5(key_data.encode()).hexdigest()
+        return hashlib.md5(
+            key_data.encode(), usedforsecurity=False
+        ).hexdigest()  # nosec B324
 
     async def get(self, key: str) -> Any | None:
         """Получение из кеша"""
@@ -578,7 +580,7 @@ class GoszakupClient:
         # Генерация запроса
         query = f"""
         query Search{entity_type}({variables_str}) {{
-          {entity_type}(filter: $filter{', ' + ', '.join(pagination_vars) if pagination_vars else ''}) {{
+          {entity_type}(filter: $filter{", " + ", ".join(pagination_vars) if pagination_vars else ""}) {{
             {fields_str}
           }}
         }}

@@ -47,3 +47,7 @@ __pycache__/
 data/
 volumes/
 n8n-nodes/*/node_modules/
+
+# Test files (PDFs, ZIPs) - only needed locally
+test_files/
+services/etl-service/test_files/

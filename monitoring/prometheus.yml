@@ -1,0 +1,146 @@
+# Prometheus configuration for Week 4.2 ZakupAI monitoring
+# Includes Week 4.2 specific metrics for Flowise features
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "alert_rules.yml"
+  - "week4_2_rules.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ZakupAI Web UI service (Week 4.2 enhanced)
+  - job_name: 'zakupai-web-ui'
+    static_configs:
+      - targets: ['web:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'zakupai-web-ui'
+
+  # ZakupAI Bot service
+  - job_name: 'zakupai-bot'
+    static_configs:
+      - targets: ['bot:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 5s
+
+  # PostgreSQL database
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Redis cache
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+    scrape_timeout: 5s
+
+  # ChromaDB vector database
+  - job_name: 'chromadb'
+    static_configs:
+      - targets: ['chromadb:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Node exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+    scrape_timeout: 5s
+
+  # Flowise AI service monitoring
+  - job_name: 'flowise'
+    static_configs:
+      - targets: ['flowise:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    # Handle cases where Flowise doesn't expose metrics
+    honor_labels: false
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'flowise-ai'
+
+  # ETL Service
+  - job_name: 'etl-service'
+    static_configs:
+      - targets: ['etl-service:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Risk Engine
+  - job_name: 'risk-engine'
+    static_configs:
+      - targets: ['risk-engine:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Goszakup API service
+  - job_name: 'goszakup-api'
+    static_configs:
+      - targets: ['goszakup-api:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+
+  # Week 4.2 specific endpoint monitoring
+  - job_name: 'zakupai-week4-2-endpoints'
+    static_configs:
+      - targets: ['web:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s  # More frequent for performance monitoring
+    scrape_timeout: 3s
+    params:
+      collect[]: ['week4_2_metrics']
+    relabel_configs:
+      - source_labels: [__name__]
+        regex: '(complaint_.*|supplier_.*|flowise_.*)'
+        target_label: feature
+        replacement: 'week4_2'
+
+# External services monitoring (if available)
+  # RapidAPI monitoring (for 1688, Alibaba APIs)
+  - job_name: 'external-apis'
+    static_configs:
+      - targets: []  # No direct targets, monitored via application metrics
+    scrape_interval: 60s
+    honor_labels: true
+
+# Custom metric collection for Week 4.2
+  - job_name: 'custom-week4-2-metrics'
+    static_configs:
+      - targets: ['web:8000']
+    metrics_path: '/week4-2/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    # Only scrape if custom metrics endpoint exists
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        regex: 'week4-2-metrics'
+        action: keep

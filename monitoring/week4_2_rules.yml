@@ -1,0 +1,280 @@
+# Week 4.2 Prometheus alerting rules
+# Specific alerts for Flowise features and performance targets
+
+groups:
+  - name: week4_2_performance
+    interval: 30s
+    rules:
+      # Complaint Generation Performance
+      - alert: ComplaintGenerationLatencyHigh
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method="POST", handler=~".*complaint.*"}[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+          feature: complaint-generator
+          week: "4.2"
+        annotations:
+          summary: "Complaint generation latency is high"
+          description: "95th percentile latency for complaint generation is {{ $value }}s, exceeding 1s target"
+          runbook: "Check Flowise API status and Redis cache performance"
+
+      - alert: ComplaintGenerationLatencyCritical
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method="POST", handler=~".*complaint.*"}[5m])) > 2
+        for: 1m
+        labels:
+          severity: critical
+          feature: complaint-generator
+          week: "4.2"
+        annotations:
+          summary: "Complaint generation latency is critical"
+          description: "95th percentile latency for complaint generation is {{ $value }}s, severely exceeding targets"
+          runbook: "Immediate investigation required. Check Flowise and database connectivity"
+
+      # Supplier Search Performance
+      - alert: SupplierSearchLatencyHigh
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method="GET", handler=~".*supplier.*"}[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+          feature: supplier-finder
+          week: "4.2"
+        annotations:
+          summary: "Supplier search latency is high"
+          description: "95th percentile latency for supplier search is {{ $value }}s, exceeding 1s target"
+          runbook: "Check ChromaDB, Redis cache, and external API performance"
+
+      # Autocomplete Performance
+      - alert: AutocompleteLatencyHigh
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method="GET", handler=~".*autocomplete.*"}[5m])) > 0.5
+        for: 1m
+        labels:
+          severity: warning
+          feature: autocomplete
+          week: "4.2"
+        annotations:
+          summary: "Autocomplete latency exceeds target"
+          description: "95th percentile latency for autocomplete is {{ $value }}s, exceeding 500ms target"
+          runbook: "Check ChromaDB and SQL fallback performance"
+
+      # CSV Import Performance
+      - alert: CSVImportLatencyHigh
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method="POST", handler=~".*import.*"}[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+          feature: csv-import
+          week: "4.1"
+        annotations:
+          summary: "CSV import latency is high"
+          description: "95th percentile latency for CSV import is {{ $value }}s, exceeding 5s target"
+
+      - alert: CSVImportLatencyCritical
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method="POST", handler=~".*import.*"}[5m])) > 10
+        for: 1m
+        labels:
+          severity: critical
+          feature: csv-import
+          week: "4.1"
+        annotations:
+          summary: "CSV import latency is critical"
+          description: "95th percentile latency for CSV import is {{ $value }}s, critically high"
+
+  - name: week4_2_availability
+    interval: 15s
+    rules:
+      # Flowise API Availability
+      - alert: FlowiseAPIDown
+        expr: up{job="flowise"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: flowise
+          week: "4.2"
+        annotations:
+          summary: "Flowise API is down"
+          description: "Flowise AI service is unreachable. Complaint generation will fallback to SQL templates"
+          runbook: "Check Flowise container status and restart if needed"
+
+      # External API Failures
+      - alert: ExternalAPIFailureRateHigh
+        expr: rate(http_requests_total{status=~"5..", handler=~".*(supplier|1688|alibaba).*"}[5m]) / rate(http_requests_total{handler=~".*(supplier|1688|alibaba).*"}[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          feature: external-apis
+          week: "4.2"
+        annotations:
+          summary: "High failure rate for external APIs"
+          description: "External API failure rate is {{ $value | humanizePercentage }}"
+          runbook: "Check RapidAPI quotas and network connectivity"
+
+      # Cache Miss Rate
+      - alert: CacheMissRateHigh
+        expr: rate(redis_cache_misses_total[5m]) / rate(redis_cache_requests_total[5m]) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          service: redis
+          week: "4.2"
+        annotations:
+          summary: "High cache miss rate"
+          description: "Redis cache miss rate is {{ $value | humanizePercentage }}, performance may be degraded"
+
+  - name: week4_2_fallbacks
+    interval: 30s
+    rules:
+      # Flowise Fallback Usage
+      - alert: FlowiseFallbackRateHigh
+        expr: rate(complaint_fallback_count_total[5m]) / rate(complaint_generation_count_total[5m]) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          feature: complaint-generator
+          week: "4.2"
+        annotations:
+          summary: "High Flowise fallback usage"
+          description: "{{ $value | humanizePercentage }} of complaints are using SQL fallback instead of Flowise"
+          runbook: "Check Flowise API health and response times"
+
+      # Supplier Source Fallbacks
+      - alert: SupplierSourceFallbackHigh
+        expr: rate(supplier_fallback_count_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          feature: supplier-finder
+          week: "4.2"
+        annotations:
+          summary: "High supplier source fallback rate"
+          description: "{{ $value }} supplier requests per second are falling back to web search"
+          runbook: "Check external API quotas and rate limits for 1688, Alibaba, Satu.kz"
+
+      # ChromaDB Fallback to SQL
+      - alert: ChromaDBFallbackRateHigh
+        expr: rate(chromadb_fallback_count_total[5m]) / rate(autocomplete_requests_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: chromadb
+          week: "4.2"
+        annotations:
+          summary: "High ChromaDB fallback rate"
+          description: "{{ $value | humanizePercentage }} of autocomplete requests are falling back to SQL"
+
+  - name: week4_2_business_metrics
+    interval: 60s
+    rules:
+      # Complaint Generation Success Rate
+      - alert: ComplaintGenerationSuccessRateLow
+        expr: rate(complaint_generation_success_total[10m]) / rate(complaint_generation_count_total[10m]) < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          feature: complaint-generator
+          week: "4.2"
+        annotations:
+          summary: "Low complaint generation success rate"
+          description: "Complaint generation success rate is {{ $value | humanizePercentage }}, below 95% target"
+
+      # Supplier Search Results Quality
+      - alert: SupplierSearchLowResults
+        expr: avg_over_time(supplier_results_count[10m]) < 3
+        for: 10m
+        labels:
+          severity: info
+          feature: supplier-finder
+          week: "4.2"
+        annotations:
+          summary: "Low average supplier search results"
+          description: "Average supplier search returns {{ $value }} results, below target of 3+ per source"
+
+      # Rate Limiting Issues
+      - alert: RateLimitExceeded
+        expr: increase(rate_limit_exceeded_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          feature: supplier-finder
+          week: "4.2"
+        annotations:
+          summary: "Rate limits being exceeded frequently"
+          description: "{{ $value }} rate limit violations in the last 5 minutes"
+          runbook: "Check API usage patterns and consider increasing rate limits or optimizing requests"
+
+  - name: week4_2_resource_usage
+    interval: 30s
+    rules:
+      # Memory Usage for Week 4.2 Features
+      - alert: Week42MemoryUsageHigh
+        expr: (container_memory_usage_bytes{container=~".*web.*"} / container_spec_memory_limit_bytes{container=~".*web.*"}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          resource: memory
+          week: "4.2"
+        annotations:
+          summary: "High memory usage for Week 4.2 features"
+          description: "Memory usage is {{ $value | humanizePercentage }}, may affect PDF/Word generation performance"
+
+      # Disk Usage for Document Generation
+      - alert: DocumentGenerationDiskSpaceHigh
+        expr: (1 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          resource: disk
+          week: "4.2"
+        annotations:
+          summary: "Low disk space affecting document generation"
+          description: "Disk usage is {{ $value | humanizePercentage }}, may prevent PDF/Word document creation"
+
+      # Database Connection Pool for Week 4.2
+      - alert: DatabaseConnectionPoolHigh
+        expr: postgres_stat_activity_count > 80
+        for: 2m
+        labels:
+          severity: warning
+          service: postgres
+          week: "4.2"
+        annotations:
+          summary: "High database connection usage"
+          description: "{{ $value }} active database connections, may affect Week 4.2 feature performance"
+
+  - name: week4_2_security
+    interval: 60s
+    rules:
+      # Suspicious Complaint Generation Patterns
+      - alert: SuspiciousComplaintGenerationRate
+        expr: rate(complaint_generation_count_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          security: anomaly
+          week: "4.2"
+        annotations:
+          summary: "Unusually high complaint generation rate"
+          description: "{{ $value }} complaints per second, possible abuse or bot activity"
+
+      # High File Upload Rate (potential abuse)
+      - alert: HighFileUploadRate
+        expr: rate(http_requests_total{method="POST", handler=~".*import.*"}[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          security: upload
+          week: "4.2"
+        annotations:
+          summary: "High file upload rate detected"
+          description: "{{ $value }} file uploads per second, monitor for potential abuse"
+
+      # Failed Authentication Attempts
+      - alert: HighFailedAuthRate
+        expr: rate(http_requests_total{status="401"}[5m]) > 2
+        for: 3m
+        labels:
+          severity: warning
+          security: auth
+          week: "4.2"
+        annotations:
+          summary: "High failed authentication rate"
+          description: "{{ $value }} failed authentication attempts per second"

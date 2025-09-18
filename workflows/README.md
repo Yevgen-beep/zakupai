@@ -115,7 +115,7 @@ TELEGRAM_HOT_LOTS_CHANNEL=@hot_lots_channel
 TELEGRAM_ADMIN_CHANNEL=@admin_channel
 
 # Goszakup API
-GOSZAKUP_API_TOKEN=your-goszakup-token
+GOSZAKUP_TOKEN=your-goszakup-token
 
 # OpenAI (для Flowise)
 OPENAI_API_KEY=your-openai-key

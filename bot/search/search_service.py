@@ -16,26 +16,24 @@ from typing import Any
 
 import aiohttp
 
-# Новый GraphQL v3 клиент
-try:
-    import sys
-
-    sys.path.append("..")
-    from goszakup_client_extensions import GoszakupClientFull
-    from goszakup_client_v3 import LotStatus as V3LotStatus
-    from goszakup_client_v3 import TradeMethod as V3TradeMethod
-
-    NEW_CLIENT_AVAILABLE = True
-except ImportError:
-    NEW_CLIENT_AVAILABLE = False
-    logger.warning("New GraphQL v3 client not available")
-
 # Старые клиенты как fallback
 from .graphql_v2_client import GraphQLV2Client, LotResult
 from .mappings import get_lot_status_name, get_trade_method_name, mappings
 from .rest_v3_client import RestV3Client
 
 logger = logging.getLogger(__name__)
+
+# Новый GraphQL v3 клиент
+try:
+    import sys
+
+    sys.path.append("..")
+    from goszakup_client_extensions import GoszakupClientFull
+
+    NEW_CLIENT_AVAILABLE = True
+except ImportError:
+    NEW_CLIENT_AVAILABLE = False
+    logger.warning("New GraphQL v3 client not available")
 
 
 class SearchStrategy(Enum):
@@ -458,7 +456,8 @@ class GoszakupSearchService:
                     formatted += (
                         f"⏰ Срок: {deadline_date.strftime('%d.%m.%Y %H:%M')}\n"
                     )
-                except:
+                except Exception as e:
+                    logger.warning(f"Failed to parse deadline '{result.deadline}': {e}")
                     formatted += f"⏰ Срок: {result.deadline}\n"
 
             if result.url:
@@ -1115,10 +1114,6 @@ async def search_lots_for_telegram(
     except Exception as e:
         logger.error(f"Telegram search failed: {e}")
         return f"❌ Произошла ошибка поиска: {str(e)}"
-
-
-# Импорт для использования dataclass
-from dataclasses import dataclass
 
 
 # Функция для тестирования

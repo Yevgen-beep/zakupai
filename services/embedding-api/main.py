@@ -8,7 +8,9 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
+import chromadb
 import psycopg2
+from chromadb import Settings
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -128,6 +130,19 @@ def save_audit_log(
                 )
     except Exception as e:
         log.warning(f"audit_logs insert failed: {e}")
+
+
+# ---------- ChromaDB helpers ----------
+def get_chroma_client():
+    """Получение клиента ChromaDB"""
+    chroma_host = os.getenv("CHROMADB_HOST", "chromadb")
+    chroma_port = int(os.getenv("CHROMADB_PORT", "8000"))
+
+    return chromadb.HttpClient(
+        host=chroma_host,
+        port=chroma_port,
+        settings=Settings(anonymized_telemetry=False, allow_reset=True),
+    )
 
 
 # ---------- Vector helpers ----------
@@ -276,6 +291,20 @@ class SearchRequest(BaseModel):
     top_k: Annotated[int, Field(ge=1, le=20)] = 10
 
 
+class ChromaIndexRequest(BaseModel):
+    collection_name: str = "lots"
+    document_id: str
+    text: str
+    metadata: dict | None = None
+
+
+class ChromaSearchRequest(BaseModel):
+    collection_name: str = "lots"
+    query: str
+    top_k: int = 10
+    where: dict | None = None
+
+
 # ---------- эндпоинты ----------
 @app.post("/embed")
 def embed(req: EmbedRequest, request: Request):
@@ -375,3 +404,152 @@ def search(req: SearchRequest, request: Request):
     except Exception as e:
         log.error(f"Search operation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {e}") from e
+
+
+# ---------- ChromaDB эндпоинты ----------
+@app.post("/chroma/index")
+async def chroma_index(req: ChromaIndexRequest, request: Request):
+    """Индексация документа в ChromaDB"""
+    rid = request.state.rid
+
+    try:
+        client = get_chroma_client()
+
+        # Создать или получить коллекцию
+        try:
+            collection = client.get_collection(req.collection_name)
+        except Exception as e:
+            log.info(
+                f"Collection {req.collection_name} not found, creating new one: {e}"
+            )
+            collection = client.create_collection(
+                name=req.collection_name,
+                metadata={"description": f"Collection for {req.collection_name}"},
+            )
+
+        # Добавить документ
+        collection.add(
+            documents=[req.text], ids=[req.document_id], metadatas=[req.metadata or {}]
+        )
+
+        return {
+            "success": True,
+            "collection_name": req.collection_name,
+            "document_id": req.document_id,
+            "text_length": len(req.text),
+            "request_id": rid,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    except Exception as e:
+        log.error(f"ChromaDB index failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"ChromaDB index failed: {e}"
+        ) from e
+
+
+@app.post("/chroma/search")
+async def chroma_search(req: ChromaSearchRequest, request: Request):
+    """Семантический поиск в ChromaDB"""
+    rid = request.state.rid
+
+    try:
+        client = get_chroma_client()
+
+        # Получить коллекцию
+        try:
+            collection = client.get_collection(req.collection_name)
+        except Exception as e:
+            log.error(f"Failed to get collection '{req.collection_name}': {e}")
+            raise HTTPException(
+                status_code=404, detail=f"Collection '{req.collection_name}' not found"
+            ) from e
+
+        # Выполнить поиск
+        results = collection.query(
+            query_texts=[req.query], n_results=req.top_k, where=req.where
+        )
+
+        # Форматировать результаты
+        formatted_results = []
+        if results["documents"] and len(results["documents"]) > 0:
+            for i, doc in enumerate(results["documents"][0]):
+                formatted_results.append(
+                    {
+                        "id": results["ids"][0][i] if results["ids"] else None,
+                        "text": doc,
+                        "score": (
+                            1 - results["distances"][0][i]
+                            if results["distances"]
+                            else None
+                        ),
+                        "metadata": (
+                            results["metadatas"][0][i] if results["metadatas"] else {}
+                        ),
+                    }
+                )
+
+        return {
+            "results": formatted_results,
+            "collection_name": req.collection_name,
+            "query": req.query,
+            "total_found": len(formatted_results),
+            "request_id": rid,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"ChromaDB search failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"ChromaDB search failed: {e}"
+        ) from e
+
+
+@app.get("/chroma/collections")
+async def list_collections(request: Request):
+    """Список всех коллекций в ChromaDB"""
+    rid = request.state.rid
+
+    try:
+        client = get_chroma_client()
+        collections = client.list_collections()
+
+        return {
+            "collections": [
+                {"name": col.name, "metadata": col.metadata} for col in collections
+            ],
+            "count": len(collections),
+            "request_id": rid,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    except Exception as e:
+        log.error(f"ChromaDB list collections failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"ChromaDB operation failed: {e}"
+        ) from e
+
+
+@app.delete("/chroma/collections/{collection_name}")
+async def delete_collection(collection_name: str, request: Request):
+    """Удаление коллекции из ChromaDB"""
+    rid = request.state.rid
+
+    try:
+        client = get_chroma_client()
+        client.delete_collection(collection_name)
+
+        return {
+            "success": True,
+            "collection_name": collection_name,
+            "request_id": rid,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+
+    except Exception as e:
+        log.error(f"ChromaDB delete collection failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"ChromaDB operation failed: {e}"
+        ) from e

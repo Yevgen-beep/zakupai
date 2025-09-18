@@ -419,9 +419,7 @@ async def lot_command(message: Message):
     # Извлекаем ID лота
     args = message.text.split(" ", 1)
     if len(args) < 2:
-        await message.answer(
-            "📊 Использование: /lot <ID_лота>\n" "Пример: /lot 123456789"
-        )
+        await message.answer("📊 Использование: /lot <ID_лота>\nПример: /lot 123456789")
         return
 
     lot_id = args[1].strip()
@@ -612,7 +610,7 @@ async def main():
                 # Запускаем сервер
                 runner = web.AppRunner(app)
                 await runner.setup()
-                site = web.TCPSite(runner, host="0.0.0.0", port=8000)
+                site = web.TCPSite(runner, host="0.0.0.0", port=8000)  # nosec B104
                 await site.start()
 
                 logger.info("✅ Webhook server started successfully")

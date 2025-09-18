@@ -2,6 +2,11 @@
 
 {% block title %}Главная - ZakupAI{% endblock %}
 
+{% block scripts %}
+<script src="{{ url_for('static', path='js/autocomplete.js') }}"></script>
+<script src="{{ url_for('static', path='js/advanced-search.js') }}"></script>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-lg-8 mx-auto">
@@ -13,12 +18,113 @@
             <p class="lead">Система анализа государственных закупок</p>
         </div>
 
-        <!-- Lot Search Card -->
+        <!-- Advanced Search Card -->
         <div class="card mb-4">
             <div class="card-body">
                 <h5 class="card-title">
                     <i class="bi bi-search"></i>
-                    Анализ лота
+                    Расширенный поиск лотов
+                </h5>
+                <p class="card-text">Поиск лотов с фильтрацией по сумме и статусу</p>
+
+                <form id="advancedSearchForm" class="advanced-search-form">
+                    <!-- Main search input with autocomplete -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label for="advancedSearchInput" class="form-label">Поисковый запрос</label>
+                            <div class="search-input-container">
+                                <input type="text" class="form-control" id="advancedSearchInput"
+                                       placeholder="Введите название товара или услуги..." required>
+                                <div id="searchSuggestions" class="autocomplete-container"></div>
+                            </div>
+                            <div class="form-text">
+                                Начните вводить для получения автоматических предложений
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filter options -->
+                    <div class="filter-inputs">
+                        <h6 class="mb-3">
+                            <i class="bi bi-funnel"></i>
+                            Фильтры
+                        </h6>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="minAmount" class="form-label">Минимальная сумма (тенге)</label>
+                                <input type="number" class="form-control" id="minAmount" min="0" step="1000"
+                                       placeholder="От 0">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="maxAmount" class="form-label">Максимальная сумма (тенге)</label>
+                                <input type="number" class="form-control" id="maxAmount" min="0" step="1000"
+                                       placeholder="До...">
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="statusFilter" class="form-label">Статус лота</label>
+                                <select class="form-control" id="statusFilter">
+                                    <option value="">Все статусы</option>
+                                    <option value="1">Статус 1</option>
+                                    <option value="2">Статус 2</option>
+                                    <option value="3">Статус 3</option>
+                                    <option value="4">Статус 4</option>
+                                    <option value="5">Статус 5</option>
+                                    <option value="6">Статус 6</option>
+                                    <option value="7">Статус 7</option>
+                                    <option value="8">Статус 8</option>
+                                    <option value="9">Статус 9</option>
+                                    <option value="10">Статус 10</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="limitResults" class="form-label">Количество результатов</label>
+                                <select class="form-control" id="limitResults">
+                                    <option value="10" selected>10 результатов</option>
+                                    <option value="25">25 результатов</option>
+                                    <option value="50">50 результатов</option>
+                                    <option value="100">100 результатов</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search button -->
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary btn-lg w-100">
+                                <i class="bi bi-search"></i>
+                                Найти лоты
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Search Results -->
+                <div id="searchResults" class="search-results mt-4" style="display: none;">
+                    <h6>Результаты поиска</h6>
+                    <div id="searchResultsContent"></div>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="searchLoading" class="text-center mt-4" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Поиск...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Выполняется поиск...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lot Search Card -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="bi bi-file-earmark-text"></i>
+                    Анализ конкретного лота
                 </h5>
                 <p class="card-text">Введите ID лота или URL для получения детального анализа</p>
 

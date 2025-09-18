@@ -114,8 +114,8 @@ def main():
             os.makedirs("data", exist_ok=True)
             with open("data/cleanup.log", "a") as log_file:
                 log_file.write(f"{datetime.now().isoformat()}: ERROR - {e}\n")
-        except:
-            pass
+        except Exception as log_err:
+            print(f"Failed to write error log: {log_err}")
 
         return 1  # Ошибка
 

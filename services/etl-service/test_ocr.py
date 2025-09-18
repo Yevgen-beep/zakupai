@@ -67,7 +67,8 @@ def create_test_pdfs_fpdf(text_files):
                     uni=True,
                 )
                 pdf.set_font("DejaVu", size=10)
-            except:
+            except Exception as e:
+                print(f"Failed to load DejaVu font: {e}")
                 # Fallback to built-in font
                 pdf.set_font("Arial", size=10)
 
@@ -82,7 +83,8 @@ def create_test_pdfs_fpdf(text_files):
 
                 try:
                     pdf.text(10, y, line)
-                except:
+                except Exception as e:
+                    print(f"Failed to add text line '{line[:50]}...': {e}")
                     # Convert to Latin1 if Unicode fails
                     safe_line = line.encode("ascii", errors="ignore").decode("ascii")
                     pdf.text(10, y, safe_line)
@@ -132,7 +134,8 @@ def create_test_pdfs_reportlab(text_files):
 
                 try:
                     c.drawString(50, y, line)
-                except:
+                except Exception as e:
+                    print(f"Failed to draw string '{line[:50]}...': {e}")
                     # Fallback for non-ASCII characters
                     ascii_line = line.encode("ascii", errors="ignore").decode("ascii")
                     c.drawString(50, y, ascii_line)

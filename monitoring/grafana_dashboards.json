@@ -1,0 +1,440 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ZakupAI Week 4.2 - Flowise Features Dashboard",
+    "tags": ["zakupai", "week4.2", "flowise", "monitoring"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Week 4.2 Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{handler=~\".*(complaint|supplier).*\"}[5m]))",
+            "legendFormat": "Week 4.2 RPS"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 5},
+                {"color": "green", "value": 10}
+              ]
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Performance Targets Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{handler=~\".*complaint.*\"}[5m]))",
+            "legendFormat": "Complaint P95"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{handler=~\".*supplier.*\"}[5m]))",
+            "legendFormat": "Supplier P95"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{handler=~\".*autocomplete.*\"}[5m]))",
+            "legendFormat": "Autocomplete P95"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 0.5},
+                {"color": "orange", "value": 1.0},
+                {"color": "red", "value": 2.0}
+              ]
+            },
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Complaint Generation Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{method=\"POST\", handler=~\".*complaint.*\"}[5m]))",
+            "legendFormat": "P50 Latency"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method=\"POST\", handler=~\".*complaint.*\"}[5m]))",
+            "legendFormat": "P95 Latency"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{method=\"POST\", handler=~\".*complaint.*\"}[5m]))",
+            "legendFormat": "P99 Latency"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "axisLabel": "Response Time (seconds)",
+              "axisPlacement": "left"
+            },
+            "unit": "s"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "P95 Latency"},
+              "properties": [
+                {
+                  "id": "custom.thresholdsStyle",
+                  "value": {"mode": "line"}
+                },
+                {
+                  "id": "custom.thresholds",
+                  "value": {
+                    "steps": [
+                      {"color": "green", "value": 0},
+                      {"color": "red", "value": 1}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Supplier Search Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{method=\"GET\", handler=~\".*supplier.*\"}[5m]))",
+            "legendFormat": "P50 Latency"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{method=\"GET\", handler=~\".*supplier.*\"}[5m]))",
+            "legendFormat": "P95 Latency"
+          },
+          {
+            "expr": "avg_over_time(supplier_results_count[5m])",
+            "legendFormat": "Avg Results Count"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "s"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Avg Results Count"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "custom.axisPlacement",
+                  "value": "right"
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+      },
+      {
+        "id": 5,
+        "title": "Source Distribution & Fallback Rate",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (source) (rate(supplier_requests_total[5m]))",
+            "legendFormat": "{{ source }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "displayMode": "value"
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 6,
+        "title": "Fallback Usage Rates",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(complaint_fallback_count_total[5m]) / rate(complaint_generation_count_total[5m])",
+            "legendFormat": "Complaint Fallback Rate"
+          },
+          {
+            "expr": "rate(supplier_fallback_count_total[5m]) / rate(supplier_requests_total[5m])",
+            "legendFormat": "Supplier Fallback Rate"
+          },
+          {
+            "expr": "rate(chromadb_fallback_count_total[5m]) / rate(autocomplete_requests_total[5m])",
+            "legendFormat": "ChromaDB Fallback Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 7,
+        "title": "Cache Performance",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(redis_cache_hits_total[5m])",
+            "legendFormat": "Cache Hits/sec"
+          },
+          {
+            "expr": "rate(redis_cache_misses_total[5m])",
+            "legendFormat": "Cache Misses/sec"
+          },
+          {
+            "expr": "rate(redis_cache_hits_total[5m]) / (rate(redis_cache_hits_total[5m]) + rate(redis_cache_misses_total[5m]))",
+            "legendFormat": "Cache Hit Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Cache Hit Rate"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "custom.axisPlacement",
+                  "value": "right"
+                },
+                {
+                  "id": "min",
+                  "value": 0
+                },
+                {
+                  "id": "max",
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+      },
+      {
+        "id": 8,
+        "title": "Document Generation Stats",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(document_generation_total{format=\"pdf\"}[5m]))",
+            "legendFormat": "PDF/sec"
+          },
+          {
+            "expr": "sum(rate(document_generation_total{format=\"word\"}[5m]))",
+            "legendFormat": "Word/sec"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(document_generation_duration_seconds_bucket[5m]))",
+            "legendFormat": "P95 Generation Time"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 0.5},
+                {"color": "red", "value": 1}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 40}
+      },
+      {
+        "id": 9,
+        "title": "Error Rates by Feature",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\", handler=~\".*complaint.*\"}[5m])",
+            "legendFormat": "Complaint Errors/sec"
+          },
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\", handler=~\".*supplier.*\"}[5m])",
+            "legendFormat": "Supplier Errors/sec"
+          },
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\", handler=~\".*autocomplete.*\"}[5m])",
+            "legendFormat": "Autocomplete Errors/sec"
+          },
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\", handler=~\".*import.*\"}[5m])",
+            "legendFormat": "Import Errors/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "reqps"
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 48}
+      },
+      {
+        "id": 10,
+        "title": "External API Health",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "up{job=\"flowise\"}",
+            "legendFormat": "Flowise Status"
+          },
+          {
+            "expr": "rate(external_api_requests_total{api=\"1688\", status=\"success\"}[5m]) / rate(external_api_requests_total{api=\"1688\"}[5m])",
+            "legendFormat": "1688 Success Rate"
+          },
+          {
+            "expr": "rate(external_api_requests_total{api=\"alibaba\", status=\"success\"}[5m]) / rate(external_api_requests_total{api=\"alibaba\"}[5m])",
+            "legendFormat": "Alibaba Success Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 56}
+      },
+      {
+        "id": 11,
+        "title": "Resource Usage - Week 4.2 Features",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{container=~\".*web.*\"}[5m]) * 100",
+            "legendFormat": "Web UI CPU %"
+          },
+          {
+            "expr": "(container_memory_usage_bytes{container=~\".*web.*\"} / container_spec_memory_limit_bytes{container=~\".*web.*\"}) * 100",
+            "legendFormat": "Web UI Memory %"
+          },
+          {
+            "expr": "rate(postgres_stat_user_tables_n_tup_ins[5m])",
+            "legendFormat": "DB Inserts/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "unit": "percent"
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 64}
+      },
+      {
+        "id": 12,
+        "title": "Week 4.2 Business Metrics",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "sum(complaint_generation_count_total)",
+            "legendFormat": "Total Complaints Generated",
+            "format": "table"
+          },
+          {
+            "expr": "sum(supplier_searches_total)",
+            "legendFormat": "Total Supplier Searches",
+            "format": "table"
+          },
+          {
+            "expr": "sum(document_generation_total)",
+            "legendFormat": "Total Documents Generated",
+            "format": "table"
+          },
+          {
+            "expr": "avg(supplier_results_count)",
+            "legendFormat": "Avg Supplier Results",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "custom": {
+              "displayMode": "color-background"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 72}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "10s",
+    "schemaVersion": 30,
+    "version": 1
+  }
+}
