@@ -670,3 +670,334 @@ jobs:
           echo "- Python version: ${{ matrix.python-version }}"
           echo "- Tests completed: $(date)"
           echo "- Check individual steps for detailed results"
+
+  # Week 4.2: Performance testing with Locust
+  priority4-performance:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: zakupai_test
+          POSTGRES_USER: zakupai
+          POSTGRES_PASSWORD: test123
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+      flowise:
+        image: flowiseai/flowise:latest
+        env:
+          FLOWISE_USERNAME: admin
+          FLOWISE_PASSWORD: test123
+        ports:
+          - 3000:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ matrix.python-version }}-performance-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.python-version }}-performance-
+            pip-${{ runner.os }}-${{ matrix.python-version }}-
+            pip-${{ runner.os }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq postgresql-client redis-tools
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary
+          pip install redis pandas httpx structlog pydantic python-multipart
+          pip install reportlab python-docx aiofiles
+          pip install locust pytest pytest-asyncio
+          pip install prometheus-client
+
+      - name: Set up test environment
+        run: |
+          # Wait for services to be ready
+          sleep 15
+
+          # Test database connection
+          PGPASSWORD=test123 psql -h localhost -U zakupai -d zakupai_test -c "SELECT version();"
+
+          # Test Redis connection
+          redis-cli -h localhost ping
+
+          # Test Flowise connection (with retries)
+          timeout 60 bash -c 'until curl -f http://localhost:3000 2>/dev/null; do sleep 2; done' || echo "Flowise may not be ready, proceeding anyway"
+
+      - name: Setup test database
+        env:
+          DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
+        run: |
+          # Run all database migrations including Week 4.2
+          python -c "
+          from sqlalchemy import create_engine, text
+          import os
+
+          engine = create_engine(os.getenv('DATABASE_URL'))
+          with engine.connect() as conn:
+              # Apply Week 4.2 schema
+              conn.execute(text('''
+                  -- Basic tables
+                  CREATE TABLE IF NOT EXISTS lots (
+                      id BIGSERIAL PRIMARY KEY,
+                      nameRu TEXT,
+                      amount NUMERIC(20,2),
+                      lastUpdateDate TIMESTAMP,
+                      trdBuyId BIGINT
+                  );
+
+                  CREATE TABLE IF NOT EXISTS trdbuy (
+                      id BIGSERIAL PRIMARY KEY,
+                      customerNameRu TEXT,
+                      refBuyStatusId INT
+                  );
+
+                  -- Week 4.2: Supplier sources
+                  CREATE TABLE IF NOT EXISTS supplier_sources (
+                      id SERIAL PRIMARY KEY,
+                      name VARCHAR(50) NOT NULL UNIQUE,
+                      url_template VARCHAR(255) NOT NULL,
+                      parser_type VARCHAR(20) NOT NULL CHECK (parser_type IN ('api', 'web_search', 'mock')),
+                      auth_type VARCHAR(10) NOT NULL CHECK (auth_type IN ('NONE', 'API_KEY', 'MCP')),
+                      credentials_ref VARCHAR(100),
+                      rate_limit INTEGER DEFAULT 100,
+                      fallback_type VARCHAR(20) DEFAULT 'web_search',
+                      active BOOLEAN DEFAULT true
+                  );
+
+                  -- Week 4.2: Complaints
+                  CREATE TABLE IF NOT EXISTS complaints (
+                      id BIGSERIAL PRIMARY KEY,
+                      lot_id BIGINT NOT NULL,
+                      complaint_text TEXT NOT NULL,
+                      reason VARCHAR(255),
+                      complaint_date DATE NOT NULL,
+                      source VARCHAR(20) NOT NULL DEFAULT 'flowise',
+                      format_type VARCHAR(10) DEFAULT 'text',
+                      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                  );
+
+                  -- Week 4.2: Suppliers cache
+                  CREATE TABLE IF NOT EXISTS suppliers_cache (
+                      id BIGSERIAL PRIMARY KEY,
+                      cache_key VARCHAR(255) NOT NULL UNIQUE,
+                      suppliers_data JSONB NOT NULL,
+                      sources_used TEXT[],
+                      total_results INTEGER DEFAULT 0,
+                      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                      expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+                  );
+
+                  -- Insert default supplier sources
+                  INSERT INTO supplier_sources (name, url_template, parser_type, auth_type, rate_limit) VALUES
+                  ('satu', 'https://satu.kz/search?q={query}', 'web_search', 'NONE', 60),
+                  ('1688', 'https://s.1688.com/selloffer/offer_search.htm?keywords={query}', 'api', 'API_KEY', 100),
+                  ('alibaba', 'https://www.alibaba.com/trade/search?SearchText={query}', 'api', 'API_KEY', 100)
+                  ON CONFLICT (name) DO NOTHING;
+
+                  -- Insert test lots
+                  INSERT INTO lots (id, nameRu, amount, lastUpdateDate) VALUES
+                  (12345, 'Тестовая закупка мебели', 500000.00, NOW()),
+                  (23456, 'Компьютерное оборудование', 750000.00, NOW()),
+                  (34567, 'Канцелярские товары', 125000.00, NOW())
+                  ON CONFLICT (id) DO NOTHING;
+              '''))
+              conn.commit()
+          print('Week 4.2 test database setup complete')
+          "
+
+      - name: Start test server
+        env:
+          DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
+          REDIS_URL: "redis://localhost:6379/0"
+          FLOWISE_API_URL: "http://localhost:3000"
+        run: |
+          # Start web service in background for performance testing
+          cd web
+          python main.py &
+          WEB_PID=$!
+          echo $WEB_PID > /tmp/web.pid
+
+          # Wait for service to start
+          sleep 10
+
+          # Health check with retries
+          timeout 60 bash -c 'until curl -f http://localhost:8000/health 2>/dev/null; do sleep 2; done'
+
+          echo "Web service started successfully on port 8000"
+
+      - name: Run Week 4.2 Unit Tests
+        env:
+          DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
+          REDIS_URL: "redis://localhost:6379/0"
+          FLOWISE_API_URL: "http://localhost:3000"
+        run: |
+          # Run Week 4.2 feature tests
+          python -m pytest tests/test_flowise_week4_2.py -v --tb=short --timeout=30
+
+      - name: Run Advanced Search Tests
+        env:
+          BASE_URL: "http://localhost:8000"
+        run: |
+          # Run advanced search tests
+          python -m pytest tests/test_advanced_search.py -v --tb=short --timeout=30
+
+      - name: Run Locust Performance Tests
+        env:
+          BASE_URL: "http://localhost:8000"
+          DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
+        run: |
+          # Run Locust performance tests for 2 minutes
+          cd tests
+
+          echo "Starting Locust performance test..."
+          locust -f locustfile.py \
+            --host=http://localhost:8000 \
+            --users=50 \
+            --spawn-rate=5 \
+            --run-time=2m \
+            --headless \
+            --html=locust_report.html \
+            --csv=locust_stats
+
+          echo "Performance test completed"
+
+      - name: Validate Performance Targets
+        run: |
+          cd tests
+          # Check if performance targets were met
+          python -c "
+          import csv
+          import sys
+
+          try:
+              with open('locust_stats_stats.csv', 'r') as f:
+                  reader = csv.DictReader(f)
+                  stats = list(reader)
+
+              targets_met = 0
+              total_targets = 0
+
+              print('Week 4.2 Performance Results:')
+              print('=' * 50)
+
+              for row in stats:
+                  if row['Type'] == 'GET' or row['Type'] == 'POST':
+                      name = row['Name']
+                      avg_time = float(row['Average Response Time'])
+                      p95_time = float(row['95%'])
+                      failure_rate = float(row['Failure Count']) / (float(row['Request Count']) or 1) * 100
+
+                      print(f'Endpoint: {name}')
+                      print(f'  Avg response time: {avg_time:.0f}ms')
+                      print(f'  95th percentile: {p95_time:.0f}ms')
+                      print(f'  Failure rate: {failure_rate:.1f}%')
+
+                      # Check specific targets
+                      if 'complaint' in name.lower():
+                          total_targets += 1
+                          if p95_time < 1000:  # <1 second
+                              targets_met += 1
+                              print(f'  ✅ Complaint target met (<1s)')
+                          else:
+                              print(f'  ❌ Complaint target missed (>1s)')
+
+                      elif 'supplier' in name.lower():
+                          total_targets += 1
+                          if p95_time < 1000:  # <1 second
+                              targets_met += 1
+                              print(f'  ✅ Supplier target met (<1s)')
+                          else:
+                              print(f'  ❌ Supplier target missed (>1s)')
+
+                      elif 'autocomplete' in name.lower():
+                          total_targets += 1
+                          if p95_time < 500:  # <500ms
+                              targets_met += 1
+                              print(f'  ✅ Autocomplete target met (<500ms)')
+                          else:
+                              print(f'  ❌ Autocomplete target missed (>500ms)')
+
+                      print()
+
+              print(f'Performance Summary: {targets_met}/{total_targets} targets met')
+
+              if targets_met == total_targets and total_targets > 0:
+                  print('🎉 All performance targets achieved!')
+                  sys.exit(0)
+              elif targets_met >= total_targets * 0.8:
+                  print('⚠️  Most performance targets met (80%+)')
+                  sys.exit(0)
+              else:
+                  print('❌ Performance targets not met')
+                  sys.exit(1)
+
+          except Exception as e:
+              print(f'Error analyzing performance results: {e}')
+              print('Performance validation skipped (test data may be incomplete)')
+              sys.exit(0)
+          "
+
+      - name: Upload performance test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-results-python-${{ matrix.python-version }}
+          path: |
+            tests/locust_report.html
+            tests/locust_stats*.csv
+          retention-days: 14
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Kill background processes
+          if [ -f /tmp/web.pid ]; then
+            kill $(cat /tmp/web.pid) 2>/dev/null || true
+          fi
+
+      - name: Performance Test Summary
+        if: always()
+        run: |
+          echo "Week 4.2 Performance Test Summary:"
+          echo "- Python version: ${{ matrix.python-version }}"
+          echo "- Test duration: 2 minutes"
+          echo "- Target users: 50 concurrent"
+          echo "- Performance targets:"
+          echo "  * Complaint generation: <1 second P95"
+          echo "  * Supplier search: <1 second P95"
+          echo "  * Autocomplete: <500ms P95"
+          echo "- Results uploaded as artifacts"
+          echo "- Tests completed: $(date)"

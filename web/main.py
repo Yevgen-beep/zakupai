@@ -14,6 +14,7 @@ import httpx
 import pandas as pd
 import redis
 import structlog
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from fastapi import (
     FastAPI,
@@ -29,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -94,12 +96,28 @@ FLOWISE_API_KEY = os.getenv("FLOWISE_API_KEY", "")
 # Mock Satu.kz API for supplier search
 SATU_API_URL = os.getenv("SATU_API_URL", "mock")
 
+# Week 4.2 Configuration
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "5"))
+SUPPLIER_CACHE_TTL = int(os.getenv("SUPPLIER_CACHE_TTL", "48"))  # hours
+COMPLAINT_CACHE_TTL = int(os.getenv("COMPLAINT_CACHE_TTL", "24"))  # hours
+
+# Scheduler for cleanup tasks
+scheduler = AsyncIOScheduler()
+
 # FastAPI app
 app = FastAPI(
     title="ZakupAI Web Panel",
     description="Web interface for ZakupAI tender analysis",
     version="1.0.0",
 )
+
+# Prometheus instrumentation setup
+instrumentator = Instrumentator(
+    should_group_status_codes=False,
+    excluded_handlers=["/metrics", "/health"],
+)
+instrumentator.instrument(app).expose(app)
 
 # CORS configuration - secure for production
 app.add_middleware(

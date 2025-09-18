@@ -769,54 +769,81 @@ async def command_rnu_handler(message: Message) -> None:
 @validate_and_log_bot(require_key=True)
 async def command_supplier_handler(message: Message) -> None:
     """
-    Обработчик команды /supplier для поиска поставщиков
-    Формат: /supplier офисная мебель
+    Week 4.2: Enhanced supplier search with modular sources
+    Формат: /supplier мебель [region=KZ] [sources=satu,1688]
     """
     user_id = message.from_user.id
-    args = message.text.split(maxsplit=1)
+    args = message.text.split()
 
     if len(args) < 2:
         await message.answer(
-            f"❌ Укажите название товара/услуги.\nПример: {hcode('/supplier компьютеры')}"
+            f"❌ Укажите название товара/услуги.\n"
+            f"Пример: {hcode('/supplier мебель')}\n"
+            f"С фильтрами: {hcode('/supplier мебель region=KZ sources=satu,1688')}"
         )
         return
 
     lot_name = args[1].strip()
+
+    # Parse optional parameters
+    params = {}
+    for arg in args[2:]:
+        if "=" in arg:
+            key, value = arg.split("=", 1)
+            if key == "sources":
+                params["sources"] = value
+            elif key == "region":
+                params["region"] = value
 
     if len(lot_name) < 3:
         await message.answer("❌ Название должно содержать минимум 3 символа")
         return
 
     try:
-        # Search suppliers via Web API
+        # Search suppliers via Web API with enhanced parameters
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.get(
-                f"{config.api.zakupai_base_url}/api/supplier/{lot_name}"
+                f"{config.api.zakupai_base_url}/api/supplier/{lot_name}", params=params
             )
 
             if response.status_code == 200:
                 supplier_data = response.json()
                 suppliers = supplier_data.get("suppliers", [])
+                sources_used = supplier_data.get("sources_used", [])
+                cache_hit = supplier_data.get("cache_hit", False)
 
                 if suppliers:
                     count = len(suppliers)
                     web_url = getattr(config.web, "base_url", "http://localhost:8000")
 
-                    # Show top 3 suppliers briefly
+                    # Show top 3 suppliers with source info
                     top_suppliers = []
                     for i, supplier in enumerate(suppliers[:3], 1):
                         rating = supplier.get("rating", 0)
                         stars = "⭐" * min(int(rating), 5)
-                        top_suppliers.append(f"{i}. {supplier['name']} {stars}")
+                        region_flag = {"KZ": "🇰🇿", "CN": "🇨🇳", "RU": "🇷🇺"}.get(
+                            supplier.get("region", ""), ""
+                        )
+                        source = supplier.get("source", "Unknown")
+                        top_suppliers.append(
+                            f"{i}. {supplier['name']} {stars}\n"
+                            f"   {region_flag} {source} | {supplier.get('budget', 0):,.0f} ₸"
+                        )
 
-                    response_text = f"Найдено {count} поставщиков!\n" + "\n".join(
-                        top_suppliers
+                    cache_status = "⚡ (cache)" if cache_hit else "🔍 (search)"
+                    sources_text = ", ".join(sources_used) if sources_used else "All"
+
+                    response_text = (
+                        f"Найдено {count} поставщиков {cache_status}\n"
+                        f"Источники: {sources_text}\n\n" + "\n".join(top_suppliers)
                     )
-                    response_text += f"\n\nℹ️ Подробнее: {web_url}/supplier/{lot_name}"
+                    response_text += f"\n\n[Web UI link]({web_url}/supplier/{lot_name})"
                 else:
                     response_text = f"❌ Поставщики не найдены для '{lot_name}'"
 
-                await message.answer(response_text, disable_web_page_preview=True)
+                await message.answer(
+                    response_text, parse_mode="Markdown", disable_web_page_preview=True
+                )
             else:
                 await message.answer("❌ Ошибка поиска поставщиков")
 
@@ -829,42 +856,75 @@ async def command_supplier_handler(message: Message) -> None:
 @validate_and_log_bot(require_key=True)
 async def command_complaint_handler(message: Message) -> None:
     """
-    Обработчик команды /complaint для создания жалобы
-    Формат: /complaint 12345 завышенная цена
+    Week 4.2: Enhanced complaint generation with PDF/Word export
+    Формат: /complaint 12345 завышенная цена [date=2025-01-15]
     """
     user_id = message.from_user.id
-    parts = message.text.split(maxsplit=2)
+    parts = message.text.split()
 
     if len(parts) < 3:
         await message.answer(
-            f"❌ Неверный формат.\nПример: {hcode('/complaint 12345 завышенная цена')}"
+            f"❌ Неверный формат.\n"
+            f"Пример: {hcode('/complaint 12345 завышенная цена')}\n"
+            f"С датой: {hcode('/complaint 12345 завышенная цена date=2025-01-15')}"
         )
         return
 
     try:
         lot_id = int(parts[1])
-        reason = parts[2].strip()
+        reason_parts = []
+        complaint_date = None
+
+        # Parse reason and optional date parameter
+        for part in parts[2:]:
+            if part.startswith("date="):
+                complaint_date = part.split("=", 1)[1]
+            else:
+                reason_parts.append(part)
+
+        reason = " ".join(reason_parts).strip()
+
     except ValueError:
         await message.answer("❌ ID лота должно быть числом")
         return
 
-    if len(reason) < 5:
-        await message.answer("❌ Укажите причину жалобы (минимум 5 символов)")
+    if len(reason) < 5 or len(reason) > 200:
+        await message.answer("❌ Укажите причину жалобы (5-200 символов)")
         return
 
     try:
         # Generate complaint via Web API
+        complaint_payload = {"reason": reason}
+        if complaint_date:
+            complaint_payload["date"] = complaint_date
+
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(
                 f"{config.api.zakupai_base_url}/api/complaint/{lot_id}",
-                json={"lot_id": lot_id, "reason": reason},
+                json=complaint_payload,
             )
 
             if response.status_code == 200:
+                complaint_data = response.json()
+                source = complaint_data.get("source", "unknown")
                 web_url = getattr(config.web, "base_url", "http://localhost:8000")
-                response_text = f"✅ Жалоба создана для лота {lot_id}!\nℹ️ Полная версия: {web_url}/complaint/{lot_id}"
 
-                await message.answer(response_text, disable_web_page_preview=True)
+                source_icon = {"flowise": "🤖", "fallback": "📝", "cache": "⚡"}.get(
+                    source, "📄"
+                )
+
+                response_text = (
+                    f"✅ Жалоба создана для лота {lot_id} {source_icon}\n"
+                    f"Источник: {source}\n"
+                    f"Причина: {reason}\n\n"
+                    f"📄 [PDF]({web_url}/api/complaint/{lot_id}/pdf?reason={reason}&date={complaint_data.get('date', '')})\n"
+                    f"📝 [Word]({web_url}/api/complaint/{lot_id}/word?reason={reason}&date={complaint_data.get('date', '')})\n\n"
+                    f"[Web UI link]({web_url}/complaint/{lot_id})"
+                )
+
+                await message.answer(
+                    response_text, parse_mode="Markdown", disable_web_page_preview=True
+                )
             else:
                 await message.answer(f"❌ Ошибка создания жалобы для лота {lot_id}")
 
