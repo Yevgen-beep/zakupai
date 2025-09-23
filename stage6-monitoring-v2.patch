@@ -1,0 +1,392 @@
+From 8f4c2a6d8f140000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@example.com>
+Date: Thu, 16 Nov 2024 12:55:00 +0000
+Subject: [PATCH] feat(stage6): add alertmanager to monitoring stack
+
+Add Stage 6 monitoring stack skeleton with logging and alerting components.
+
+---
+ docker-compose.override.stage6.yml | 63 +++++++++++++++++++++++++++++++
+ docs/Stage6.md                     | 27 +++++++++++++++
+ monitoring/alertmanager.yml        | 10 +++++++
+ monitoring/loki/local-config.yaml  | 48 ++++++++++++++++++++++++
+ monitoring/prometheus.yml          | 146 -------------------------------------
+ monitoring/promtail-config.yml     | 21 ++++++++++++
+ 6 files changed, 188 insertions(+), 146 deletions(-)
+ create mode 100644 docker-compose.override.stage6.yml
+ create mode 100644 docs/Stage6.md
+ create mode 100644 monitoring/alertmanager.yml
+ create mode 100644 monitoring/loki/local-config.yaml
+ create mode 100644 monitoring/promtail-config.yml
+
+diff --git a/docker-compose.override.stage6.yml b/docker-compose.override.stage6.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..86e267ab1b82ae0ff88f7444aeb90e5715fd354b
+--- /dev/null
++++ b/docker-compose.override.stage6.yml
+@@ -0,0 +1,63 @@
++services:
++  prometheus:
++    image: prom/prometheus:latest
++    profiles: ["stage6"]
++    ports:
++      - "9090:9090"
++    volumes:
++      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
++    networks:
++      - zakupai-network
++
++  grafana:
++    image: grafana/grafana:latest
++    profiles: ["stage6"]
++    ports:
++      - "3000:3000"
++    volumes:
++      - grafana_data:/var/lib/grafana
++      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
++    depends_on:
++      - prometheus
++      - loki
++    networks:
++      - zakupai-network
++
++  alertmanager:
++    image: prom/alertmanager:latest
++    profiles: ["stage6"]
++    ports:
++      - "9093:9093"
++    volumes:
++      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
++    depends_on:
++      - prometheus
++    networks:
++      - zakupai-network
++
++  loki:
++    image: grafana/loki:latest
++    profiles: ["stage6"]
++    ports:
++      - "3100:3100"
++    command: -config.file=/etc/loki/local-config.yaml
++    volumes:
++      - ./monitoring/loki/local-config.yaml:/etc/loki/local-config.yaml:ro
++    networks:
++      - zakupai-network
++
++  promtail:
++    image: grafana/promtail:latest
++    profiles: ["stage6"]
++    command: -config.file=/etc/promtail/config.yml
++    volumes:
++      - /var/log:/var/log:ro
++      - /var/lib/docker/containers:/var/lib/docker/containers:ro
++      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
++    depends_on:
++      - loki
++    networks:
++      - zakupai-network
++
++volumes:
++  grafana_data:
+diff --git a/docs/Stage6.md b/docs/Stage6.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..2bf631e11aa94e5dbcecc5562e4e018381887b55
+--- /dev/null
++++ b/docs/Stage6.md
+@@ -0,0 +1,27 @@
++# Stage 6 Monitoring Skeleton
++
++## Цепочка сигналов
++Prometheus -> Loki -> Grafana -> Alertmanager
++
++## Чеклист развертывания
++- [ ] Scrape configs обновлены для ключевых сервисов и Prometheus
++- [ ] /metrics эндпоинты доступны для gateway, risk-engine, calc-service
++- [ ] Базовые Grafana dashboards подключены и отображают данные
++- [ ] Alertmanager получает алерты и маршрутизирует уведомления
++
++## Укрепление безопасности
++- Использовать Vault для хранения секретов и токенов мониторинга
++- Включить mTLS между Prometheus, Loki, Grafana и сервисами
++- Настроить logrotate для локальных логов и ротации Promtail
++
++## Alertmanager
++- [ ] Конфигурация alertmanager.yml проверена (`amtool check-config`)
++- [ ] Интеграция с Prometheus targets
++- [ ] Подключение к внешнему webhook/Slack/Telegram
++
++## Бизнес-метрики
++- zakupai_lots_total - общее количество разыгрываемых лотов
++- zakupai_anti_dumping_flags_total - количество антидемпинговых флагов
++
++## CI/CD
++Добавить job `monitoring-check`, который валидирует конфигурации Prometheus, Loki и Alertmanager в пайплайне Stage 6.
+diff --git a/monitoring/alertmanager.yml b/monitoring/alertmanager.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..274964a10e91111c5a42db71dade2c6065b18129
+--- /dev/null
++++ b/monitoring/alertmanager.yml
+@@ -0,0 +1,10 @@
++global:
++  resolve_timeout: 5m
++
++route:
++  receiver: 'default'
++
++receivers:
++  - name: 'default'
++    webhook_configs:
++      - url: 'http://gateway:8000/alert'  # временная заглушка
+diff --git a/monitoring/loki/local-config.yaml b/monitoring/loki/local-config.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..09e1758324117696f84abd468867b074f576b40f
+--- /dev/null
++++ b/monitoring/loki/local-config.yaml
+@@ -0,0 +1,48 @@
++auth_enabled: false
++
++server:
++  http_listen_port: 3100
++  grpc_listen_port: 0
++
++ingester:
++  lifecycler:
++    address: 127.0.0.1
++    ring:
++      kvstore:
++        store: inmemory
++      replication_factor: 1
++    final_sleep: 0s
++  chunk_idle_period: 5m
++  chunk_retain_period: 30s
++
++schema_config:
++  configs:
++    - from: 2020-10-24
++      store: boltdb-shipper
++      object_store: filesystem
++      schema: v11
++      index:
++        prefix: index_
++        period: 24h
++
++storage_config:
++  boltdb_shipper:
++    active_index_directory: /loki/index
++    cache_location: /loki/boltdb-cache
++  filesystem:
++    directory: /loki/chunks
++
++limits_config:
++  reject_old_samples: true
++  reject_old_samples_max_age: 168h
++
++chunk_store_config:
++  max_look_back_period: 0s
++
++table_manager:
++  retention_deletes_enabled: false
++  retention_period: 0s
++
++compactor:
++  working_directory: /loki/compactor
++  shared_store: filesystem
+diff --git a/monitoring/prometheus.yml b/monitoring/prometheus.yml
+index d5b21e89f4bc6a8bbb56d002d0357f95283cbdf1..4503bb11ff027adaeea343f6b66bfb5bfa54c944 100644
+--- a/monitoring/prometheus.yml
++++ b/monitoring/prometheus.yml
+@@ -1,146 +1,19 @@
+-# Prometheus configuration for Week 4.2 ZakupAI monitoring
+-# Includes Week 4.2 specific metrics for Flowise features
+-
+-global:
+-  scrape_interval: 15s
+-  evaluation_interval: 15s
+-
+-# Alertmanager configuration
+-alerting:
+-  alertmanagers:
+-    - static_configs:
+-        - targets:
+-          - alertmanager:9093
+-
+-# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+-rule_files:
+-  - "alert_rules.yml"
+-  - "week4_2_rules.yml"
+-
+-# Scrape configuration
+-scrape_configs:
+-  # Prometheus itself
+-  - job_name: 'prometheus'
+-    static_configs:
+-      - targets: ['localhost:9090']
+-
+-  # ZakupAI Web UI service (Week 4.2 enhanced)
+-  - job_name: 'zakupai-web-ui'
+-    static_configs:
+-      - targets: ['web:8000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 10s
+-    scrape_timeout: 5s
+-    honor_labels: true
+-    relabel_configs:
+-      - source_labels: [__address__]
+-        target_label: instance
+-        replacement: 'zakupai-web-ui'
+-
+-  # ZakupAI Bot service
+-  - job_name: 'zakupai-bot'
+-    static_configs:
+-      - targets: ['bot:8000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 15s
+-    scrape_timeout: 5s
+-
+-  # PostgreSQL database
+-  - job_name: 'postgres-exporter'
+-    static_configs:
+-      - targets: ['postgres-exporter:9187']
+-    scrape_interval: 30s
+-    scrape_timeout: 10s
+-
+-  # Redis cache
+-  - job_name: 'redis-exporter'
+-    static_configs:
+-      - targets: ['redis-exporter:9121']
+-    scrape_interval: 15s
+-    scrape_timeout: 5s
+-
+-  # ChromaDB vector database
+-  - job_name: 'chromadb'
+-    static_configs:
+-      - targets: ['chromadb:8000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 30s
+-    scrape_timeout: 10s
+-
+-  # Node exporter for system metrics
+-  - job_name: 'node-exporter'
+-    static_configs:
+-      - targets: ['node-exporter:9100']
+-    scrape_interval: 15s
+-    scrape_timeout: 5s
+-
+-  # Flowise AI service monitoring
+-  - job_name: 'flowise'
+-    static_configs:
+-      - targets: ['flowise:3000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 30s
+-    scrape_timeout: 10s
+-    # Handle cases where Flowise doesn't expose metrics
+-    honor_labels: false
+-    relabel_configs:
+-      - source_labels: [__address__]
+-        target_label: instance
+-        replacement: 'flowise-ai'
+-
+-  # ETL Service
+-  - job_name: 'etl-service'
+-    static_configs:
+-      - targets: ['etl-service:8000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 30s
+-
+-  # Risk Engine
+-  - job_name: 'risk-engine'
+-    static_configs:
+-      - targets: ['risk-engine:8000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 30s
+-
+-  # Goszakup API service
+-  - job_name: 'goszakup-api'
+-    static_configs:
+-      - targets: ['goszakup-api:8001']
+-    metrics_path: '/metrics'
+-    scrape_interval: 60s
+-
+-  # Week 4.2 specific endpoint monitoring
+-  - job_name: 'zakupai-week4-2-endpoints'
+-    static_configs:
+-      - targets: ['web:8000']
+-    metrics_path: '/metrics'
+-    scrape_interval: 5s  # More frequent for performance monitoring
+-    scrape_timeout: 3s
+-    params:
+-      collect[]: ['week4_2_metrics']
+-    relabel_configs:
+-      - source_labels: [__name__]
+-        regex: '(complaint_.*|supplier_.*|flowise_.*)'
+-        target_label: feature
+-        replacement: 'week4_2'
+-
+-# External services monitoring (if available)
+-  # RapidAPI monitoring (for 1688, Alibaba APIs)
+-  - job_name: 'external-apis'
+-    static_configs:
+-      - targets: []  # No direct targets, monitored via application metrics
+-    scrape_interval: 60s
+-    honor_labels: true
+-
+-# Custom metric collection for Week 4.2
+-  - job_name: 'custom-week4-2-metrics'
+-    static_configs:
+-      - targets: ['web:8000']
+-    metrics_path: '/week4-2/metrics'
+-    scrape_interval: 10s
+-    scrape_timeout: 5s
+-    # Only scrape if custom metrics endpoint exists
+-    relabel_configs:
+-      - source_labels: [__meta_consul_service]
+-        regex: 'week4-2-metrics'
+-        action: keep
++global:
++  scrape_interval: 15s
++
++scrape_configs:
++  - job_name: prometheus
++    static_configs:
++      - targets: ['prometheus:9090']
++  - job_name: gateway
++    metrics_path: /metrics
++    static_configs:
++      - targets: ['gateway:8000']
++  - job_name: risk-engine
++    metrics_path: /metrics
++    static_configs:
++      - targets: ['risk-engine:8000']
++  - job_name: calc-service
++    metrics_path: /metrics
++    static_configs:
++      - targets: ['calc-service:8000']
+diff --git a/monitoring/promtail-config.yml b/monitoring/promtail-config.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..358b66bd4045d7a734e7688c6839addf6e414b58
+--- /dev/null
++++ b/monitoring/promtail-config.yml
+@@ -0,0 +1,21 @@
++server:
++  http_listen_port: 0
++  grpc_listen_port: 0
++
++positions:
++  filename: /tmp/positions.yaml
++
++clients:
++  - url: http://loki:3100/loki/api/v1/push
++
++scrape_configs:
++  - job_name: docker-logs
++    static_configs:
++      - targets:
++          - localhost
++        labels:
++          job: container-logs
++          __path__: /var/lib/docker/containers/*/*-json.log
++    pipeline_stages:
++      - docker
++      - json
+--
+2.43.0
