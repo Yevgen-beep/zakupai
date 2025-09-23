@@ -13,6 +13,10 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from zakupai_common.compliance import ComplianceSettings
+from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
+from zakupai_common.fastapi.health import health_router
+from zakupai_common.logging import setup_logging
 
 try:
     from typing import Annotated  # py>=3.9
@@ -185,6 +189,17 @@ TH = RULES.get("thresholds", {})
 
 def _compute_flags(lot: dict[str, Any], market_sum: float | None) -> dict[str, Any]:
     flags: dict[str, Any] = {}
+
+    # Compliance checks using ComplianceSettings
+    if ComplianceSettings.REESTR_NEDOBRO_ENABLED:
+        # Check недобросовестный реестр (placeholder - in real implementation would check customer_bin)
+        customer_bin = lot.get("customer_bin")
+        flags["reestr_check"] = bool(customer_bin)  # placeholder logic
+
+    if ComplianceSettings.SINGLE_SOURCE_LIST_ENABLED:
+        # Check if lot type matches single source criteria
+        flags["single_source_eligible"] = lot.get("plan_id") in (None, "", "null")
+
     # дедлайн
     try:
         dl: date | None = lot.get("deadline")
@@ -329,8 +344,15 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# Add audit middleware
+# Setup logging
+setup_logging("risk-engine")
+
+# Add middleware
+app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(AuditMiddleware)
+
+# Include routers
+app.include_router(health_router)
 
 
 @app.on_event("startup")
@@ -345,11 +367,6 @@ async def mid(request: Request, call_next):
     resp = await call_next(request)
     resp.headers["X-Request-Id"] = rid
     return resp
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "service": "risk-engine"}
 
 
 @app.get("/info")

@@ -7,6 +7,10 @@ from dotenv import load_dotenv
 from etl import ETLService
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
+from zakupai_common.compliance import ComplianceSettings
+from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
+from zakupai_common.fastapi.health import health_router
+from zakupai_common.logging import setup_logging
 
 load_dotenv()
 
@@ -15,6 +19,15 @@ app = FastAPI(
     description="ETL service for ZakupAI platform - loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
     version="1.0.0",
 )
+
+# Setup logging
+setup_logging("etl-service")
+
+# Add middleware
+app.add_middleware(ErrorHandlerMiddleware)
+
+# Include routers
+app.include_router(health_router)
 
 
 class ETLRequest(BaseModel):
@@ -70,12 +83,6 @@ def check_env_variables():
         )
 
     return True
-
-
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint"""
-    return HealthResponse(status="ok")
 
 
 @app.post("/run", response_model=ETLResponse)
@@ -212,9 +219,11 @@ async def get_attachments(
         )
 
     except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
 
 
 @app.get("/attachments/{attachment_id}", response_model=Attachment)
@@ -248,9 +257,11 @@ async def get_attachment(attachment_id: int, _: bool = Depends(check_env_variabl
         )
 
     except psycopg2.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error: {str(e)}"
+        ) from e
 
 
 @app.get("/")
@@ -259,6 +270,10 @@ async def root():
     return {
         "service": "ETL Service",
         "description": "Loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
+        "compliance": {
+            "excluded_procurements_filtering": ComplianceSettings.EXCLUDED_PROCUREMENTS,
+            "single_source_enabled": ComplianceSettings.SINGLE_SOURCE_LIST_ENABLED,
+        },
         "endpoints": {
             "/health": "Health check",
             "/run": "Run ETL process",
