@@ -1,7 +1,9 @@
 import io
+import json
 import math
 import os
 import tempfile
+import time
 import uuid
 import zipfile
 from pathlib import Path
@@ -12,6 +14,7 @@ import pandas as pd
 import psycopg2
 import psycopg2.extras
 import pytesseract
+import requests
 import structlog
 from dotenv import load_dotenv
 from etl import ETLService
@@ -22,6 +25,11 @@ from PIL import Image
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from zakupai_common.audit import AuditLogger
+from zakupai_common.compliance import ComplianceSettings
+from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
+from zakupai_common.fastapi.health import health_router
+from zakupai_common.logging import setup_logging
 
 load_dotenv()
 
@@ -63,13 +71,53 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Setup logging
+setup_logging("etl-service")
+
 # Add middleware
+app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(FileSizeMiddleware)
 
 # Constants
 MAX_FILE_SIZE_MB = 50
 ALLOWED_EXTENSIONS = {".pdf", ".zip"}
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+# Include routers
+app.include_router(health_router)
+
+# Fallback policy for goszakup API
+audit = AuditLogger()
+CACHE_FILE = "etl_cache.json"
+
+
+def fetch_with_fallback(url: str, retries: int = 3, ttl: int = 86400) -> dict | None:
+    """Fetch data from goszakup API with fallback to cache on failure"""
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            audit.log_request("etl-service", url, str(data), f"fetch_attempt_{attempt}")
+            with open(CACHE_FILE, "w") as f:
+                json.dump({"timestamp": time.time(), "data": data}, f)
+            return data
+        except Exception as e:
+            audit.log_request("etl-service", url, str(e), "fetch_error")
+            if attempt < retries - 1:
+                time.sleep(2**attempt)
+            continue
+
+    # Fallback to cache
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE) as f:
+            cache = json.load(f)
+            if time.time() - cache.get("timestamp", 0) < ttl:
+                audit.log_request("etl-service", url, "cache_hit", "fallback_success")
+                return cache.get("data")
+
+    audit.log_request("etl-service", url, "cache_miss", "fallback_fail")
+    return None
 
 
 class ETLRequest(BaseModel):
@@ -348,12 +396,12 @@ async def index_in_chromadb(
 
 def check_env_variables():
     """Check if required environment variables are present"""
-    api_token = os.getenv("GOSZAKUP_TOKEN")
+    api_token = os.getenv("API_TOKEN")
     database_url = os.getenv("DATABASE_URL")
 
     if not api_token:
         raise HTTPException(
-            status_code=500, detail="GOSZAKUP_TOKEN environment variable not found"
+            status_code=500, detail="API_TOKEN environment variable not found"
         )
 
     if not database_url:
@@ -362,12 +410,6 @@ def check_env_variables():
         )
 
     return True
-
-
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint"""
-    return HealthResponse(status="ok")
 
 
 @app.get("/etl/ocr", response_model=OCRHealthResponse)
@@ -1322,6 +1364,10 @@ async def root():
     return {
         "service": "ETL Service",
         "description": "Loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
+        "compliance": {
+            "excluded_procurements_filtering": ComplianceSettings.EXCLUDED_PROCUREMENTS,
+            "single_source_enabled": ComplianceSettings.SINGLE_SOURCE_LIST_ENABLED,
+        },
         "endpoints": {
             "/health": "Health check",
             "/run": "Run ETL process",

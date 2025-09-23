@@ -1,4 +1,17 @@
 services:
+  loki:
+    image: grafana/loki:latest
+    container_name: zakupai-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/data
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+    profiles: ["prod", "default"]
+
   db:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -11,6 +24,13 @@ services:
     volumes:
       - ./gateway/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
+      - audit-logs:/logs
+    logging:
+      driver: "loki"
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-retries: "5"
+        loki-extra-labels: "service=gateway,procurement_type={{.Env.PROCUREMENT_TYPE}}"
     profiles: ["prod", "default"]
 
   calc-service:
@@ -19,6 +39,12 @@ services:
       - LOG_LEVEL=warning
       - ENABLE_SWAGGER=false
       - ENABLE_AUDIT_LOG=true
+    logging:
+      driver: "loki"
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-retries: "5"
+        loki-extra-labels: "service=calc-service,procurement_type={{.Env.PROCUREMENT_TYPE}}"
     deploy:
       resources:
         limits:
@@ -35,6 +61,14 @@ services:
       - LOG_LEVEL=warning
       - ENABLE_SWAGGER=false
       - ENABLE_AUDIT_LOG=true
+    logging:
+      driver: "loki"
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-retries: "5"
+        loki-extra-labels: "service=risk-engine,procurement_type={{.Env.PROCUREMENT_TYPE}}"
+    volumes:
+      - audit-logs:/logs
     deploy:
       resources:
         limits:
@@ -67,6 +101,12 @@ services:
       - LOG_LEVEL=warning
       - ENABLE_SWAGGER=false
       - ENABLE_AUDIT_LOG=true
+    logging:
+      driver: "loki"
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-retries: "5"
+        loki-extra-labels: "service=embedding-api,procurement_type={{.Env.PROCUREMENT_TYPE}}"
     deploy:
       resources:
         limits:
@@ -75,6 +115,28 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    profiles: ["prod", "default"]
+
+  etl-service:
+    environment:
+      - DEBUG=false
+      - LOG_LEVEL=warning
+      - ENABLE_SWAGGER=false
+      - ENABLE_AUDIT_LOG=true
+    logging:
+      driver: "loki"
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-retries: "5"
+        loki-extra-labels: "service=etl-service,procurement_type={{.Env.PROCUREMENT_TYPE}}"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
     profiles: ["prod", "default"]
 
   web:
@@ -93,10 +155,16 @@ services:
           memory: 128M
     profiles: ["prod", "default"]
 
-  bot:
+  zakupai-bot:
     environment:
       - DEBUG=false
       - LOG_LEVEL=warning
+    logging:
+      driver: "loki"
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-retries: "5"
+        loki-extra-labels: "service=bot,procurement_type={{.Env.PROCUREMENT_TYPE}}"
     deploy:
       resources:
         limits:
@@ -135,5 +203,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  audit-logs:
+  loki-data:
   prometheus_data:
   grafana_data:
