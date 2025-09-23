@@ -116,13 +116,75 @@ jobs:
       - name: Install common lib
         run: pip install -e libs/zakupai_common
         if: github.event_name == 'push' || github.event_name == 'pull_request'
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: ${{ runner.os }}-pip-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           find services -name requirements.txt -exec pip install -r {} \;
-          pip install pytest
+          pip install pytest pytest-cov ruff black isort bandit
+      - name: Run linters
+        run: |
+          ruff check .
+          black --check .
+          isort --check-only .
+      - name: Run security checks
+        run: bandit -r services libs -lll
       - name: Run tests
-        run: make test
+        run: pytest -q --cov=services --cov=libs --cov-report=term --disable-warnings
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [pytest, bandit-scan]
+    if: github.ref == 'refs/heads/refactor/common-lib-test' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push Docker images
+        run: |
+          docker build -t zakupai/gateway:stage5 -t zakupai/gateway:latest --build-arg TAG=stage5 ./services/gateway
+          docker build -t zakupai/etl-service:stage5 -t zakupai/etl-service:latest --build-arg TAG=stage5 ./services/etl-service
+          docker build -t zakupai/risk-engine:stage5 -t zakupai/risk-engine:latest --build-arg TAG=stage5 ./services/risk-engine
+          docker build -t zakupai/calc-service:stage5 -t zakupai/calc-service:latest --build-arg TAG=stage5 ./services/calc-service
+          docker build -t zakupai/embedding-api:stage5 -t zakupai/embedding-api:latest --build-arg TAG=stage5 ./services/embedding-api
+          docker build -t zakupai/bot:stage5 -t zakupai/bot:latest --build-arg TAG=stage5 ./bot
+          docker push zakupai/gateway:stage5
+          docker push zakupai/gateway:latest
+          docker push zakupai/etl-service:stage5
+          docker push zakupai/etl-service:latest
+          docker push zakupai/risk-engine:stage5
+          docker push zakupai/risk-engine:latest
+          docker push zakupai/calc-service:stage5
+          docker push zakupai/calc-service:latest
+          docker push zakupai/embedding-api:stage5
+          docker push zakupai/embedding-api:latest
+          docker push zakupai/bot:stage5
+          docker push zakupai/bot:latest
+
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ${{ runner.temp }}/ssh_key
+          chmod 600 ${{ runner.temp }}/ssh_key
+
+      - name: Deploy to staging
+        run: |
+          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ${{ runner.temp }}/ssh_key user@staging "cd /path/to/zakupai && export TAG=stage5 && docker compose -f docker-compose.yml -f docker-compose.override.prod.yml pull && docker compose -f docker-compose.yml -f docker-compose.override.prod.yml up -d --timeout 60"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ${{ runner.temp }}/ssh_key user@staging "cd /path/to/zakupai && export TAG=stable && docker compose -f docker-compose.yml -f docker-compose.override.prod.yml up -d --timeout 60"
 
   smoke-matrix:
     runs-on: ubuntu-latest

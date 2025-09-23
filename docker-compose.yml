@@ -23,7 +23,11 @@ services:
     restart: unless-stopped
 
   embedding-api:
-    build: ./services/embedding-api
+    build:
+      context: ./services/embedding-api
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/embedding-api:${TAG:-stage5}
     container_name: zakupai-embedding-api
     ports:
       - "7010:8000"
@@ -39,7 +43,11 @@ services:
     restart: unless-stopped
 
   calc-service:
-    build: ./services/calc-service
+    build:
+      context: ./services/calc-service
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/calc-service:${TAG:-stage5}
     container_name: zakupai-calc-service
     ports:
       - "7001:8000"
@@ -53,7 +61,11 @@ services:
     restart: unless-stopped
 
   risk-engine:
-    build: ./services/risk-engine
+    build:
+      context: ./services/risk-engine
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/risk-engine:${TAG:-stage5}
     container_name: zakupai-risk-engine
     ports:
       - "7002:8000"
@@ -103,7 +115,11 @@ services:
     restart: unless-stopped
 
   etl-service:
-    build: ./services/etl-service
+    build:
+      context: ./services/etl-service
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/etl-service:${TAG:-stage5}
     container_name: zakupai-etl-service
     ports:
       - "7011:8000"
@@ -119,7 +135,11 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: nginx:alpine
+    build:
+      context: ./services/gateway
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/gateway:${TAG:-stage5}
     container_name: zakupai-gateway
     ports:
       - "8080:80"  # Основной порт доступа к ZakupAI
@@ -221,7 +241,11 @@ services:
     restart: unless-stopped
 
   zakupai-bot:
-    build: ./bot
+    build:
+      context: ./bot
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/bot:${TAG:-stage5}
     container_name: zakupai-bot
     env_file:
       - ./bot/.env
