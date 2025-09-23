@@ -24,6 +24,7 @@ services:
     volumes:
       - ./gateway/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
+      - audit-logs:/logs
     logging:
       driver: "loki"
       options:
@@ -66,6 +67,8 @@ services:
         loki-url: "http://loki:3100/loki/api/v1/push"
         loki-retries: "5"
         loki-extra-labels: "service=risk-engine,procurement_type={{.Env.PROCUREMENT_TYPE}}"
+    volumes:
+      - audit-logs:/logs
     deploy:
       resources:
         limits:
@@ -200,6 +203,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  audit-logs:
   loki-data:
   prometheus_data:
   grafana_data:

@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from zakupai_common.audit import AuditLogger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
 from zakupai_common.fastapi.health import health_router
@@ -399,6 +400,14 @@ def risk_score(req: ScoreRequest):
         "calc": {"market_sum": flags.get("market_sum")},
     }
     saved = _save_eval(req.lot_id, score, flags, explain)
+
+    # Audit logging for AI/ML requests
+    audit = AuditLogger()
+    customer_bin = lot.get("customer_bin", "unknown")
+    input_data = f"lot={req.lot_id},bin={customer_bin}"
+    output_data = f"score={score}"
+    audit.log_request("risk-engine", input_data, output_data)
+
     return {
         "lot_id": req.lot_id,
         "score": score,

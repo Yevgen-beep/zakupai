@@ -1,12 +1,16 @@
+import json
 import math
 import os
+import time
 
 import psycopg2
 import psycopg2.extras
+import requests
 from dotenv import load_dotenv
 from etl import ETLService
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
+from zakupai_common.audit import AuditLogger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
 from zakupai_common.fastapi.health import health_router
@@ -28,6 +32,39 @@ app.add_middleware(ErrorHandlerMiddleware)
 
 # Include routers
 app.include_router(health_router)
+
+# Fallback policy for goszakup API
+audit = AuditLogger()
+CACHE_FILE = "etl_cache.json"
+
+
+def fetch_with_fallback(url: str, retries: int = 3, ttl: int = 86400) -> dict | None:
+    """Fetch data from goszakup API with fallback to cache on failure"""
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            audit.log_request("etl-service", url, str(data), f"fetch_attempt_{attempt}")
+            with open(CACHE_FILE, "w") as f:
+                json.dump({"timestamp": time.time(), "data": data}, f)
+            return data
+        except Exception as e:
+            audit.log_request("etl-service", url, str(e), "fetch_error")
+            if attempt < retries - 1:
+                time.sleep(2**attempt)
+            continue
+
+    # Fallback to cache
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE) as f:
+            cache = json.load(f)
+            if time.time() - cache.get("timestamp", 0) < ttl:
+                audit.log_request("etl-service", url, "cache_hit", "fallback_success")
+                return cache.get("data")
+
+    audit.log_request("etl-service", url, "cache_miss", "fallback_fail")
+    return None
 
 
 class ETLRequest(BaseModel):
