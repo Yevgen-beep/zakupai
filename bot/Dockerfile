@@ -11,5 +11,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --prefer-binary --no-cache-dir -r requirements.txt
 
 COPY . .
+# Копируем общую библиотеку из дополнительного контекста libs
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
 
 CMD ["python","/app/main.py"]

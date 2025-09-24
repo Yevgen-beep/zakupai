@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+# Копируем общую библиотеку из дополнительного контекста libs
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
 
 # Create directory for logs
 RUN mkdir -p /app/logs

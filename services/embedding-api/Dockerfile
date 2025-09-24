@@ -9,6 +9,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+# Копируем общую библиотеку из дополнительного контекста libs
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
 EXPOSE 8000
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000"]

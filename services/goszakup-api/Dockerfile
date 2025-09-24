@@ -8,6 +8,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование кода
 COPY . .
+# Копируем общую библиотеку из дополнительного контекста libs
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
 
 EXPOSE 8001
 
