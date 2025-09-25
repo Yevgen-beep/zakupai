@@ -9,7 +9,6 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
-import chromadb
 import httpx
 import pandas as pd
 import redis
@@ -36,7 +35,21 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
-from sqlalchemy import create_engine, text
+from sqlalchemy import (
+    and_,
+    bindparam,
+    case,
+    column,
+    create_engine,
+    func,
+    literal,
+    literal_column,
+    or_,
+    select,
+    table,
+    text,
+    true,
+)
 from sqlalchemy.orm import sessionmaker
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -66,9 +79,25 @@ DATABASE_URL = os.getenv(
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# ChromaDB setup
-CHROMADB_URL = os.getenv("CHROMADB_URL", "http://chromadb:8000")
-chroma_client = chromadb.HttpClient(host="chromadb", port=8000)
+
+lots_table = table(
+    "lots",
+    column("id"),
+    column("nameRu"),
+    column("amount"),
+    column("descriptionRu"),
+    column("trdBuyId"),
+    column("lastUpdateDate"),
+)
+
+trdbuy_table = table(
+    "trdbuy",
+    column("id"),
+    column("refBuyStatusId"),
+    column("customerNameRu"),
+    column("nameRu"),
+)
+
 
 # Redis setup for caching
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -732,88 +761,99 @@ async def advanced_search(request: AdvancedSearchRequest):
         start_time = time.time()
 
         with SessionLocal() as db:
-            # Use optimized query with covering indexes
-            query_conditions = []
-            query_params = {"query": request.query}
+            lots_alias = lots_table.alias("l")
+            trdbuy_alias = trdbuy_table.alias("t")
+            join_clause = lots_alias.join(
+                trdbuy_alias, lots_alias.c.trdBuyId == trdbuy_alias.c.id
+            )
 
-            # Full-text search condition using GIN indexes
+            query_params = {"query": request.query}
+            query_bind = bindparam("query")
+            ts_query = func.plainto_tsquery("russian", query_bind)
+
+            query_conditions = [
+                lots_alias.c.nameRu.isnot(None),
+                lots_alias.c.amount.isnot(None),
+                trdbuy_alias.c.refBuyStatusId.isnot(None),
+            ]
+
             if request.query.strip():
                 query_conditions.append(
-                    """
-                    (to_tsvector('russian', l.nameRu) @@ plainto_tsquery('russian', :query)
-                     OR to_tsvector('russian', COALESCE(l.descriptionRu, '')) @@ plainto_tsquery('russian', :query)
-                     OR to_tsvector('russian', t.nameRu) @@ plainto_tsquery('russian', :query))
-                    """
+                    or_(
+                        func.to_tsvector("russian", lots_alias.c.nameRu).op("@@")(
+                            ts_query
+                        ),
+                        func.to_tsvector(
+                            "russian",
+                            func.coalesce(lots_alias.c.descriptionRu, literal("")),
+                        ).op("@@")(ts_query),
+                        func.to_tsvector("russian", trdbuy_alias.c.nameRu).op("@@")(
+                            ts_query
+                        ),
+                    )
                 )
 
-            # Amount filters using B-tree indexes
             if request.min_amount is not None:
-                query_conditions.append("l.amount >= :min_amount")
+                query_conditions.append(lots_alias.c.amount >= bindparam("min_amount"))
                 query_params["min_amount"] = request.min_amount
 
             if request.max_amount is not None:
-                query_conditions.append("l.amount <= :max_amount")
+                query_conditions.append(lots_alias.c.amount <= bindparam("max_amount"))
                 query_params["max_amount"] = request.max_amount
 
-            # Status filter using indexed column
             if request.status is not None:
-                query_conditions.append("t.refBuyStatusId = :status")
+                query_conditions.append(
+                    trdbuy_alias.c.refBuyStatusId == bindparam("status")
+                )
                 query_params["status"] = int(request.status)
 
-            # Add non-null filters for performance
-            query_conditions.extend(
-                [
-                    "l.nameRu IS NOT NULL",
-                    "l.amount IS NOT NULL",
-                    "t.refBuyStatusId IS NOT NULL",
-                ]
+            where_clause = and_(*query_conditions) if query_conditions else true()
+
+            count_stmt = (
+                select(func.count()).select_from(join_clause).where(where_clause)
             )
 
-            where_clause = " AND ".join(query_conditions)
+            total_count = db.execute(count_stmt, query_params).scalar()
 
-            # Fast count query with covering index
-            count_query = text(  # nosec B608
-                f"""
-                SELECT COUNT(*)
-                FROM lots l
-                INNER JOIN trdbuy t ON l.trdBuyId = t.id
-                WHERE {where_clause}
-            """
+            search_vector = literal_column(
+                "l.nameRu || ' ' || COALESCE(l.descriptionRu, '') || ' ' || COALESCE(t.nameRu, '')"
             )
 
-            total_count = db.execute(count_query, query_params).scalar()
-
-            # Optimized search query with sort by relevance and amount
-            search_query = text(  # nosec B608
-                f"""
-                SELECT
-                    l.id,
-                    l.nameRu,
-                    l.amount,
-                    COALESCE(t.refBuyStatusId, 0) as status,
-                    l.trdBuyId,
-                    t.customerNameRu,
-                    CASE WHEN :query != '' THEN
-                        ts_rank_cd(
-                            to_tsvector('russian', l.nameRu || ' ' || COALESCE(l.descriptionRu, '') || ' ' || COALESCE(t.nameRu, '')),
-                            plainto_tsquery('russian', :query),
-                            1
-                        )
-                    ELSE 1 END as relevance
-                FROM lots l
-                INNER JOIN trdbuy t ON l.trdBuyId = t.id
-                WHERE {where_clause}
-                ORDER BY
-                    relevance DESC,
-                    l.amount DESC,
-                    l.lastUpdateDate DESC NULLS LAST
-                LIMIT :limit OFFSET :offset
-            """
+            relevance_expr = func.ts_rank_cd(
+                func.to_tsvector("russian", search_vector),
+                ts_query,
+                literal(1),
             )
 
-            query_params.update({"limit": request.limit, "offset": request.offset})
+            relevance = case(
+                (query_bind != "", relevance_expr),
+                else_=literal(1),
+            ).label("relevance")
 
-            results = db.execute(search_query, query_params).fetchall()
+            search_stmt = (
+                select(
+                    lots_alias.c.id,
+                    lots_alias.c.nameRu,
+                    lots_alias.c.amount,
+                    func.coalesce(trdbuy_alias.c.refBuyStatusId, literal(0)).label(
+                        "status"
+                    ),
+                    lots_alias.c.trdBuyId,
+                    trdbuy_alias.c.customerNameRu,
+                    relevance,
+                )
+                .select_from(join_clause)
+                .where(where_clause)
+                .order_by(
+                    relevance.desc(),
+                    lots_alias.c.amount.desc(),
+                    lots_alias.c.lastUpdateDate.desc().nullslast(),
+                )
+                .limit(request.limit)
+                .offset(request.offset)
+            )
+
+            results = db.execute(search_stmt, query_params).fetchall()
 
             # Convert results to response format
             lot_results = [
@@ -852,49 +892,11 @@ async def advanced_search(request: AdvancedSearchRequest):
 
 
 async def get_chromadb_suggestions(query: str) -> list[str]:
-    """Get suggestions from ChromaDB with timeout"""
-    try:
-        # Set timeout for ChromaDB operations
-        import asyncio
-
-        async def chromadb_query():
-            # Get or create lot_names collection
-            try:
-                collection = chroma_client.get_collection("lot_names")
-            except Exception:
-                # If collection doesn't exist, try to create it or return empty
-                try:
-                    collection = chroma_client.create_collection("lot_names")
-                    logger.warning("Created new lot_names collection")
-                    return []  # Empty collection, no suggestions yet
-                except Exception:
-                    return []
-
-            # Search in ChromaDB
-            results = collection.query(
-                query_texts=[query], n_results=5, include=["documents"]
-            )
-
-            suggestions = []
-            if results and results["documents"] and results["documents"][0]:
-                # Extract unique suggestions
-                seen = set()
-                for doc in results["documents"][0]:
-                    if doc and len(doc.strip()) > 2 and doc.lower() not in seen:
-                        suggestions.append(doc.strip())
-                        seen.add(doc.lower())
-
-            return suggestions
-
-        # Execute with timeout
-        return await asyncio.wait_for(chromadb_query(), timeout=0.3)  # 300ms timeout
-
-    except TimeoutError:
-        logger.warning("ChromaDB autocomplete timeout")
-        return []
-    except Exception as e:
-        logger.warning(f"ChromaDB autocomplete error: {e}")
-        return []
+    """
+    Legacy alias после удаления ChromaDB.
+    Теперь всегда используем SQL fallback.
+    """
+    return await get_sql_autocomplete_fallback(query)
 
 
 async def get_sql_autocomplete_fallback(query: str) -> list[str]:
@@ -1059,7 +1061,7 @@ async def find_suppliers(lot_name: str):
     """
     Find suppliers for a given product/service
 
-    Searches suppliers from Satu.kz API and ChromaDB embeddings
+    Searches suppliers from Satu.kz API
     """
     start_time = time.time()
     request_id = str(uuid.uuid4())
@@ -1194,7 +1196,7 @@ async def generate_complaint_via_flowise(
 
 
 async def search_suppliers_combined(lot_name: str) -> list[Supplier]:
-    """Search suppliers using API + ChromaDB"""
+    """Search suppliers using API"""
     suppliers = []
 
     try:
@@ -1245,26 +1247,7 @@ async def search_suppliers_combined(lot_name: str) -> list[Supplier]:
                             )
                         )
 
-        # Search in ChromaDB suppliers collection
-        try:
-            collection = chroma_client.get_collection("suppliers")
-            results = collection.query(query_texts=[lot_name], n_results=5)
-
-            if results and results["documents"]:
-                for doc in results["documents"][0]:
-                    # Parse supplier info from ChromaDB (mock format)
-                    if doc:
-                        suppliers.append(
-                            Supplier(
-                                name=f"Поставщик {doc[:20]}",
-                                rating=4.0,
-                                contacts="Из базы ChromaDB",
-                                link="#",
-                                location="ChromaDB",
-                            )
-                        )
-        except Exception:
-            logger.warning("ChromaDB suppliers collection not available")
+        # ChromaDB suppliers collection removed - using only Satu.kz API results
 
         # Remove duplicates and limit to top suppliers by rating
         unique_suppliers = {s.name: s for s in suppliers}
@@ -1802,7 +1785,7 @@ async def get_lot_tldr(lot_id: int):
 @app.get("/api/search/autocomplete")
 async def search_autocomplete(query: str):
     """
-    Search autocomplete with ChromaDB + SQL fallback
+    Search autocomplete with SQL fallback
     Week 4.1: ≥2 chars, ≤500ms, Cyrillic support, Redis cache
     """
     request_id = str(uuid.uuid4())
@@ -1841,57 +1824,14 @@ async def search_autocomplete(query: str):
     except Exception as e:
         logger.warning("Redis autocomplete cache error", error=str(e))
 
-    suggestions = []
+    # Use get_chromadb_suggestions which now internally calls SQL fallback
+    suggestions = await get_chromadb_suggestions(normalized_query)
 
-    # Try ChromaDB first
-    try:
-        collection = chroma_client.get_collection("lot_names")
-        results = collection.query(query_texts=[normalized_query], n_results=5)
-
-        if results["documents"] and results["documents"][0]:
-            suggestions = list(set(results["documents"][0]))  # Remove duplicates
-            suggestions = [s for s in suggestions if normalized_query in s.lower()][:5]
-
-        logger.info(
-            "ChromaDB autocomplete",
-            request_id=request_id,
-            suggestions_count=len(suggestions),
-        )
-
-    except Exception as e:
-        logger.warning(
-            "ChromaDB autocomplete failed", request_id=request_id, error=str(e)
-        )
-
-    # SQL fallback if ChromaDB failed or empty results
-    if not suggestions:
-        try:
-            with SessionLocal() as db:
-                sql_results = db.execute(
-                    text(
-                        """
-                        SELECT DISTINCT nameRu
-                        FROM lots
-                        WHERE nameRu ILIKE :query
-                        ORDER BY nameRu
-                        LIMIT 5
-                    """
-                    ),
-                    {"query": f"%{normalized_query}%"},
-                ).fetchall()
-
-                suggestions = [row[0] for row in sql_results if row[0]]
-
-            logger.info(
-                "SQL fallback autocomplete",
-                request_id=request_id,
-                suggestions_count=len(suggestions),
-            )
-
-        except Exception as e:
-            logger.error(
-                "Autocomplete fallback failed", request_id=request_id, error=str(e)
-            )
+    logger.info(
+        "Autocomplete suggestions retrieved",
+        request_id=request_id,
+        suggestions_count=len(suggestions),
+    )
 
     # Cache results
     try:

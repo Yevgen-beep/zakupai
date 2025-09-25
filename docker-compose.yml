@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: postgres:16
@@ -298,20 +296,27 @@ services:
     restart: unless-stopped
 
   web-ui:
-    build: ./web
+    build:
+      context: ./web
+      additional_contexts:
+        - libs=./libs
+      args:
+        - TAG=${TAG:-stage5}
+    image: zakupai/web-ui:${TAG:-stage5}
     container_name: zakupai-web-ui
     ports:
-      - "8082:8000"  # Прямой доступ для отладки
+      - "8082:8000"  # пробрасываем FastAPI наружу
     env_file:
       - .env
     environment:
-      - GATEWAY_URL=http://gateway  # Внутренние вызовы к API через gateway
+      - GATEWAY_URL=http://gateway
       - ZAKUPAI_API_KEY=changeme
       - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
       - GOSZAKUP_API_URL=http://goszakup-api:8001
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     depends_on:
       db:
-        condition: service_healthy  # Дожидаемся готовности БД
+        condition: service_healthy
       goszakup-api:
         condition: service_started
       calc-service:
