@@ -1,63 +1,42 @@
 services:
   prometheus:
-    image: prom/prometheus:latest
+    # Prometheus for collecting metrics
+    image: prom/prometheus:v2.54.1
     profiles: ["stage6"]
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     networks:
       - zakupai-network
 
-  grafana:
-    image: grafana/grafana:latest
+  node-exporter:
+    # Node Exporter for system metrics
+    image: prom/node-exporter:v1.8.1
     profiles: ["stage6"]
     ports:
-      - "3000:3000"
+      - "9100:9100"
     volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      - prometheus
-      - loki
-    networks:
-      - zakupai-network
-
-  alertmanager:
-    image: prom/alertmanager:latest
-    profiles: ["stage6"]
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    depends_on:
-      - prometheus
-    networks:
-      - zakupai-network
-
-  loki:
-    image: grafana/loki:latest
-    profiles: ["stage6"]
-    ports:
-      - "3100:3100"
-    command: -config.file=/etc/loki/local-config.yaml
-    volumes:
-      - ./monitoring/loki/local-config.yaml:/etc/loki/local-config.yaml:ro
-    networks:
-      - zakupai-network
-
-  promtail:
-    image: grafana/promtail:latest
-    profiles: ["stage6"]
-    command: -config.file=/etc/promtail/config.yml
-    volumes:
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
-    depends_on:
-      - loki
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command: >
+      --path.procfs=/host/proc
+      --path.sysfs=/host/sys
+      --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-pipeline-stages: |
+          - labels:
+              service: node-exporter
+              environment: stage6
     networks:
       - zakupai-network
 
 volumes:
-  grafana_data:
+  prometheus_data:
+
+# Placeholder for Loki and Grafana in future steps
