@@ -1,42 +1,49 @@
+version: "3.8"
+
 services:
   prometheus:
     # Prometheus for collecting metrics
     image: prom/prometheus:v2.54.1
+    container_name: zakupai-prometheus-stage6
     profiles: ["stage6"]
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - zakupai-network
 
   node-exporter:
-    # Node Exporter for system metrics
     image: prom/node-exporter:v1.8.1
+    container_name: zakupai-node-exporter-stage6
     profiles: ["stage6"]
     ports:
-      - "9100:9100"
+      - "19100:9100"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command: >
-      --path.procfs=/host/proc
-      --path.sysfs=/host/sys
-      --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-pipeline-stages: |
-          - labels:
-              service: node-exporter
-              environment: stage6
+      - /:/host/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - zakupai-network
 
 volumes:
   prometheus_data:
 
-# Placeholder for Loki and Grafana in future steps
+networks:
+  zakupai-network:
+    driver: bridge
