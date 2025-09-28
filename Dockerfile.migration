@@ -1,29 +1,35 @@
 FROM python:3.11-slim
 
-# Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y gcc
 
-# Создаём рабочую директорию
-WORKDIR /app
-
-# Устанавливаем Python зависимости для миграций
 RUN pip install --no-cache-dir \
     alembic==1.13.1 \
     sqlalchemy==2.0.25 \
     psycopg2-binary==2.9.9 \
     fastapi==0.104.1 \
-    pydantic==2.5.2
+    pydantic==2.5.2 \
+    python-dotenv==1.0.1
 
-# Копируем код сервиса (будет перезаписан через volume mount)
-COPY . /app/
+# TODO: Restore zakupai_common when libs image is available
+# COPY --from=libs /zakupai_common /app/libs/zakupai_common
+# RUN pip install /app/libs/zakupai_common
 
-# Устанавливаем права доступа
-RUN chmod -R 755 /app
-
-# Рабочая директория для alembic команд
 WORKDIR /app
 
-# По умолчанию выполняем alembic upgrade head
+# Копируем шаблон alembic.ini внутрь образа
+COPY alembic.ini.template /usr/local/etc/alembic.ini.template
+
+# Создаём entrypoint вне /app (чтобы volume /app его не затирал)
+RUN echo '#!/bin/bash\n\
+if [ ! -f /app/alembic.ini ]; then\n\
+  echo "Creating alembic.ini from template..."\n\
+  cp /usr/local/etc/alembic.ini.template /app/alembic.ini\n\
+  if [ -n "$DATABASE_URL" ]; then\n\
+    sed -i "s|sqlalchemy.url = .*|sqlalchemy.url = $DATABASE_URL|" /app/alembic.ini\n\
+  fi\n\
+fi\n\
+exec "$@"' > /usr/local/bin/alembic-entrypoint.sh \
+ && chmod +x /usr/local/bin/alembic-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/alembic-entrypoint.sh"]
 CMD ["alembic", "upgrade", "head"]

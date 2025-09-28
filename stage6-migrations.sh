@@ -5,6 +5,37 @@ set -e
 COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6"
 SERVICES=("billing" "calc" "doc" "embedding" "etl" "risk")
 
+# Функция для получения правильного имени runner-а
+runner_name_for() {
+    local service=$1
+    case "$service" in
+        billing)    echo "migration-runner-billing-service" ;;
+        calc)       echo "migration-runner-calc-service" ;;
+        doc)        echo "migration-runner-doc-service" ;;
+        embedding)  echo "migration-runner-embedding-api" ;;
+        etl)        echo "migration-runner-etl-service" ;;
+        risk)       echo "migration-runner-risk-engine" ;;
+        *)          echo "migration-runner-${service}" ;;
+    esac
+}
+
+# Функция для проверки наличия миграций в сервисе
+has_migrations() {
+    local service=$1
+    local service_dir="services/${service}-service"
+
+    # Особый случай для embedding-api
+    if [[ "$service" == "embedding" ]]; then
+        service_dir="services/embedding-api"
+    fi
+
+    if [[ -f "${service_dir}/alembic/env.py" ]]; then
+        return 0  # есть миграции
+    else
+        return 1  # нет миграции
+    fi
+}
+
 echo "🚀 Stage6 Migrations Automation Script"
 echo "======================================"
 echo
@@ -13,9 +44,23 @@ echo
 run_alembic() {
     local service=$1
     local cmd=$2
-    local runner_name="migration-runner-${service}"
+    local runner_name=$(runner_name_for "$service")
+    local service_upper="${service^^}"
 
-    echo "📦 ${service^^} Service - Running: alembic ${cmd}"
+    if ! has_migrations "$service"; then
+        local service_dir="services/${service}-service"
+        if [[ "$service" == "embedding" ]]; then
+            service_dir="services/embedding-api"
+        fi
+        echo "⏭️  ${service_upper} Service - SKIPPING (no alembic/ folder found)"
+        echo "----------------------------------------"
+        echo "   No alembic/ folder found in ${service_dir}/"
+        echo
+        return 0
+    fi
+
+    echo "📦 ${service_upper} Service - Using runner: ${runner_name}"
+    echo "📦 ${service_upper} Service - Running: alembic ${cmd}"
     echo "----------------------------------------"
 
     if [[ "$cmd" == *"--sql"* ]]; then
