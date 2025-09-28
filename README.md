@@ -643,6 +643,12 @@ make mig-upgrade SERVICE=billing-service
 - `migration-runner-etl`
 - `migration-runner-risk`
 
+**Технические детали:**
+
+- Все runners используют общий `Dockerfile.migration` с предустановленными зависимостями
+- Код каждого сервиса монтируется через volume mount в `/app`
+- DATABASE_URL настраивается через переменные окружения с fallback
+
 ### Автоматизированный скрипт
 
 Для удобства запуска миграций всех сервисов одной командой:

@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+# Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаём рабочую директорию
+WORKDIR /app
+
+# Устанавливаем Python зависимости для миграций
+RUN pip install --no-cache-dir \
+    alembic==1.13.1 \
+    sqlalchemy==2.0.25 \
+    psycopg2-binary==2.9.9 \
+    fastapi==0.104.1 \
+    pydantic==2.5.2
+
+# Копируем код сервиса (будет перезаписан через volume mount)
+COPY . /app/
+
+# Устанавливаем права доступа
+RUN chmod -R 755 /app
+
+# Рабочая директория для alembic команд
+WORKDIR /app
+
+# По умолчанию выполняем alembic upgrade head
+CMD ["alembic", "upgrade", "head"]

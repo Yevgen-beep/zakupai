@@ -80,8 +80,8 @@ services:
   migration-runner-billing:
     profiles: ["stage6"]
     build:
-      context: ./services/billing-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.migration
     command: "sh -c 'alembic upgrade head'"
     environment:
       - DATABASE_URL=${BILLING_DB_URL:-${DATABASE_URL}}
@@ -94,8 +94,8 @@ services:
   migration-runner-calc:
     profiles: ["stage6"]
     build:
-      context: ./services/calc-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.migration
     command: "sh -c 'alembic upgrade head'"
     environment:
       - DATABASE_URL=${CALC_DB_URL:-${DATABASE_URL}}
@@ -108,8 +108,8 @@ services:
   migration-runner-doc:
     profiles: ["stage6"]
     build:
-      context: ./services/doc-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.migration
     command: "sh -c 'alembic upgrade head'"
     environment:
       - DATABASE_URL=${DOC_DB_URL:-${DATABASE_URL}}
@@ -122,8 +122,8 @@ services:
   migration-runner-embedding:
     profiles: ["stage6"]
     build:
-      context: ./services/embedding-api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.migration
     command: "sh -c 'alembic upgrade head'"
     environment:
       - DATABASE_URL=${EMBEDDING_DB_URL:-${DATABASE_URL}}
@@ -136,8 +136,8 @@ services:
   migration-runner-etl:
     profiles: ["stage6"]
     build:
-      context: ./services/etl-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.migration
     command: "sh -c 'alembic upgrade head'"
     environment:
       - DATABASE_URL=${ETL_DB_URL:-${DATABASE_URL}}
@@ -150,8 +150,8 @@ services:
   migration-runner-risk:
     profiles: ["stage6"]
     build:
-      context: ./services/risk-engine
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.migration
     command: "sh -c 'alembic upgrade head'"
     environment:
       - DATABASE_URL=${RISK_DB_URL:-${DATABASE_URL}}
