@@ -14,4 +14,4 @@ COPY . /app
 COPY --from=libs /zakupai_common /app/libs/zakupai_common
 RUN pip install /app/libs/zakupai_common
 
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]

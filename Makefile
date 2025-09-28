@@ -240,3 +240,39 @@ webui-test: ## Run E2E tests for Web UI (pytest + bash script)
 	@cd web && $(PYTHON_EXEC) -m pytest test_e2e_webui.py -v
 	@echo "🔍 Running Web UI smoke tests..."
 	@bash web/test_e2e_webui.sh
+
+# =============================================================================
+# STAGE6: ЕДИНЫЙ БОЕВОЙ СТЕК (ЯДРО + МОНИТОРИНГ)
+# =============================================================================
+
+stage6-up: ## Start full Stage6 stack (core + monitoring)
+	@echo "🚀 Starting Stage6 stack (core + monitoring)..."
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 up -d --build
+	@echo "✅ Stage6 stack started!"
+	@echo "   📊 Grafana: http://localhost:3001 (admin/admin)"
+	@echo "   📈 Prometheus: http://localhost:9090"
+	@echo "   🚨 Alertmanager: http://localhost:9093"
+	@echo "   🌐 ZakupAI Gateway: http://localhost:8080"
+	@echo "   📱 Web UI: http://localhost:8082"
+	@echo "   🔧 Node Exporter: http://localhost:19100/metrics"
+	@echo "   📊 cAdvisor: http://localhost:8081"
+
+stage6-down: ## Stop Stage6 stack
+	@echo "🛑 Stopping Stage6 stack..."
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 down
+	@echo "✅ Stage6 stack stopped!"
+
+stage6-smoke: ## Run Stage6 smoke tests
+	@echo "🧪 Running Stage6 smoke tests..."
+	@bash stage6-smoke.sh
+	@echo "✅ Stage6 smoke tests completed!"
+
+stage6-status: ## Show Stage6 services status
+	@echo "📊 Stage6 Stack Status:"
+	@echo "======================"
+	@$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 ps --format "table {{.Name}}\t{{.State}}\t{{.Status}}\t{{.Ports}}"
+
+stage6-logs: ## Show Stage6 services logs
+	@echo "📋 Stage6 Services Logs (last 50 lines):"
+	@echo "========================================"
+	@$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 logs --tail=50

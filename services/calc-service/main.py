@@ -10,6 +10,7 @@ from typing import Annotated
 
 import psycopg2
 from fastapi import FastAPI, Header, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -230,7 +231,7 @@ async def add_request_id_and_log(request: Request, call_next):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "calc-service"}
+    return {"status": "ok"}
 
 
 @app.get("/info")
@@ -338,3 +339,8 @@ def calc_penalty(req: PenaltyRequest, request: Request):
     }
     save_finance_calc(req.lot_id, req.model_dump(), result)
     return result
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

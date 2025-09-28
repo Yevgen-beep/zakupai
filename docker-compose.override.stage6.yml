@@ -1,49 +1,166 @@
-version: "3.8"
-
 services:
-  prometheus:
-    # Prometheus for collecting metrics
-    image: prom/prometheus:v2.54.1
-    container_name: zakupai-prometheus-stage6
+  # =============================================================================
+  # СЕРВИСЫ ЯДРА ZAKUPAI
+  # =============================================================================
+  db:
+    profiles: ["stage6"]
+
+  embedding-api:
+    profiles: ["stage6"]
+    build:
+      context: ./services/embedding-api
+      dockerfile: Dockerfile
+
+  calc-service:
+    profiles: ["stage6"]
+    build:
+      context: ./services/calc-service
+      dockerfile: Dockerfile
+
+  risk-engine:
+    profiles: ["stage6"]
+    build:
+      context: ./services/risk-engine
+      dockerfile: Dockerfile
+
+  doc-service:
+    profiles: ["stage6"]
+    build:
+      context: ./services/doc-service
+      dockerfile: Dockerfile
+
+  chromadb:
+    profiles: ["stage6"]
+
+  goszakup-api:
+    profiles: ["stage6"]
+
+  billing-service:
+    profiles: ["stage6"]
+    build:
+      context: ./services/billing-service
+      dockerfile: Dockerfile
+
+  etl-service:
+    profiles: ["stage6"]
+    build:
+      context: ./services/etl-service
+      dockerfile: Dockerfile
+
+  gateway:
+    profiles: ["stage6"]
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+
+  flowise:
+    profiles: ["stage6"]
+
+  n8n:
+    profiles: ["stage6"]
+
+  zakupai-bot:
+    profiles: ["stage6"]
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+
+  web-ui:
+    profiles: ["stage6"]
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+
+  db-backup:
+    profiles: ["stage6"]
+
+  # =============================================================================
+  # ДОПОЛНИТЕЛЬНЫЕ СЕРВИСЫ МОНИТОРИНГА
+  # =============================================================================
+  grafana:
+    profiles: ["stage6"]
+
+  alertmanager:
+    profiles: ["stage6"]
+
+  blackbox-exporter:
+    profiles: ["stage6"]
+
+  cadvisor:
+    profiles: ["stage6"]
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: zakupai-loki
     profiles: ["stage6"]
     ports:
-      - "9090:9090"
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - zakupai-network
+    volumes:
+      - loki_data:/loki
+
+  vault:
+    image: hashicorp/vault:1.15.4
+    container_name: zakupai-vault
+    profiles: ["stage6"]
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    networks:
+      - zakupai-network
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: zakupai-prometheus
+    profiles: ["stage6"]
+    ports:
+      - "9095:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    networks:
+      - zakupai-network
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
       interval: 30s
       timeout: 10s
       retries: 3
-    networks:
-      - zakupai-network
 
-  node-exporter:
+  node-exporter-stage6:
     image: prom/node-exporter:v1.8.1
     container_name: zakupai-node-exporter-stage6
     profiles: ["stage6"]
     ports:
       - "19100:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/host/rootfs:ro
     command:
       - "--path.procfs=/host/proc"
       - "--path.sysfs=/host/sys"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/rootfs:ro
+    networks:
+      - zakupai-network
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics"]
       interval: 30s
       timeout: 10s
       retries: 3
-    networks:
-      - zakupai-network
+    restart: unless-stopped
 
 volumes:
   prometheus_data:
+  loki_data:
 
 networks:
   zakupai-network:
+    driver: bridge
+  ai-network:
     driver: bridge

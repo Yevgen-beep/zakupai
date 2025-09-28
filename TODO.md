@@ -205,25 +205,20 @@ DoD: make test-priority4 завершает pytest + scripts/e2e/run_tests.py б
 \[x\] мониторинг latency, error rate, CPU usage
 DoD: make test-priority4 (pytest + scripts/e2e/run_tests.py + python test_metrics.py) зелёный; нагрузка ≥1000 req/min и алерты активны в Grafana
 
-### 🔮 Будущее развитие
-
-\[ \] Подготовить архитектуру под multi-LLM (Flowise Supervisor → fallback на OpenAI/HF)
-\[ \] Проверить нагрузочное тестирование (locustfile.py) на новых сценариях
-\[ \] Подготовить релиз Stage5 с Codex-фиксацией (codestyle + автогенерация тестов)
 Финализированный план Stage6
 (разбито по шагам с чекбоксами, как ты любишь)
 📊 Observability
-\[ \] Prometheus
+\[x\] Prometheus
 /metrics во всех FastAPI-сервисах (prometheus-client).
 Системные + бизнес-метрики (антидемпинг >15%, ошибки goszakup).
 Node-exporter для контейнеров.
-\[ \] Loki
+\[x\] Loki
 Все сервисы → централизованные логи через docker logging driver.
 Метки: service, procurement_type, compliance_flag.
-\[ \] Grafana
+\[x\] Grafana
 Дашборды: API latency, 5xx ошибки, compliance-флаги.
 Datasources: Prometheus + Loki.
-\[ \] Alertmanager
+\[x\] Alertmanager
 Алерты: CPU>80%, >5 API ошибок подряд, антидемпинг >15%.
 Уведомления в Telegram/Slack.
 🔒 Security Hardening

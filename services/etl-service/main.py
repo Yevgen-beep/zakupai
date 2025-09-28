@@ -22,9 +22,11 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from middleware import FileSizeMiddleware
 from models import BatchUploadError, BatchUploadResponse, BatchUploadRow, ETLBatchUpload
 from PIL import Image
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.responses import Response
 from zakupai_common.audit import AuditLogger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -1382,3 +1384,13 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

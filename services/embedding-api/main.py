@@ -12,6 +12,7 @@ import chromadb
 import psycopg2
 from chromadb import Settings
 from fastapi import FastAPI, Header, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -553,3 +554,8 @@ async def delete_collection(collection_name: str, request: Request):
         raise HTTPException(
             status_code=500, detail=f"ChromaDB operation failed: {e}"
         ) from e
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

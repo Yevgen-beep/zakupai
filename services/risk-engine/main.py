@@ -11,6 +11,7 @@ import psycopg2
 import yaml
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, validator
 
 # Import RNU client
@@ -945,3 +946,8 @@ async def get_user_rnu_subscriptions(user_id: int):
     except Exception as e:
         log.error(f"Error getting RNU subscriptions: {e}")
         raise HTTPException(500, "Internal server error") from e
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

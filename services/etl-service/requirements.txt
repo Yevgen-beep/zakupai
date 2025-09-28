@@ -23,6 +23,7 @@ sentence-transformers==2.2.2
 pathlib
 reportlab==4.0.7
 fpdf2==2.7.6
+pandas
 
 # Database migrations
 alembic==1.12.1
@@ -33,3 +34,13 @@ httpx==0.25.2
 
 # FastAPI file upload support
 python-multipart==0.0.6
+
+# Prometheus metrics
+prometheus_client
+
+# Logging
+structlog
+
+# HTTP clients
+aiohttp
+requests

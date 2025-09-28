@@ -25,6 +25,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Копируем общую библиотеку из дополнительного контекста libs
 COPY --from=libs /zakupai_common /app/libs/zakupai_common
+RUN pip install /app/libs/zakupai_common
+
+# Setup PYTHONPATH to include libs
+ENV PYTHONPATH="${PYTHONPATH}:/app/libs"
 
 # Create directory for logs
 RUN mkdir -p /app/logs

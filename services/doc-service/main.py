@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import psycopg2
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, validator
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -431,3 +432,8 @@ def get_languages(x_api_key: str | None = Header(default=None, alias="X-API-Key"
         "locales": LOCALES,
         "ts": datetime.now(UTC).isoformat(),
     }
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

@@ -6,3 +6,9 @@ python-dotenv>=1.0
 PyYAML>=6.0
 pytest>=7.0
 httpx>=0.24
+apscheduler
+prometheus_client
+redis
+structlog
+sqlalchemy
+tenacity
