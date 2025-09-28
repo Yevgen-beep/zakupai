@@ -242,6 +242,35 @@ webui-test: ## Run E2E tests for Web UI (pytest + bash script)
 	@bash web/test_e2e_webui.sh
 
 # =============================================================================
+# ALEMBIC MIGRATION TARGETS
+# =============================================================================
+
+ifndef SERVICE
+$(error SERVICE is required. Usage: make mig-upgrade SERVICE=billing-service)
+endif
+
+mig-revision: ## Create new Alembic revision (usage: make mig-revision SERVICE=billing-service m="message")
+ifndef m
+	$(error Message is required. Usage: make mig-revision SERVICE=$(SERVICE) m="your message")
+endif
+	cd services/$(SERVICE) && alembic revision -m "$(m)"
+
+mig-upgrade: ## Run Alembic upgrade to head (usage: make mig-upgrade SERVICE=billing-service)
+	cd services/$(SERVICE) && alembic upgrade head
+
+mig-downgrade: ## Run Alembic downgrade (usage: make mig-downgrade SERVICE=billing-service r="revision")
+ifndef r
+	$(error Revision is required. Usage: make mig-downgrade SERVICE=$(SERVICE) r="-1")
+endif
+	cd services/$(SERVICE) && alembic downgrade $(r)
+
+mig-stamp: ## Stamp current database as head revision (usage: make mig-stamp SERVICE=billing-service)
+	cd services/$(SERVICE) && alembic stamp head
+
+mig-sql: ## Generate SQL for upgrade (usage: make mig-sql SERVICE=billing-service)
+	cd services/$(SERVICE) && alembic upgrade head --sql
+
+# =============================================================================
 # STAGE6: ЕДИНЫЙ БОЕВОЙ СТЕК (ЯДРО + МОНИТОРИНГ)
 # =============================================================================
 

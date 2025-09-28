@@ -597,6 +597,56 @@ docker-compose logs -f n8n etl-service web-ui
 
 ______________________________________________________________________
 
+## 🗄 Работа с миграциями
+
+ZakupAI использует Alembic для управления схемой базы данных в каждом сервисе.
+
+### Быстрые команды
+
+```bash
+# Создать миграцию
+make mig-revision SERVICE=billing-service m="add user table"
+
+# Применить миграции
+make mig-upgrade SERVICE=billing-service
+
+# Откатить миграцию
+make mig-downgrade SERVICE=billing-service r="-1"
+
+# Проверить SQL (dry-run)
+make mig-sql SERVICE=billing-service
+```
+
+### Production deployment
+
+**⚠️ ВАЖНО: Всегда выполняйте dry-run перед production:**
+
+```bash
+# 1. Сгенерировать SQL для проверки
+make mig-sql SERVICE=billing-service > migration.sql
+
+# 2. Проверить SQL вручную
+cat migration.sql
+
+# 3. Создать backup БД и применить миграции
+make mig-upgrade SERVICE=billing-service
+```
+
+### Migration runners
+
+В Stage6 доступны migration-runner сервисы для автоматического применения миграций при деплое:
+
+- `migration-runner-billing`
+- `migration-runner-calc`
+- `migration-runner-doc`
+- `migration-runner-embedding`
+- `migration-runner-etl`
+- `migration-runner-risk`
+
+Полное руководство: [MIGRATIONS.md](MIGRATIONS.md)
+
+______________________________________________________________________
+
 ## 🖥 Web UI Integration (Sprint 3)
 
 В Sprint 3 добавлена полная интеграция Web UI с Goszakup API, ETL сервисом и ChromaDB поиском. Web UI предоставляет удобный веб-интерфейс для работы с лотами и документами.
