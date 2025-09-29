@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   # =============================================================================
   # СЕРВИСЫ ЯДРА ZAKUPAI
@@ -40,6 +42,11 @@ services:
     build:
       context: ./services/billing-service
       dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   etl-service:
     profiles: ["stage6"]
@@ -47,11 +54,124 @@ services:
       context: ./services/etl-service
       dockerfile: Dockerfile
 
+  # =============================================================================
+  # MIGRATION-RUNNER СЕРВИСЫ
+  # =============================================================================
+  migration-runner-billing-service:
+    profiles: ["stage6"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    command: sh -c "alembic upgrade head"
+    environment:
+      - DATABASE_URL=${BILLING_DB_URL:-${DATABASE_URL}}
+    volumes:
+      - ./services/billing-service:/app
+    depends_on:
+      - db
+      - billing-service
+    networks:
+      - zakupai-network
+    restart: "no"
+
+  migration-runner-calc-service:
+    profiles: ["stage6"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    command: sh -c "alembic upgrade head"
+    environment:
+      - DATABASE_URL=${CALC_DB_URL:-${DATABASE_URL}}
+    volumes:
+      - ./services/calc-service:/app
+    depends_on:
+      - db
+      - calc-service
+    networks:
+      - zakupai-network
+    restart: "no"
+
+  migration-runner-doc-service:
+    profiles: ["stage6"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    command: sh -c "alembic upgrade head"
+    environment:
+      - DATABASE_URL=${DOC_DB_URL:-${DATABASE_URL}}
+    volumes:
+      - ./services/doc-service:/app
+    depends_on:
+      - db
+      - doc-service
+    networks:
+      - zakupai-network
+    restart: "no"
+
+  migration-runner-embedding-api:
+    profiles: ["stage6"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    command: sh -c "alembic upgrade head"
+    environment:
+      - DATABASE_URL=${EMBEDDING_DB_URL:-${DATABASE_URL}}
+    volumes:
+      - ./services/embedding-api:/app
+    depends_on:
+      - db
+      - embedding-api
+    networks:
+      - zakupai-network
+    restart: "no"
+
+  migration-runner-etl-service:
+    profiles: ["stage6"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    command: sh -c "alembic upgrade head"
+    environment:
+      - DATABASE_URL=${ETL_DB_URL:-${DATABASE_URL}}
+    volumes:
+      - ./services/etl-service:/app
+    depends_on:
+      - db
+      - etl-service
+    networks:
+      - zakupai-network
+    restart: "no"
+
+  migration-runner-risk-engine:
+    profiles: ["stage6"]
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    command: sh -c "alembic upgrade head"
+    environment:
+      - DATABASE_URL=${RISK_DB_URL:-${DATABASE_URL}}
+    volumes:
+      - ./services/risk-engine:/app
+    depends_on:
+      - db
+      - risk-engine
+    networks:
+      - zakupai-network
+    restart: "no"
+
+  # =============================================================================
+  # ПРОЧИЕ СЕРВИСЫ
+  # =============================================================================
   gateway:
     profiles: ["stage6"]
     build:
       context: ./services/gateway
       dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   flowise:
     profiles: ["stage6"]
@@ -73,93 +193,6 @@ services:
 
   db-backup:
     profiles: ["stage6"]
-
-  # =============================================================================
-  # MIGRATION RUNNERS
-  # =============================================================================
-  migration-runner-billing:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: "sh -c 'alembic upgrade head'"
-    environment:
-      - DATABASE_URL=${BILLING_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/billing-service:/app
-    depends_on:
-      - billing-service
-    restart: "no"
-
-  migration-runner-calc:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: "sh -c 'alembic upgrade head'"
-    environment:
-      - DATABASE_URL=${CALC_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/calc-service:/app
-    depends_on:
-      - calc-service
-    restart: "no"
-
-  migration-runner-doc:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: "sh -c 'alembic upgrade head'"
-    environment:
-      - DATABASE_URL=${DOC_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/doc-service:/app
-    depends_on:
-      - doc-service
-    restart: "no"
-
-  migration-runner-embedding:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: "sh -c 'alembic upgrade head'"
-    environment:
-      - DATABASE_URL=${EMBEDDING_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/embedding-api:/app
-    depends_on:
-      - embedding-api
-    restart: "no"
-
-  migration-runner-etl:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: "sh -c 'alembic upgrade head'"
-    environment:
-      - DATABASE_URL=${ETL_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/etl-service:/app
-    depends_on:
-      - etl-service
-    restart: "no"
-
-  migration-runner-risk:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: "sh -c 'alembic upgrade head'"
-    environment:
-      - DATABASE_URL=${RISK_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/risk-engine:/app
-    depends_on:
-      - risk-engine
-    restart: "no"
 
   # =============================================================================
   # ДОПОЛНИТЕЛЬНЫЕ СЕРВИСЫ МОНИТОРИНГА

@@ -63,6 +63,15 @@ run_alembic() {
     echo "📦 ${service_upper} Service - Running: alembic ${cmd}"
     echo "----------------------------------------"
 
+    # Smoke test: проверка доступности базы данных
+    echo "🏥 Database connectivity test..."
+    $COMPOSE_CMD run --rm ${runner_name} sh -c "ping -c1 zakupai-db" || {
+        echo "❌ Cannot reach zakupai-db from ${runner_name}"
+        echo "   Check network configuration and DB service status"
+        return 1
+    }
+    echo "✅ zakupai-db is reachable"
+
     if [[ "$cmd" == *"--sql"* ]]; then
         echo "🔍 DRY-RUN mode - SQL preview:"
         echo
