@@ -207,30 +207,6 @@ DoD: make test-priority4 (pytest + scripts/e2e/run_tests.py + python test_metric
 
 Финализированный план Stage6
 (разбито по шагам с чекбоксами, как ты любишь)
-📊 Observability
-\[x\] Prometheus
-/metrics во всех FastAPI-сервисах (prometheus-client).
-Системные + бизнес-метрики (антидемпинг >15%, ошибки goszakup).
-Node-exporter для контейнеров.
-\[x\] Loki
-Все сервисы → централизованные логи через docker logging driver.
-Метки: service, procurement_type, compliance_flag.
-\[x\] Grafana
-Дашборды: API latency, 5xx ошибки, compliance-флаги.
-Datasources: Prometheus + Loki.
-\[x\] Alertmanager
-Алерты: CPU>80%, >5 API ошибок подряд, антидемпинг >15%.
-Уведомления в Telegram/Slack.
-🔒 Security Hardening
-\[ \] Vault (HashiCorp)
-Перенести secrets (DB, API) из \*\_FILE в Vault.
-Интегрировать через hvac (Python).
-\[ \] mTLS (подготовка)
-Сгенерировать тестовые сертификаты.
-Проверить связку gateway ↔ risk-engine.
-\[ \] Log rotation
-Настроить logrotate для audit.log.jsonl.
-Retention = 3 года (сейчас уже есть в AuditLogger).
 
 ⏭️ Stage7 (готовим почву)
 \[ \] Мини-PoC Telegram-бота для алертов.

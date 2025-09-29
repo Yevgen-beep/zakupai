@@ -63,14 +63,40 @@ run_alembic() {
     echo "📦 ${service_upper} Service - Running: alembic ${cmd}"
     echo "----------------------------------------"
 
-    # Smoke test: проверка доступности базы данных
-    echo "🏥 Database connectivity test..."
-    $COMPOSE_CMD run --rm ${runner_name} sh -c "ping -c1 zakupai-db" || {
-        echo "❌ Cannot reach zakupai-db from ${runner_name}"
-        echo "   Check network configuration and DB service status"
+    # Smoke test: проверка подключения к PostgreSQL
+    echo "🏥 PostgreSQL connectivity test..."
+    $COMPOSE_CMD run --rm ${runner_name} sh -c "python -c \"
+import os
+import sys
+import time
+import psycopg2
+
+def wait_for_db():
+    max_attempts = 30
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn = psycopg2.connect(os.environ['DATABASE_URL'])
+            conn.close()
+            print('✅ PostgreSQL connection successful')
+            return True
+        except psycopg2.OperationalError as e:
+            print(f'⏳ PostgreSQL not ready (attempt {attempt}/{max_attempts}): {e}')
+            if attempt < max_attempts:
+                time.sleep(2)
+            else:
+                print('❌ PostgreSQL not available after 30 attempts')
+                return False
+        except Exception as e:
+            print(f'❌ Unexpected error: {e}')
+            return False
+
+if not wait_for_db():
+    sys.exit(1)
+\"" || {
+        echo "❌ Cannot connect to PostgreSQL from ${runner_name}"
+        echo "   Check DATABASE_URL, credentials, and DB service status"
         return 1
     }
-    echo "✅ zakupai-db is reachable"
 
     if [[ "$cmd" == *"--sql"* ]]; then
         echo "🔍 DRY-RUN mode - SQL preview:"
