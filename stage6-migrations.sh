@@ -4,6 +4,7 @@ set -e
 
 COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6"
 SERVICES=("billing" "calc" "doc" "embedding" "etl" "risk")
+SERVICES_WITH_MIGRATIONS=("etl")
 
 # Функция для получения правильного имени runner-а
 runner_name_for() {
@@ -46,6 +47,13 @@ run_alembic() {
     local cmd=$2
     local runner_name=$(runner_name_for "$service")
     local service_upper="${service^^}"
+
+    # Проверяем whitelist
+    if [[ ! " ${SERVICES_WITH_MIGRATIONS[@]} " =~ " ${service} " ]]; then
+        echo "⏭️  ${service_upper} Service - SKIPPING (no Alembic history)"
+        echo
+        return 0
+    fi
 
     if ! has_migrations "$service"; then
         local service_dir="services/${service}-service"

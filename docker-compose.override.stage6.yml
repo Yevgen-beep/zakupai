@@ -55,81 +55,81 @@ services:
   # =============================================================================
   # MIGRATION-RUNNER СЕРВИСЫ
   # =============================================================================
-  migration-runner-billing-service:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: sh -c "alembic upgrade head"
-    environment:
-      - DATABASE_URL=${BILLING_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/billing-service:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      billing-service:
-        condition: service_started
-    networks:
-      - zakupai-network
-    restart: "no"
+  # migration-runner-billing-service:
+  #   profiles: ["migrations-disabled"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.migration
+  #   command: sh -c "alembic upgrade head"
+  #   environment:
+  #     - DATABASE_URL=${BILLING_DB_URL:-${DATABASE_URL}}
+  #   volumes:
+  #     - ./services/billing-service:/app
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     billing-service:
+  #       condition: service_started
+  #   networks:
+  #     - zakupai-network
+  #   restart: "no"
 
-  migration-runner-calc-service:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: sh -c "alembic upgrade head"
-    environment:
-      - DATABASE_URL=${CALC_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/calc-service:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      calc-service:
-        condition: service_started
-    networks:
-      - zakupai-network
-    restart: "no"
+  # migration-runner-calc-service:
+  #   profiles: ["migrations-disabled"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.migration
+  #   command: sh -c "alembic upgrade head"
+  #   environment:
+  #     - DATABASE_URL=${CALC_DB_URL:-${DATABASE_URL}}
+  #   volumes:
+  #     - ./services/calc-service:/app
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     calc-service:
+  #       condition: service_started
+  #   networks:
+  #     - zakupai-network
+  #   restart: "no"
 
-  migration-runner-doc-service:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: sh -c "alembic upgrade head"
-    environment:
-      - DATABASE_URL=${DOC_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/doc-service:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      doc-service:
-        condition: service_started
-    networks:
-      - zakupai-network
-    restart: "no"
+  # migration-runner-doc-service:
+  #   profiles: ["migrations-disabled"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.migration
+  #   command: sh -c "alembic upgrade head"
+  #   environment:
+  #     - DATABASE_URL=${DOC_DB_URL:-${DATABASE_URL}}
+  #   volumes:
+  #     - ./services/doc-service:/app
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     doc-service:
+  #       condition: service_started
+  #   networks:
+  #     - zakupai-network
+  #   restart: "no"
 
-  migration-runner-embedding-api:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: sh -c "alembic upgrade head"
-    environment:
-      - DATABASE_URL=${EMBEDDING_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/embedding-api:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      embedding-api:
-        condition: service_started
-    networks:
-      - zakupai-network
-    restart: "no"
+  # migration-runner-embedding-api:
+  #   profiles: ["migrations-disabled"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.migration
+  #   command: sh -c "alembic upgrade head"
+  #   environment:
+  #     - DATABASE_URL=${EMBEDDING_DB_URL:-${DATABASE_URL}}
+  #   volumes:
+  #     - ./services/embedding-api:/app
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     embedding-api:
+  #       condition: service_started
+  #   networks:
+  #     - zakupai-network
+  #   restart: "no"
 
   migration-runner-etl-service:
     profiles: ["stage6"]
@@ -150,24 +150,24 @@ services:
       - zakupai-network
     restart: "no"
 
-  migration-runner-risk-engine:
-    profiles: ["stage6"]
-    build:
-      context: .
-      dockerfile: Dockerfile.migration
-    command: sh -c "alembic upgrade head"
-    environment:
-      - DATABASE_URL=${RISK_DB_URL:-${DATABASE_URL}}
-    volumes:
-      - ./services/risk-engine:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      risk-engine:
-        condition: service_started
-    networks:
-      - zakupai-network
-    restart: "no"
+  # migration-runner-risk-engine:
+  #   profiles: ["migrations-disabled"]
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.migration
+  #   command: sh -c "alembic upgrade head"
+  #   environment:
+  #     - DATABASE_URL=${RISK_DB_URL:-${DATABASE_URL}}
+  #   volumes:
+  #     - ./services/risk-engine:/app
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     risk-engine:
+  #       condition: service_started
+  #   networks:
+  #     - zakupai-network
+  #   restart: "no"
 
   # =============================================================================
   # ПРОЧИЕ СЕРВИСЫ

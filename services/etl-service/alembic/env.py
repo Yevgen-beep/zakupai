@@ -1,4 +1,5 @@
 import os
+import sys
 from logging.config import fileConfig
 
 from alembic import context
@@ -7,6 +8,14 @@ from sqlalchemy import engine_from_config, pool
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Add parent directory to path for imports
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, parent_dir)
+sys.path.insert(0, os.path.join(parent_dir, "app"))
+
+# Import Base для autogenerate  # noqa: E402
+from models import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -30,7 +39,7 @@ if database_url is None:
 # Override sqlalchemy.url in alembic.ini with environment variable
 config.set_main_option("sqlalchemy.url", database_url)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
