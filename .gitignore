@@ -52,3 +52,4 @@ n8n-nodes/*/node_modules/
 test_files/
 services/etl-service/test_files/
 web/main_fixed.py
+services/*/alembic.ini
