@@ -3,6 +3,10 @@ services:
     ports:
       - "3030:3000"
 
+  loki:
+    ports:
+      - "3100:3100"
+
 networks:
   zakupai-network:
     external: false
