@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test stage6-up stage6-down stage6-smoke stage6-status stage6-logs monitoring-test monitoring-test-ci monitoring-test-keep
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -242,35 +242,6 @@ webui-test: ## Run E2E tests for Web UI (pytest + bash script)
 	@bash web/test_e2e_webui.sh
 
 # =============================================================================
-# ALEMBIC MIGRATION TARGETS
-# =============================================================================
-
-ifndef SERVICE
-$(error SERVICE is required. Usage: make mig-upgrade SERVICE=billing-service)
-endif
-
-mig-revision: ## Create new Alembic revision (usage: make mig-revision SERVICE=billing-service m="message")
-ifndef m
-	$(error Message is required. Usage: make mig-revision SERVICE=$(SERVICE) m="your message")
-endif
-	cd services/$(SERVICE) && alembic revision -m "$(m)"
-
-mig-upgrade: ## Run Alembic upgrade to head (usage: make mig-upgrade SERVICE=billing-service)
-	cd services/$(SERVICE) && alembic upgrade head
-
-mig-downgrade: ## Run Alembic downgrade (usage: make mig-downgrade SERVICE=billing-service r="revision")
-ifndef r
-	$(error Revision is required. Usage: make mig-downgrade SERVICE=$(SERVICE) r="-1")
-endif
-	cd services/$(SERVICE) && alembic downgrade $(r)
-
-mig-stamp: ## Stamp current database as head revision (usage: make mig-stamp SERVICE=billing-service)
-	cd services/$(SERVICE) && alembic stamp head
-
-mig-sql: ## Generate SQL for upgrade (usage: make mig-sql SERVICE=billing-service)
-	cd services/$(SERVICE) && alembic upgrade head --sql
-
-# =============================================================================
 # STAGE6: ЕДИНЫЙ БОЕВОЙ СТЕК (ЯДРО + МОНИТОРИНГ)
 # =============================================================================
 
@@ -305,3 +276,52 @@ stage6-logs: ## Show Stage6 services logs
 	@echo "📋 Stage6 Services Logs (last 50 lines):"
 	@echo "========================================"
 	@$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 logs --tail=50
+
+monitoring-test: ## Run Stage6 monitoring validation tests (full stack test)
+	@bash stage6-monitoring-test.sh
+
+monitoring-test-ci: ## Run monitoring tests in CI mode (assumes stack is running)
+	@bash stage6-monitoring-test.sh --ci
+
+monitoring-test-keep: ## Run monitoring tests and keep stack running
+	@bash stage6-monitoring-test.sh --keep-up
+
+# =============================================================================
+# ALEMBIC MIGRATION TARGETS
+# =============================================================================
+
+mig-revision: ## Create new Alembic revision (usage: make mig-revision SERVICE=billing-service m="message")
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-revision SERVICE=billing-service m="message")
+endif
+ifndef m
+	$(error Message is required. Usage: make mig-revision SERVICE=$(SERVICE) m="your message")
+endif
+	cd services/$(SERVICE) && alembic revision -m "$(m)"
+
+mig-upgrade: ## Run Alembic upgrade to head (usage: make mig-upgrade SERVICE=billing-service)
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-upgrade SERVICE=billing-service)
+endif
+	cd services/$(SERVICE) && alembic upgrade head
+
+mig-downgrade: ## Run Alembic downgrade (usage: make mig-downgrade SERVICE=billing-service r="revision")
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-downgrade SERVICE=billing-service r="revision")
+endif
+ifndef r
+	$(error Revision is required. Usage: make mig-downgrade SERVICE=$(SERVICE) r="-1")
+endif
+	cd services/$(SERVICE) && alembic downgrade $(r)
+
+mig-stamp: ## Stamp current database as head revision (usage: make mig-stamp SERVICE=billing-service)
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-stamp SERVICE=billing-service)
+endif
+	cd services/$(SERVICE) && alembic stamp head
+
+mig-sql: ## Generate SQL for upgrade (usage: make mig-sql SERVICE=billing-service)
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-sql SERVICE=billing-service)
+endif
+	cd services/$(SERVICE) && alembic upgrade head --sql

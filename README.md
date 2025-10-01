@@ -62,13 +62,17 @@ ZakupAI построен на микросервисной архитектур�
 
 ### Мониторинг и DevOps
 
-- **Prometheus** (`http://localhost:9090`) — метрики
-- **Grafana** (`http://localhost:3001`) — дашборды
-- **Alertmanager** (`http://localhost:9093`) — алерты
-- **cAdvisor** (`http://localhost:8081`) — контейнеры
-- **Node Exporter** (`:9100`) и **BlackBox Exporter** (`:9115`) — метрики хоста и HTTP
+- **Prometheus** (`http://localhost:9090`) — метрики и таргеты
+- **Grafana** (`http://localhost:3030`) — дашборды и визуализация
+- **Alertmanager** (`http://localhost:9093`) — управление алертами
+- **Loki** (`http://localhost:3100`) — централизованное логирование
+- **Promtail** — агент сбора логов с Docker контейнеров
+- **cAdvisor** (`http://localhost:8081`) — метрики контейнеров
+- **Node Exporter** (`http://localhost:19100`) — метрики системы
+- **BlackBox Exporter** (`http://localhost:9115`) — HTTP/TCP мониторинг
+- **🆕 Monitoring Test Suite** — автоматизированная проверка инфраструктуры мониторинга
 - Автобэкапы PostgreSQL (pg_dump + rclone → B2/S3)
-- CI/CD (lint, build, smoke-тесты)
+- CI/CD (lint, build, smoke-тесты, monitoring-тесты)
 
 ### 🛡️ Безопасность
 
@@ -232,10 +236,11 @@ ETL Service — :7011 (обработка документов и OCR)
 Embedding API — :7010
 Ollama (host) — http://localhost:11434
 Prometheus — http://localhost:9090
-Grafana — http://localhost:3001
+Grafana — http://localhost:3030
 Alertmanager — http://localhost:9093
+Loki — http://localhost:3100
 cAdvisor — http://localhost:8081
-Node Exporter — http://localhost:9100
+Node Exporter — http://localhost:19100
 BlackBox Exporter — http://localhost:9115
 
 Security & DevOps
@@ -830,6 +835,238 @@ curl -s "http://localhost:8082/lots?keyword=лак&limit=2"
 
 ______________________________________________________________________
 
+## 📊 Stage6 Monitoring Test Suite
+
+В Stage6 реализован полноценный автоматизированный скрипт для проверки инфраструктуры мониторинга ZakupAI.
+
+### 🎯 Что проверяется (10 шагов)
+
+#### [1/10] Зависимости
+
+- `curl`, `jq`, `docker` — базовые утилиты
+- `promtool` — валидация конфигов Prometheus
+- `amtool` — валидация конфигов Alertmanager
+- `python3` — для запуска тестов метрик
+
+#### [2/10] Docker Stack Management
+
+- Автоматический запуск мониторингового стека
+- 3 docker-compose файла + profile stage6
+- Graceful остановка при необходимости
+
+#### [3/10] Service Health Checks
+
+Автоматическая проверка готовности всех 7 сервисов:
+
+- **Prometheus** → `http://localhost:9090/-/healthy`
+- **Alertmanager** → `http://localhost:9093/-/healthy`
+- **Grafana** → `http://localhost:3030/api/health`
+- **Node Exporter** → `http://localhost:19100/metrics`
+- **cAdvisor** → `http://localhost:8081/healthz`
+- **Loki** → `http://localhost:3100/ready`
+- **Blackbox Exporter** → `http://localhost:9115/-/healthy`
+
+Каждый сервис проверяется с таймаутом 60 секунд и повторными попытками каждые 3 секунды.
+
+#### [4/10] Prometheus Targets Validation
+
+API проверка `/api/v1/targets`:
+
+- Все jobs в состоянии `up` (prometheus, blackbox-http, cadvisor, node-exporter)
+- Валидация health status каждого target
+- Подсчёт активных targets по каждому job
+
+#### [5/10] Prometheus Rules Validation
+
+API проверка `/api/v1/rules`:
+
+- Загружены все rule groups: `zakupai_infrastructure`, `zakupai_application`, `zakupai_business`
+- Подсчёт правил в каждой группе
+- Проверка корректности загрузки
+
+#### [6/10] Alertmanager Configuration
+
+API проверка `/api/v2/status` и `/api/v2/receivers`:
+
+- Operational status
+- Наличие и конфигурация receivers (web.hook/default)
+- Version info
+
+#### [7/10] Static Configuration Validation
+
+- `promtool check config monitoring/prometheus/prometheus.yml`
+- `promtool check rules monitoring/prometheus/alerts.yml`
+- `amtool check-config monitoring/alertmanager/alertmanager.yml`
+
+#### [8/10] Loki & Promtail Integration
+
+- Проверка Loki readiness endpoint
+- LogQL запрос через grafana/logcli: `{compose_project="zakupai"}`
+- Валидация поступления логов
+
+#### [9/10] Custom Metrics Validation
+
+- Запуск `python3 test_monitoring_metrics.py`
+- Проверка доступности метрик через Prometheus API
+- Валидация query endpoints
+
+#### [10/10] Final Report
+
+- Статистика выполнения (passed/failed/duration)
+- Процент успешности тестов
+- Debugging команды для каждого сервиса
+- Ссылки на UI всех компонентов
+
+### 🚀 Использование
+
+```bash
+# Полный тест (запускает стек, тестирует, предлагает остановку)
+./stage6-monitoring-test.sh
+
+# CI режим (стек уже запущен)
+./stage6-monitoring-test.sh --ci
+
+# С сохранением стека после тестов
+./stage6-monitoring-test.sh --keep-up
+
+# Справка
+./stage6-monitoring-test.sh --help
+
+# Через Makefile
+make monitoring-test           # Полный тест
+make monitoring-test-ci        # CI режим
+make monitoring-test-keep      # С сохранением стека
+```
+
+### 📊 Пример вывода
+
+```
+╔════════════════════════════════════════════════════╗
+║   Stage6 Monitoring Test Suite - ZakupAI          ║
+╚════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1/10] Checking Dependencies
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ curl is installed
+✅ jq is installed
+✅ docker is installed
+✅ promtool is installed
+✅ amtool is installed
+✅ python3 is installed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[3/10] Service Health Checks
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ℹ  Waiting for Prometheus at http://localhost:9090/-/healthy...
+✅ Prometheus is ready
+✅ Alertmanager is ready
+✅ Grafana is ready
+✅ Node Exporter is ready
+✅ cAdvisor is ready
+✅ Loki is ready
+✅ Blackbox Exporter is ready
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[4/10] Validating Prometheus Targets
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ℹ  Fetching targets from Prometheus API...
+✅ Job 'prometheus': 1 target(s) UP
+✅ Job 'blackbox-http': 4 target(s) UP
+✅ Job 'cadvisor': 1 target(s) UP
+✅ Job 'node-exporter': 1 target(s) UP
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[10/10] Test Summary Report
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Test Results Summary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✅ Passed:  28 / 28 (100.0%)
+  ❌ Failed:  0 / 28
+  ⏱  Duration: 52s
+
+🎉 All monitoring tests passed!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Debugging Commands
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  View service logs:
+    docker compose logs zakupai-prometheus
+    docker compose logs zakupai-alertmanager
+    docker compose logs zakupai-loki
+    docker compose logs zakupai-promtail-stage6
+    docker compose logs zakupai-grafana
+
+  Check service status:
+    docker compose ps
+
+  Access UIs:
+    Prometheus:   http://localhost:9090
+    Alertmanager: http://localhost:9093
+    Grafana:      http://localhost:3030
+    Loki:         http://localhost:3100
+```
+
+### 🔧 Ключевые функции скрипта
+
+| Функция                          | Описание                                                     |
+| -------------------------------- | ------------------------------------------------------------ |
+| `compose_cmd()`                  | Wrapper для docker compose с правильными файлами и профилями |
+| `stack_up()` / `stack_down()`    | Управление жизненным циклом мониторингового стека            |
+| `wait_for_http()`                | Ожидание HTTP endpoint с таймаутом 60s и повторами           |
+| `wait_for_logs()`                | Ожидание паттерна в логах контейнера                         |
+| `check_service_health()`         | Проверка всех 7 сервисов мониторинга                         |
+| `validate_prometheus_targets()`  | API `/api/v1/targets` — валидация jobs                       |
+| `validate_prometheus_rules()`    | API `/api/v1/rules` — валидация rule groups                  |
+| `validate_alertmanager_config()` | API `/api/v2/status` + `/api/v2/receivers`                   |
+| `validate_static_configs()`      | promtool + amtool статические проверки                       |
+| `validate_loki_promtail()`       | Loki readiness + LogQL query                                 |
+| `validate_metrics()`             | Запуск Python скрипта метрик                                 |
+| `generate_report()`              | Финальный отчёт с статистикой и debugging hints              |
+
+### 📦 Установка зависимостей
+
+```bash
+# Базовые утилиты (Ubuntu/Debian)
+sudo apt-get install curl jq docker.io python3
+
+# Prometheus tools
+cd /tmp
+wget https://github.com/prometheus/prometheus/releases/download/v2.54.1/prometheus-2.54.1.linux-amd64.tar.gz
+tar xf prometheus-2.54.1.linux-amd64.tar.gz
+sudo cp prometheus-2.54.1.linux-amd64/promtool /usr/local/bin/
+
+# Alertmanager tools
+wget https://github.com/prometheus/alertmanager/releases/download/v0.27.0/alertmanager-0.27.0.linux-amd64.tar.gz
+tar xf alertmanager-0.27.0.linux-amd64.tar.gz
+sudo cp alertmanager-0.27.0.linux-amd64/amtool /usr/local/bin/
+
+# Python зависимости
+pip3 install requests
+```
+
+### ⚙️ Технические детали
+
+- **Bash версия:** требует bash 4.0+
+- **Set flags:** `set -euo pipefail` для строгого режима
+- **Trap handler:** отлавливает ошибки и выводит номер строки
+- **Timeouts:** 60 секунд для health checks, 3 секунды между попытками
+- **Exit codes:** 0 при успехе, 1 при любых провалах
+- **ShellCheck:** код совместим с ShellCheck (использует `[[`, константы, кавычки)
+
+### 📁 Файловая структура
+
+- [`stage6-monitoring-test.sh`](stage6-monitoring-test.sh) — основной скрипт (624 строки, 22KB)
+- [`test_monitoring_metrics.py`](test_monitoring_metrics.py) — Python валидация метрик через Prometheus API
+- [`Makefile`](Makefile) — 3 новых таргета: `monitoring-test`, `monitoring-test-ci`, `monitoring-test-keep`
+- `docker-compose.yml` + `docker-compose.override.stage6.yml` + `docker-compose.override.stage6.monitoring.yml` — стек мониторинга
+
+______________________________________________________________________
+
 ## 🏗 Итоговая архитектура
 
 ZakupAI — это готовая инфраструктура:
@@ -840,8 +1077,11 @@ ZakupAI — это готовая инфраструктура:
 - **🆕 OCR Pipeline** с ChromaDB семантическим поиском
 - **🆕 URL-based Processing** для интеграции с Goszakup API
 - **🆕 E2E Web UI Testing** с полным покрытием пайплайна
+- **🆕 Stage6 Monitoring Test Suite** — автоматизированная проверка инфраструктуры мониторинга
 - Автоматизация через n8n и Flowise
 - Клиентские интерфейсы (Telegram Bot, Web UI)
 - Встроенный Billing Service (MVP)
 - AI-интеграция через Ollama и Embedding API
-- Мониторинг и бэкапы для продакшн-готовности
+- Полный стек мониторинга: Prometheus, Grafana, Loki, Alertmanager
+- Автоматизированное тестирование мониторинга с валидацией конфигов
+- Бэкапы и CI/CD для продакшн-готовности
