@@ -3,19 +3,51 @@ server:
   grpc_listen_port: 0
 
 positions:
-  filename: /tmp/positions.yaml
+  filename: /tmp/promtail-positions.yaml
 
 clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
   - job_name: docker-logs
-    static_configs:
-      - targets:
-          - localhost
-        labels:
-          job: container-logs
-          __path__: /var/lib/docker/containers/*/*-json.log
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 30s
     pipeline_stages:
-      - docker
-      - json
+      - docker: {}
+      - json:
+          expressions:
+            message: log
+      - output:
+          source: message
+          remove_source: true
+    relabel_configs:
+      - source_labels: [__meta_docker_container_networks]
+        regex: .*(stage6|zakupai-network).*
+        action: keep
+      - target_label: service
+        replacement: unknown
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        regex: (.+)
+        target_label: service
+        replacement: $1
+      - target_label: compose_service
+        replacement: unknown
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        regex: (.+)
+        target_label: compose_service
+        replacement: $1
+      - source_labels: [__meta_docker_container_name]
+        regex: /(.+)
+        target_label: container
+        replacement: $1
+      - target_label: compliance_flag
+        replacement: unknown
+      - source_labels: [__meta_docker_container_label_com_zakupai_compliance_flag]
+        regex: (.+)
+        target_label: compliance_flag
+        replacement: $1
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        regex: (.+)
+        target_label: compose_project
+        replacement: $1
