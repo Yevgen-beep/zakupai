@@ -231,6 +231,21 @@ services:
     volumes:
       - loki_data:/loki
 
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: zakupai-promtail-stage6
+    profiles: ["stage6"]
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+    networks:
+      - zakupai-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
   vault:
     image: hashicorp/vault:1.15.4
     container_name: zakupai-vault
