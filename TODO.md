@@ -206,7 +206,54 @@ DoD: make test-priority4 завершает pytest + scripts/e2e/run_tests.py б
 DoD: make test-priority4 (pytest + scripts/e2e/run_tests.py + python test_metrics.py) зелёный; нагрузка ≥1000 req/min и алерты активны в Grafana
 
 Финализированный план Stage6
-(разбито по шагам с чекбоксами, как ты любишь)
+Stage6 Monitoring & Security:
+Prometheus
+\[ \] Добавить scrape targets для всех сервисов (calc, risk, doc, embedding, gateway, etl)
+\[ \] Подключить бизнес-метрики во все FastAPI-сервисы
+— anti-dumping %
+— goszakup error counter
+
+Loki
+
+\[x\] Включить promtail для сбора docker-логов
+\[ \] Добавить расширенные метки: service, procurement_type, compliance_flag
+
+Grafana
+
+\[x\] Подключить Prometheus и Loki как datasources через provisioning
+\[ \] Импортировать дашборды:
+— API latency
+— HTTP 5xx errors
+— Compliance events
+\[ \] Пересмотреть zakupai-overview.json: оставить как сводный или архивировать после появления специализированных панелей
+
+Alertmanager
+
+\[x\] Активировать alerts.yml в Prometheus
+\[x\] Добавить правила «>5 API ошибок подряд» и «антидемпинг >15 %»
+\[ \] Настроить реальный webhook (Telegram/Slack вместо временного gateway:8000/alert)
+
+Vault
+
+\[ \] Поднять контейнер Vault
+\[ \] Перенести секреты (DB, API) из ENV → Vault
+\[ \] Подключить hvac в calc, etl, risk-engine для чтения секретов
+
+mTLS
+
+\[ \] Сгенерировать корневой и сервисные сертификаты
+\[ \] Включить mutual TLS для связки gateway ↔ risk-engine
+
+Логи
+
+\[ \] Настроить logrotate в контейнерах или вынести в sidecar
+\[ \] Унифицировать AuditLogger во всех сервисах
+\[ \] Retention логов = 3 года
+
+Скрипты
+
+\[x\] Новый stage6-monitoring-test.sh — основной раннер
+\[ \] Перевести stage6-debug.sh в legacy или удалить, чтобы избежать дублирования
 
 ⏭️ Stage7 (готовим почву)
 \[ \] Мини-PoC Telegram-бота для алертов.
