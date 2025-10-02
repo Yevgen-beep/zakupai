@@ -2,10 +2,15 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.responses import Response
+
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
 from zakupai_common.fastapi.health import health_router
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.logging import setup_logging
+
+SERVICE_NAME = "gateway"
+
 
 app = FastAPI(title="Gateway Service", version="0.1.0")
 
@@ -14,6 +19,7 @@ setup_logging("gateway")
 
 # Add middleware
 app.add_middleware(ErrorHandlerMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
 
 # Health proxy router
 health_proxy_router = APIRouter()

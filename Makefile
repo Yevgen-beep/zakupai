@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test stage6-up stage6-down stage6-smoke stage6-status stage6-logs monitoring-test monitoring-test-ci monitoring-test-keep
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test stage6-up stage6-down stage6-smoke stage6-status stage6-logs stage6-monitoring-up monitoring-test monitoring-test-ci monitoring-test-keep send-test-alert
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -245,7 +245,22 @@ webui-test: ## Run E2E tests for Web UI (pytest + bash script)
 # STAGE6: ЕДИНЫЙ БОЕВОЙ СТЕК (ЯДРО + МОНИТОРИНГ)
 # =============================================================================
 
-stage6-up: ## Start full Stage6 stack (core + monitoring)
+stage6-monitoring-up: ## Start Stage6 monitoring stack (with Telegram credentials validation)
+	@echo "🔐 Validating Telegram alert credentials..."
+	@bash -c '\
+		set -euo pipefail; \
+		TOKEN=$$(sed -n "s/^TELEGRAM_BOT_TOKEN=//p" .env | tail -n1); \
+		ADMIN=$$(sed -n "s/^TELEGRAM_ADMIN_ID=//p" .env | tail -n1); \
+		invalid(){ [ -z "$$1" ] || [ "$$1" = "changeme" ] || [ "$$1" = "CHANGE_IN_PRODUCTION" ]; }; \
+		if invalid "$$TOKEN" || invalid "$$ADMIN"; then \
+			echo "❌ Telegram credentials not set in .env"; \
+			exit 1; \
+		fi'
+	@echo "🚀 Starting Stage6 monitoring stack..."
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml -f docker-compose.override.stage6.monitoring.yml --profile stage6 up -d grafana prometheus alertmanager promtail loki node-exporter-stage6 cadvisor blackbox-exporter alertmanager-bot
+	@echo "✅ Stage6 monitoring stack started!"
+
+stage6-up: ## Start full Stage6 stack (core services + monitoring)
 	@echo "🚀 Starting Stage6 stack (core + monitoring)..."
 	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 up -d --build
 	@echo "✅ Stage6 stack started!"
@@ -285,6 +300,9 @@ monitoring-test-ci: ## Run monitoring tests in CI mode (assumes stack is running
 
 monitoring-test-keep: ## Run monitoring tests and keep stack running
 	@bash stage6-monitoring-test.sh --keep-up
+
+send-test-alert: ## Send synthetic test alert to Alertmanager (should appear in Telegram)
+	curl -X POST http://localhost:9093/api/v1/alerts -d '[{"labels":{"alertname":"TestAlert","severity":"critical"},"annotations":{"summary":"Bot check","description":"If you see this in Telegram — alertmanager-bot works."}}]'
 
 # =============================================================================
 # ALEMBIC MIGRATION TARGETS

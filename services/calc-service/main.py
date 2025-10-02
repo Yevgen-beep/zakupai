@@ -15,12 +15,16 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
+
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("calc-service")
+
+SERVICE_NAME = "calc"
 
 
 def get_request_id(x_request_id: str | None) -> str:
@@ -213,6 +217,7 @@ app = FastAPI(
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
 
 
 # Ensure audit schema on startup

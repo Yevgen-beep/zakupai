@@ -29,3 +29,10 @@ make stage6-up
 ./stage6-smoke.sh
 ./stage6-debug.sh
 ```
+
+### Monitoring & Security
+
+- Для уведомлений Alertmanager в Telegram заполните секцию `# --- Telegram Alerts ---` в корневом `.env` (или `.env.stage`) значениями `TELEGRAM_BOT_TOKEN` и `TELEGRAM_ADMIN_ID`.
+  Получите токен у [@BotFather](https://t.me/BotFather), а numeric ID администратора — через @userinfobot или `https://api.telegram.org/bot<token>/getUpdates`.
+- После обновления `.env` перезапустите мониторинговый стек (`make stage6-monitoring-up` / соответствующий docker compose), чтобы `alertmanager-bot` подхватил новые переменные.
+- Цель `make stage6-monitoring-up` проверяет, что значения не оставлены `changeme`/`CHANGE_IN_PRODUCTION`; при незаполненных токенах запуск прервётся с ошибкой.

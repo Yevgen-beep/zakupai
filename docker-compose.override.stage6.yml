@@ -40,6 +40,8 @@ services:
     build:
       context: ./services/billing-service
       dockerfile: Dockerfile
+      additional_contexts:
+        - libs=./libs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

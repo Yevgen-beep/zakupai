@@ -5,15 +5,15 @@ echo "=== 🔍 Stage6 Monitoring Smoke Test ==="
 
 # 1. Проверка Prometheus targets
 echo "[1] Prometheus targets"
-curl -s http://localhost:9095/targets | jq '.data.activeTargets[] | {job: .labels.job, endpoint: .discoveredLabels.__address__, state: .health}'
+curl -s http://localhost:9095/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, endpoint: .discoveredLabels.__address__, state: .health}'
 
 # 2. Проверка Prometheus rules
 echo "[2] Prometheus rules"
-curl -s http://localhost:9095/rules | jq '.data.groups[].name'
+curl -s http://localhost:9095/api/v1/rules | jq '.data.groups[].name'
 
 # 3. Проверка активных алертов
 echo "[3] Prometheus alerts"
-curl -s http://localhost:9095/alerts | jq '.data'
+curl -s http://localhost:9095/api/v1/alerts | jq '.data'
 
 # 4. Проверка Alertmanager
 echo "[4] Alertmanager alerts"

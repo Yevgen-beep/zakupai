@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 rule_files:
-  - "alerts.yml"
+  - alerts.yml
 
 alerting:
   alertmanagers:
@@ -12,20 +12,16 @@ alerting:
             - alertmanager:9093
 
 scrape_configs:
-  - job_name: 'prometheus'
+  - job_name: prometheus
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ['prometheus:9090']
 
-  - job_name: 'blackbox-http'
+  - job_name: blackbox-http
     metrics_path: /probe
+    static_configs:
+      - targets: ['http://gateway:8080/health']
     params:
       module: [http_2xx]
-    static_configs:
-      - targets:
-          - http://gateway/calc/health
-          - http://gateway/risk/health
-          - http://gateway/doc/health
-          - http://gateway/emb/health
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -34,10 +30,83 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 
-  - job_name: 'cadvisor'
-    static_configs:
-      - targets: ['zakupai-cadvisor:8080']
-
   - job_name: 'node-exporter'
     static_configs:
-      - targets: ['node-exporter:9100']
+      - targets: ['node-exporter-stage6:9100']
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # ZakupAI services — FastAPI /metrics
+  - job_name: 'gateway'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['gateway:80']
+    relabel_configs:
+      - target_label: service
+        replacement: gateway
+
+  - job_name: 'calc-service'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['calc-service:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: calc
+
+  - job_name: 'risk-engine'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['risk-engine:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: risk
+
+  - job_name: 'doc-service'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['doc-service:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: doc
+
+  - job_name: 'embedding-api'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['embedding-api:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: embedding
+
+  - job_name: 'etl-service'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['etl-service:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: etl
+
+  - job_name: 'web-ui'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['web-ui:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: web-ui
+
+  - job_name: 'goszakup-api'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['goszakup-api:8001']
+    relabel_configs:
+      - target_label: service
+        replacement: goszakup
+
+  - job_name: 'billing-service'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['billing-service:8000']
+    relabel_configs:
+      - target_label: service
+        replacement: billing

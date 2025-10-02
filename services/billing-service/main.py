@@ -11,12 +11,16 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
+
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("billing-service")
+
+SERVICE_NAME = "billing"
 
 
 def get_request_id(x_request_id: str | None) -> str:
@@ -406,6 +410,12 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestLoggingMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.on_event("startup")
@@ -560,8 +570,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104
-
-
-@app.get("/metrics")
-def metrics():
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

@@ -1,0 +1,28 @@
+{
+  "uid": "zak-latency",
+  "title": "ZakupAI - API Latency",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Average Latency per Service (5m)",
+      "targets": [
+        {
+          "expr": "rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "zakupai-prom"}
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      },
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0}
+    }
+  ]
+}

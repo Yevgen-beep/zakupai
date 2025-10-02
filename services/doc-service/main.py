@@ -14,12 +14,16 @@ from pydantic import BaseModel, Field, validator
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
+
 # ---------- logging ----------
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("doc-service")
+
+SERVICE_NAME = "doc"
 
 API_KEY = os.getenv("API_KEY", "changeme")
 
@@ -289,6 +293,7 @@ app = FastAPI(
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
 
 # Setup Jinja2 with autoescape
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")

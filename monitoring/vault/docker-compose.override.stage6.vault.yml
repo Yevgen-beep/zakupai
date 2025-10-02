@@ -1,0 +1,18 @@
+version: '3.9'
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: zakupai-vault-stage6
+    profiles: ['stage6']
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./monitoring/vault/data:/vault/file
+      - ./monitoring/vault/config:/vault/config
+    cap_add:
+      - IPC_LOCK
+    entrypoint: vault server -config=/vault/config/vault.json
+    networks:
+      - zakupai-network
+    restart: unless-stopped

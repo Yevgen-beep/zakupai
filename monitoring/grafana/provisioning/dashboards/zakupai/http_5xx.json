@@ -1,0 +1,23 @@
+{
+  "uid": "zak-http-5xx",
+  "title": "ZakupAI - HTTP 5xx Errors",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "5xx Errors per Service (rate)",
+      "targets": [
+        {
+          "expr": "rate(http_requests_total{status_code=~\"5..\"}[5m])",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "zakupai-prom"}
+        }
+      ],
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0}
+    }
+  ]
+}

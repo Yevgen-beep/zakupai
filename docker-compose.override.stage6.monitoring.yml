@@ -7,6 +7,26 @@ services:
     ports:
       - "3100:3100"
 
+  alertmanager-bot:
+    image: metalmatze/alertmanager-bot:0.4.3
+    container_name: zakupai-alertmanager-bot-stage6
+    env_file:
+      - .env
+    command:
+      - --alertmanager.url=http://alertmanager:9093
+      - --store=bolt
+      - --bolt.path=/data/bot.db
+      - --template.paths=/templates/default.tmpl
+      - --telegram.token=${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN}
+      - --telegram.admin=${TELEGRAM_ADMIN_ID:?set TELEGRAM_ADMIN_ID}
+      - --log.level=info
+    volumes:
+      - ./monitoring/alertmanager-bot:/data
+      - ./monitoring/templates:/templates
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
 networks:
   zakupai-network:
     external: false

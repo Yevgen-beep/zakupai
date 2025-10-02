@@ -13,7 +13,7 @@ groups:
   - name: zakupai_application
     rules:
       - alert: ApiErrorBurst
-        expr: sum by (service) (increase(http_requests_total{status=~"5.."}[1m])) >= 5
+        expr: sum by (service) (increase(http_requests_total{status_code=~"5.."}[1m])) >= 5
         for: 1m
         labels:
           severity: critical
@@ -21,13 +21,40 @@ groups:
           summary: "HTTP 5xx burst on {{ $labels.service }}"
           description: "Detected at least 5 HTTP 5xx responses within the last minute."
 
-  - name: zakupai_business
-    rules:
-      - alert: AntiDumpingRateHigh
-        expr: zakupai_antidumping_rate > 0.15
-        for: 10m
+      - alert: ServiceDown
+        expr: up{job=~"gateway|calc-service|risk-engine|doc-service|embedding-api|etl-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Target {{ $labels.instance }} is down for 2m."
+
+      - alert: HighHTTP5xx
+        expr: increase(http_requests_total{status_code=~"5.."}[5m]) > 5
+        for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Anti-dumping rate exceeds 15%"
-          description: "Business metric zakupai_antidumping_rate is above 15% for 10 minutes."
+          summary: "High HTTP 5xx on {{ $labels.service }}"
+          description: "More than 5 errors in 5m on {{ $labels.service }}."
+
+  - name: zakupai_business
+    rules:
+      - alert: AntiDumpingTooHigh
+        expr: max_over_time(anti_dumping_percent[5m]) > 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Anti-dumping > 15% for {{ $labels.service }}"
+          description: "Lot {{ $labels.lot_id }} has anti-dumping {{ $value }}%."
+
+      - alert: HighGoszakupErrors
+        expr: increase(goszakup_request_errors_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Goszakup API errors on {{ $labels.service }}"
+          description: "More than 10 errors in 5m from endpoint {{ $labels.endpoint }} due to {{ $labels.reason }}."
