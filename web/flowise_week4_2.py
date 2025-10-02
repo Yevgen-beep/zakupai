@@ -20,7 +20,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 logger = structlog.get_logger()
 
@@ -449,16 +449,17 @@ async def get_active_supplier_sources(
 ) -> list[dict]:
     """Get active supplier sources from database"""
     try:
+        params: dict[str, list[str]] = {}
         if requested_sources:
-            # Filter by requested sources
-            placeholders = ",".join([f"'{source}'" for source in requested_sources])
-            query = text(  # nosec B608
-                f"""
+            # Filter by requested sources (safe expanding bind param)
+            query = text(
+                """
                 SELECT * FROM supplier_sources
-                WHERE active = true AND name IN ({placeholders})
+                WHERE active = true AND name IN :source_names
                 ORDER BY name
             """
-            )
+            ).bindparams(bindparam("source_names", expanding=True))
+            params["source_names"] = requested_sources
         else:
             query = text(
                 """
@@ -468,7 +469,7 @@ async def get_active_supplier_sources(
             """
             )
 
-        result = db_session.execute(query).fetchall()
+        result = db_session.execute(query, params).fetchall()
 
         return [
             {
