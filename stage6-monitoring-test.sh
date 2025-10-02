@@ -27,14 +27,24 @@ curl -s http://localhost:3100/ready
 echo "[6] Loki labels"
 curl -s http://localhost:3100/loki/api/v1/labels | jq '.data'
 
-# 7. Получение последних логов из ETL service
-echo "[7] Loki logs (etl-service)"
+# 7. Проверка nginx-exporter
+echo "[7] nginx-exporter metrics"
+echo "Checking nginx-exporter metrics..."
+if ! curl -s http://nginx-exporter:9113/metrics | grep -q nginx_connections_active; then
+  curl -s http://localhost:9113/metrics | grep -q nginx_connections_active || {
+    echo "Nginx metrics missing"
+    exit 1
+  }
+fi
+
+# 8. Получение последних логов из ETL service
+echo "[8] Loki logs (etl-service)"
 curl -G -s "http://localhost:3100/loki/api/v1/query_range" \
   --data-urlencode 'query={service="etl-service"}' \
   --data-urlencode 'limit=5' | jq '.data.result[].values'
 
-# 8. Проверка Grafana datasources (Prometheus + Loki)
-echo "[8] Grafana datasources"
+# 9. Проверка Grafana datasources (Prometheus + Loki)
+echo "[9] Grafana datasources"
 curl -s http://admin:admin@localhost:3030/api/datasources | jq '.[] | {name: .name, type: .type, url: .url}'
 
 echo "=== ✅ Stage6 Monitoring Smoke Test Completed ==="

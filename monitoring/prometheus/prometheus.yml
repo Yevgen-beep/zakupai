@@ -39,14 +39,6 @@ scrape_configs:
       - targets: ['cadvisor:8080']
 
   # ZakupAI services — FastAPI /metrics
-  - job_name: 'gateway'
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['gateway:80']
-    relabel_configs:
-      - target_label: service
-        replacement: gateway
-
   - job_name: 'calc-service'
     metrics_path: /metrics
     static_configs:
@@ -110,3 +102,11 @@ scrape_configs:
     relabel_configs:
       - target_label: service
         replacement: billing
+
+  - job_name: 'nginx'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    relabel_configs:
+      - target_label: service
+        replacement: gateway

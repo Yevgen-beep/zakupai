@@ -27,6 +27,19 @@ services:
       - zakupai-network
     restart: unless-stopped
 
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.2
+    container_name: zakupai-nginx-exporter-stage6
+    command:
+      - -nginx.scrape-uri=http://gateway:80/stub_status
+    depends_on:
+      - gateway
+    networks:
+      - zakupai-network
+    ports:
+      - "9113:9113"
+    restart: unless-stopped
+
 networks:
   zakupai-network:
     external: false

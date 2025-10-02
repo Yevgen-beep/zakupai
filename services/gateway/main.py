@@ -1,7 +1,9 @@
+import asyncio
+
 import httpx
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from starlette.responses import Response
+from starlette.responses import PlainTextResponse, Response
 
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -20,6 +22,48 @@ setup_logging("gateway")
 # Add middleware
 app.add_middleware(ErrorHandlerMiddleware)
 add_prometheus_middleware(app, SERVICE_NAME)
+
+
+class StubStatusTracker:
+    """Tracks request counters to emulate nginx stub_status output."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._active = 0
+        self._accepts = 0
+        self._handled = 0
+
+    async def request_started(self) -> None:
+        async with self._lock:
+            self._accepts += 1
+            self._active += 1
+
+    async def request_finished(self) -> None:
+        async with self._lock:
+            self._handled += 1
+            if self._active > 0:
+                self._active -= 1
+
+    async def snapshot(self) -> dict[str, int]:
+        async with self._lock:
+            return {
+                "active": self._active,
+                "accepts": self._accepts,
+                "handled": self._handled,
+            }
+
+
+stub_tracker = StubStatusTracker()
+
+
+@app.middleware("http")
+async def track_stub_status(request: Request, call_next):
+    await stub_tracker.request_started()
+    try:
+        response = await call_next(request)
+    finally:
+        await stub_tracker.request_finished()
+    return response
 
 # Health proxy router
 health_proxy_router = APIRouter()
@@ -122,6 +166,22 @@ async def root():
         "message": "Gateway Service",
         "compliance": ComplianceSettings.REESTR_NEDOBRO_ENABLED,
     }
+
+
+@app.get("/stub_status", response_class=PlainTextResponse)
+async def stub_status():
+    snapshot = await stub_tracker.snapshot()
+    active = snapshot["active"]
+    accepts = snapshot["accepts"]
+    handled = snapshot["handled"]
+    requests = handled
+    body = (
+        f"Active connections: {active}\n"
+        "server accepts handled requests\n"
+        f" {accepts} {handled} {requests}\n"
+        f"Reading: 0 Writing: {active} Waiting: 0\n"
+    )
+    return PlainTextResponse(body)
 
 
 @app.get("/metrics")
