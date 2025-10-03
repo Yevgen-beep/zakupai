@@ -1,0 +1,116 @@
+{
+  "uid": "zak-vault",
+  "title": "ZakupAI - Vault",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Vault Seal Status",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {"expr": "vault_core_unsealed", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["last"], "values": false},
+        "orientation": "horizontal",
+        "colorMode": "value"
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Active Tokens",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {"expr": "vault_core_active_tokens", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "orange", "value": 100}, {"color": "red", "value": 200}]}}},
+      "options": {"reduceOptions": {"calcs": ["last"], "values": false}},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Failed Auth (5m)",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {"expr": "sum(rate(vault_auth_failed_total[5m]))", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 3, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 0.5}]}}},
+      "options": {"reduceOptions": {"calcs": ["last"], "values": false}},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
+    },
+    {
+      "type": "stat",
+      "title": "Seal Threshold",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {"expr": "vault_core_threshold", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"reduceOptions": {"calcs": ["last"], "values": false}},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Vault Request Latency p95",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(vault_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 3}},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["last"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by Status",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "sum(rate(vault_http_requests_total[5m])) by (code)",
+          "legendFormat": "{{code}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "options": {"legend": {"displayMode": "list", "placement": "right"}},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 4}
+    },
+    {
+      "type": "logs",
+      "title": "Vault Audit Logs",
+      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "targets": [
+        {
+          "expr": "{service=\"vault\", stream=\"audit\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 14},
+      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true}
+    }
+  ]
+}

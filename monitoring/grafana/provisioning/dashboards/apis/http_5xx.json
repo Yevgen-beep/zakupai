@@ -1,0 +1,97 @@
+{
+  "uid": "zak-http-5xx",
+  "title": "ZakupAI - HTTP 5xx Errors",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Global Error Ratio (5m)",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "avg(api_error_ratio) * 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "orange", "value": 1},
+              {"color": "red", "value": 2}
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["last"], "values": false},
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx Rate per Service",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(http_requests_total{status_code=~\"5..\"}[5m]))",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "orange", "value": 0.1},
+              {"color": "red", "value": 0.5}
+            ]
+          }
+        }
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["last", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "gridPos": {"h": 9, "w": 18, "x": 6, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Ratio per Service",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "api_error_ratio",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 4
+        }
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["last", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 9}
+    }
+  ]
+}

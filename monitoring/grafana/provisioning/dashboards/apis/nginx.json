@@ -1,0 +1,73 @@
+{
+  "uid": "zak-nginx",
+  "title": "ZakupAI - Gateway / NGINX",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Active / Waiting Connections",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {"expr": "nginx_connections_active", "legendFormat": "active", "refId": "A"},
+        {"expr": "nginx_connections_waiting", "legendFormat": "waiting", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "connections"}},
+      "options": {"legend": {"displayMode": "list", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Accepted / Handled Connections",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "rate(nginx_connections_accepted_total[5m])",
+          "legendFormat": "accepted",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(nginx_connections_handled_total[5m])",
+          "legendFormat": "handled",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "options": {"legend": {"displayMode": "list", "placement": "right"}},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests per Second",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "rate(nginx_http_requests_total[5m])",
+          "legendFormat": "rps",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}},
+      "options": {"legend": {"displayMode": "hidden"}},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Upstream Response Time (p95)",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nginx_upstream_response_ms_bucket[5m])) by (le)) / 1000",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 3}},
+      "options": {"legend": {"displayMode": "hidden"}},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+    }
+  ]
+}

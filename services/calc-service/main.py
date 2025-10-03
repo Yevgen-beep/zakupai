@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from services.common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 
 # ---------- минимальное JSON-логирование + request-id ----------
@@ -23,6 +24,29 @@ logging.basicConfig(
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("calc-service")
+
+
+def bootstrap_vault():
+    try:
+        db_secret = load_kv_to_env("db")
+        # Ensure compatibility variables for legacy code
+        os.environ.setdefault("DB_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("DB_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("DB_NAME", db_secret.get("POSTGRES_DB", ""))
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault(
+            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
+        )
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+        load_kv_to_env("api", mapping={"API_KEY": "API_KEY"})
+    except VaultClientError as exc:
+        log.warning("Vault bootstrap skipped: %s", exc)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        log.error("Vault bootstrap failed", exc_info=exc)
+
+
+bootstrap_vault()
 
 SERVICE_NAME = "calc"
 

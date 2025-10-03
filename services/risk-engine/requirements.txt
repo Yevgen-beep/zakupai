@@ -12,3 +12,4 @@ redis
 structlog
 sqlalchemy
 tenacity
+hvac>=1.2

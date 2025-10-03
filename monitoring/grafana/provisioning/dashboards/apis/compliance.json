@@ -1,0 +1,57 @@
+{
+  "uid": "zak-compliance",
+  "title": "ZakupAI - Compliance",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Anti-Dumping %",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "anti_dumping_percent",
+          "legendFormat": "{{service}} • lot {{lot_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}},
+      "options": {
+        "legend": {"displayMode": "list", "placement": "right", "calcs": ["last", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "gridPos": {"h": 9, "w": 14, "x": 0, "y": 0}
+    },
+    {
+      "type": "table",
+      "title": "Active Anti-Dumping Alerts",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "ALERTS{alertname=\"AntiDumpingTooHigh\", alertstate=\"firing\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "gridPos": {"h": 9, "w": 10, "x": 14, "y": 0},
+      "options": {"showHeader": true}
+    },
+    {
+      "type": "logs",
+      "title": "Compliance Logs (Promtail)",
+      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "targets": [
+        {
+          "expr": "{service=\"etl-service\", level=\"warning\"} |= \"compliance\"",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 9},
+      "options": {"dedupStrategy": "none", "showTime": true, "showLabels": true}
+    }
+  ]
+}

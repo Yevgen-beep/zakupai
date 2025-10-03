@@ -19,6 +19,7 @@ from rnu_client import RNUClient, RNUValidationError, get_rnu_client
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from services.common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -61,6 +62,28 @@ logging.basicConfig(
 )
 
 log = structlog.get_logger("risk-engine")
+
+
+def bootstrap_vault():
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("DB_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("DB_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("DB_NAME", db_secret.get("POSTGRES_DB", ""))
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault(
+            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
+        )
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+        load_kv_to_env("api", mapping={"API_KEY": "API_KEY", "X_API_KEY": "X_API_KEY"})
+    except VaultClientError as exc:
+        log.warning("Vault bootstrap skipped: %s", exc)
+    except Exception:  # pragma: no cover - defensive fallback
+        log.exception("Vault bootstrap failed")
+
+
+bootstrap_vault()
 
 SERVICE_NAME = "risk"
 

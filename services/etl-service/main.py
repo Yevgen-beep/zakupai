@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import math
 import os
 import tempfile
@@ -28,6 +29,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.responses import Response
 
+from services.common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -37,6 +39,33 @@ from zakupai_common.logging import setup_logging
 from zakupai_common.metrics import record_goszakup_error
 
 load_dotenv()
+
+_etl_vault_logger = logging.getLogger("etl.vault")
+
+
+def bootstrap_vault():
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+        os.environ.setdefault(
+            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
+        )
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+        load_kv_to_env(
+            "goszakup",
+            mapping={
+                "GOSZAKUP_TOKEN": "GOSZAKUP_TOKEN",
+                "GOSZAKUP_API_URL": "GOSZAKUP_API_URL",
+            },
+        )
+    except VaultClientError as exc:
+        _etl_vault_logger.warning("Vault bootstrap skipped: %s", exc)
+    except Exception:  # pragma: no cover - defensive fallback
+        _etl_vault_logger.exception("Vault bootstrap failed")
+
+
+bootstrap_vault()
 
 # Configure logging with structlog
 structlog.configure(

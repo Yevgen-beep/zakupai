@@ -1,9 +1,18 @@
 {
+  "api_addr": "https://vault:8200",
+  "cluster_addr": "https://vault:8201",
+  "default_lease_ttl": "168h",
+  "max_lease_ttl": "8760h",
+  "ui": true,
   "listener": [
     {
       "tcp": {
         "address": "0.0.0.0:8200",
-        "tls_disable": "true"
+        "cluster_address": "0.0.0.0:8201",
+        "tls_disable": 0,
+        "tls_cert_file": "/vault/tls/vault.crt",
+        "tls_key_file": "/vault/tls/vault.key",
+        "tls_client_ca_file": "/vault/tls/ca.pem"
       }
     }
   ],
@@ -12,5 +21,8 @@
       "path": "/vault/file"
     }
   },
-  "ui": true
+  "telemetry": {
+    "prometheus_retention_time": "24h",
+    "disable_hostname": true
+  }
 }

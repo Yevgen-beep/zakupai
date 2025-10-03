@@ -1,0 +1,69 @@
+{
+  "uid": "zak-audit",
+  "title": "ZakupAI - Security Audit",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "type": "table",
+      "title": "Auth Failures (5m)",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "sum(rate(vault_auth_failed_total[5m])) by (method)",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+      "options": {"showHeader": true}
+    },
+    {
+      "type": "table",
+      "title": "HTTP 401/403 per Service",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"40[13]\"}[5m])) by (service, status_code)",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+      "options": {"showHeader": true}
+    },
+    {
+      "type": "table",
+      "title": "Blocked Requests (nginx)",
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "sum(rate(nginx_http_responses_total{code=~\"4..\"}[5m])) by (code)",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+      "options": {"showHeader": true}
+    },
+    {
+      "type": "logs",
+      "title": "Security Alerts (Loki)",
+      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "targets": [
+        {
+          "expr": "{level=\"warning\"} |= \"security\"",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 6},
+      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true}
+    }
+  ]
+}

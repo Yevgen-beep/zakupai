@@ -4,6 +4,7 @@ global:
 
 rule_files:
   - alerts.yml
+  - rules.yml
 
 alerting:
   alertmanagers:
@@ -110,3 +111,13 @@ scrape_configs:
     relabel_configs:
       - target_label: service
         replacement: gateway
+  - job_name: 'vault'
+    metrics_path: /v1/sys/metrics
+    params:
+      format: ['prometheus']
+    scheme: https
+    static_configs:
+      - targets: ['vault:8200']
+    tls_config:
+      ca_file: /etc/prometheus/vault-ca.pem
+    bearer_token_file: vault-metrics.token
