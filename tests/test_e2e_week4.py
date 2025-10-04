@@ -3,7 +3,9 @@ E2E Tests for Week 4.1: Web UI Enhancements
 Comprehensive testing for CSV import, lot TL;DR, autocomplete
 """
 
+import hashlib
 import json
+import logging
 import os
 
 # Import the main app
@@ -22,6 +24,8 @@ from sqlalchemy import text
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from web.main import SessionLocal, app, redis_client
+
+logger = logging.getLogger(__name__)
 
 
 class TestCSVImport:
@@ -275,8 +279,8 @@ class TestLotTLDR:
         # Clear Redis cache
         try:
             redis_client.delete(f"lot_summary:{lot_id}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to clear lot summary cache for %s: %s", lot_id, exc)
 
         # Mock database response
         with patch("web.main.SessionLocal") as mock_session:
@@ -353,8 +357,8 @@ class TestLotTLDR:
         # Clear cache
         try:
             redis_client.delete(f"lot_summary:{lot_id}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to clear lot summary cache for %s: %s", lot_id, exc)
 
         with patch("web.main.SessionLocal") as mock_session:
             mock_db = MagicMock()
@@ -483,12 +487,10 @@ class TestAutocomplete:
 
         # Clear cache first
         try:
-            import hashlib
-
-            cache_key = f"autocomplete:{hashlib.md5(query.encode()).hexdigest()}"
+            cache_key = f"autocomplete:{hashlib.sha256(query.encode()).hexdigest()}"
             redis_client.delete(cache_key)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to clear autocomplete cache for %s: %s", query, exc)
 
         # First request (cache miss)
         start_time = time.time()

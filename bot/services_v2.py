@@ -178,9 +178,9 @@ class GoszakupServiceV2:
         if not token and config.api and hasattr(config.api, "goszakup_v3_token"):
             token = config.api.goszakup_v3_token
 
-        # Также пробуем использовать жестко закодированный токен из задания
+        # Также пробуем использовать токен из переменной окружения с безопасным значением по умолчанию
         if not token:
-            token = "cc9ae7eb4025aca71e2e445823d88b86"
+            token = os.getenv("GOSZAKUP_V3_FALLBACK_TOKEN", "dummy-token-for-tests")
 
         return token
 
@@ -794,7 +794,9 @@ def format_search_results_v2(
             source_emoji = (
                 "🚀"
                 if lot["source"] == "graphql_v2"
-                else "🔄" if lot["source"] == "graphql_v3" else "📡"
+                else "🔄"
+                if lot["source"] == "graphql_v3"
+                else "📡"
             )
             text += f"{source_emoji} Источник: {lot['source']}\n"
 

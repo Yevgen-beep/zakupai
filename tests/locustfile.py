@@ -9,6 +9,8 @@ from datetime import date
 
 from locust import HttpUser, between, events, task
 
+load_rng = random.Random()  # nosec B311 - deterministic PRNG adequate for load tests
+
 
 class ZakupAIUser(HttpUser):
     """
@@ -59,11 +61,11 @@ class ZakupAIUser(HttpUser):
     def advanced_search(self):
         """Test advanced search endpoint - primary traffic"""
         search_params = {
-            "query": random.choice(["компьютер", "мебель", "оборудование", "услуги"]),
-            "min_amount": random.randint(10000, 50000),
-            "max_amount": random.randint(100000, 500000),
-            "status": random.choice([1, 2, 3]),
-            "limit": random.randint(5, 20),
+            "query": load_rng.choice(["компьютер", "мебель", "оборудование", "услуги"]),
+            "min_amount": load_rng.randint(10000, 50000),
+            "max_amount": load_rng.randint(100000, 500000),
+            "status": load_rng.choice([1, 2, 3]),
+            "limit": load_rng.randint(5, 20),
         }
 
         with self.client.post(
@@ -89,10 +91,10 @@ class ZakupAIUser(HttpUser):
         """Simulate CSV import - primary traffic"""
         # Generate small CSV content for testing
         csv_content = "product_name,amount,supplier_bin\n"
-        for i in range(random.randint(10, 50)):
-            csv_content += f"Товар {i},{random.randint(1000, 50000)},{random.choice(self.rnu_bins)}\n"
+        for i in range(load_rng.randint(10, 50)):
+            csv_content += f"Товар {i},{load_rng.randint(1000, 50000)},{load_rng.choice(self.rnu_bins)}\n"
 
-        client_id = f"load_test_{random.randint(1000, 9999)}"
+        client_id = f"load_test_{load_rng.randint(1000, 9999)}"
 
         # Simulate file upload
         files = {"file": ("test_load.csv", csv_content.encode("utf-8"), "text/csv")}
@@ -111,7 +113,7 @@ class ZakupAIUser(HttpUser):
                     response.success()
 
                     # Optionally check import status
-                    if random.random() < 0.3:  # 30% chance
+                    if load_rng.random() < 0.3:  # 30% chance
                         self.check_import_status(result["import_log_id"])
                 else:
                     response.failure("Invalid import response")
@@ -140,7 +142,7 @@ class ZakupAIUser(HttpUser):
     @task(20)  # 20% of total traffic
     def validate_rnu(self):
         """Test RNU validation endpoint"""
-        supplier_bin = random.choice(self.rnu_bins)
+        supplier_bin = load_rng.choice(self.rnu_bins)
 
         with self.client.get(
             f"/validate_rnu?supplier_bin={supplier_bin}",
@@ -166,9 +168,9 @@ class ZakupAIUser(HttpUser):
     @task(8)  # 8% of total traffic
     def generate_complaint(self):
         """Test complaint generation - Week 4.2 feature"""
-        lot_id = random.choice(self.lot_ids)
+        lot_id = load_rng.choice(self.lot_ids)
         complaint_data = {
-            "reason": random.choice(self.complaints),
+            "reason": load_rng.choice(self.complaints),
             "date": date.today().isoformat(),
         }
 
@@ -184,7 +186,7 @@ class ZakupAIUser(HttpUser):
                     response.success()
 
                     # Occasionally test PDF/Word download
-                    if random.random() < 0.2:  # 20% chance
+                    if load_rng.random() < 0.2:  # 20% chance
                         self.download_complaint_formats(lot_id, complaint_data)
                 else:
                     response.failure("Invalid complaint response")
@@ -214,7 +216,7 @@ class ZakupAIUser(HttpUser):
                 response.failure("PDF download failed")
 
         # Test Word download (50% chance)
-        if random.random() < 0.5:
+        if load_rng.random() < 0.5:
             with self.client.get(
                 f"/api/complaint/{lot_id}/word",
                 params=params,
@@ -232,19 +234,21 @@ class ZakupAIUser(HttpUser):
     @task(8)  # 8% of total traffic
     def search_suppliers(self):
         """Test supplier search - Week 4.2 feature"""
-        lot_name = random.choice(self.suppliers)
+        lot_name = load_rng.choice(self.suppliers)
 
         # Add random filters
         params = {}
-        if random.random() < 0.4:  # 40% chance to add region filter
-            params["region"] = random.choice(["KZ", "RU", "CN"])
+        if load_rng.random() < 0.4:  # 40% chance to add region filter
+            params["region"] = load_rng.choice(["KZ", "RU", "CN"])
 
-        if random.random() < 0.3:  # 30% chance to add budget filters
-            params["min_budget"] = random.randint(10000, 50000)
-            params["max_budget"] = random.randint(100000, 500000)
+        if load_rng.random() < 0.3:  # 30% chance to add budget filters
+            params["min_budget"] = load_rng.randint(10000, 50000)
+            params["max_budget"] = load_rng.randint(100000, 500000)
 
-        if random.random() < 0.5:  # 50% chance to specify sources
-            sources = random.sample(["satu", "1688", "alibaba"], random.randint(1, 2))
+        if load_rng.random() < 0.5:  # 50% chance to specify sources
+            sources = load_rng.sample(
+                ["satu", "1688", "alibaba"], load_rng.randint(1, 2)
+            )
             params["sources"] = ",".join(sources)
 
         with self.client.get(
@@ -277,7 +281,7 @@ class ZakupAIUser(HttpUser):
     def test_autocomplete(self):
         """Test enhanced autocomplete functionality"""
         queries = ["комп", "мебе", "кан", "обор", "усл"]
-        query = random.choice(queries)
+        query = load_rng.choice(queries)
 
         with self.client.get(
             f"/api/search/autocomplete?query={query}",
@@ -357,7 +361,7 @@ class PerformanceTestUser(HttpUser):
     @task(1)
     def test_complaint_performance_target(self):
         """Test complaint generation performance (<1 second target)"""
-        lot_id = random.choice([12345, 23456, 34567])
+        lot_id = load_rng.choice([12345, 23456, 34567])
         complaint_data = {
             "reason": "Performance test complaint",
             "date": date.today().isoformat(),
@@ -385,7 +389,7 @@ class PerformanceTestUser(HttpUser):
     @task(1)
     def test_supplier_performance_target(self):
         """Test supplier search performance (<1 second target)"""
-        lot_name = random.choice(["мебель", "компьютеры", "оборудование"])
+        lot_name = load_rng.choice(["мебель", "компьютеры", "оборудование"])
 
         start_time = time.time()
         with self.client.get(
@@ -408,7 +412,7 @@ class PerformanceTestUser(HttpUser):
     @task(1)
     def test_autocomplete_performance_target(self):
         """Test autocomplete performance (<500ms target)"""
-        query = random.choice(["комп", "мебе", "обор"])
+        query = load_rng.choice(["комп", "мебе", "обор"])
 
         start_time = time.time()
         with self.client.get(

@@ -37,7 +37,7 @@ jobs:
         run: black --check .
 
       - name: Bandit (security check)
-        run: bandit -r . -f json || true
+        run: bandit -c .bandit -r .
 
   compose_sanity:
     runs-on: ubuntu-latest
@@ -136,7 +136,7 @@ jobs:
           black --check .
           isort --check-only .
       - name: Run security checks
-        run: bandit -r services libs -lll
+        run: bandit -c .bandit -r .
       - name: Run tests
         run: pytest -q --cov=services --cov=libs --cov-report=term --disable-warnings
 
@@ -544,7 +544,7 @@ jobs:
       - name: Install bandit
         run: pip install bandit
       - name: Run bandit (SARIF)
-        run: bandit -q -r services -f sarif -o bandit.sarif
+        run: bandit -c .bandit -r . -f sarif -o bandit.sarif
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:

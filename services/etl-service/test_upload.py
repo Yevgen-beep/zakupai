@@ -499,9 +499,7 @@ class TestE2EWithRealScans:
         # If no specific terms found, at least check for Cyrillic characters
         if not cyrillic_found:
             has_cyrillic = any("\u0400" <= char <= "\u04ff" for char in content_preview)
-            assert (
-                has_cyrillic
-            ), f"No Cyrillic text found in: {content_preview[:100]}"  # nosec
+            assert has_cyrillic, f"No Cyrillic text found in: {content_preview[:100]}"  # nosec
 
     def test_single_pdf_scan2(self, test_files_dir):
         """Test uploading scan2.pdf with real OCR"""

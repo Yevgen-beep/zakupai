@@ -4,6 +4,7 @@ Test script for OCR Loader
 Creates simple PDF files from text files for testing using fpdf2 (lighter alternative to reportlab)
 """
 
+import importlib
 import sys
 from pathlib import Path
 
@@ -25,21 +26,21 @@ def create_test_pdfs_simple():
 
     # Try with fpdf2 first
     try:
-        from fpdf import FPDF
-
-        return create_test_pdfs_fpdf(text_files)
+        importlib.import_module("fpdf")
     except ImportError:
         print("fpdf2 not available, trying reportlab...")
+    else:
+        return create_test_pdfs_fpdf(text_files)
 
     # Try with reportlab as fallback
     try:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
-
-        return create_test_pdfs_reportlab(text_files)
+        importlib.import_module("reportlab.lib.pagesizes")
+        importlib.import_module("reportlab.pdfgen")
     except ImportError:
         print("reportlab not available, using simple text file approach...")
         return create_simple_text_files(text_files)
+
+    return create_test_pdfs_reportlab(text_files)
 
 
 def create_test_pdfs_fpdf(text_files):

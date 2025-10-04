@@ -29,9 +29,9 @@ def test_audit_logger_truncation(tmp_path):
     with open(log_file) as f:
         entry = json.loads(f.readline())
         assert len(entry["input_data"]) == 500, "Input should be truncated to 500 chars"
-        assert (
-            len(entry["output_data"]) == 500
-        ), "Output should be truncated to 500 chars"
+        assert len(entry["output_data"]) == 500, (
+            "Output should be truncated to 500 chars"
+        )
 
 
 def test_audit_logger_custom_hash(tmp_path):

@@ -203,7 +203,7 @@ class TestBatchUpload:
         """Test chunk processing for large CSV files (>1MB)"""
         # Create test data that would be processed in chunks
         test_data = [
-            {"bin": f"12345678901{i%10}", "amount": 1000.0 + i, "status": "NEW"}
+            {"bin": f"12345678901{i % 10}", "amount": 1000.0 + i, "status": "NEW"}
             for i in range(5)
         ]
 

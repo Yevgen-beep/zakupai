@@ -4,6 +4,7 @@ Week 4.1: Redis caching, Flowise integration, SQL fallback
 """
 
 import json
+import logging
 import os
 import sys
 import time
@@ -17,6 +18,8 @@ from fastapi.testclient import TestClient
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from web.main import LotSummaryResponse, app, redis_client
+
+logger = logging.getLogger(__name__)
 
 
 class TestLotSummary:
@@ -55,8 +58,8 @@ class TestLotSummary:
         # Clear any existing cache
         try:
             redis_client.delete(f"lot_summary:{lot_id}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to clear Redis cache for lot %s: %s", lot_id, exc)
 
         # Mock database response
         with patch("web.main.SessionLocal") as mock_session:
@@ -437,8 +440,8 @@ class TestLotSummary:
         # Clear cache
         try:
             redis_client.delete(f"lot_summary:{lot_id}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to clear Redis cache for lot %s: %s", lot_id, exc)
 
         with patch("web.main.SessionLocal") as mock_session:
             mock_db = MagicMock()

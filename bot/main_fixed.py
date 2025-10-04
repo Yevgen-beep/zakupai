@@ -5,7 +5,9 @@ ZakupAI Telegram Bot - исправленная версия с поддержк
 import asyncio
 import json
 import logging
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -21,12 +23,14 @@ from db_simple import get_api_key, init_db, save_api_key
 from error_handler import ErrorHandlingMiddleware
 
 # Настройка логирования
+log_file_path = Path(tempfile.gettempdir()) / "zakupai_bot.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("/tmp/zakupai_bot.log", encoding="utf-8"),
+        logging.FileHandler(log_file_path, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -387,8 +391,8 @@ async def search_command(message: Message):
     except Exception as e:
         try:
             await loading_msg.delete()
-        except Exception:
-            pass
+        except Exception as delete_err:
+            logger.debug("Failed to delete loading message: %s", delete_err)
         await message.answer("❌ Ошибка поиска")
         logger.error(f"❌ Search error for user {user_id}: {type(e).__name__}")
 
@@ -484,8 +488,8 @@ async def lot_command(message: Message):
     except Exception as e:
         try:
             await loading_msg.delete()
-        except Exception:
-            pass
+        except Exception as delete_err:
+            logger.debug("Failed to delete loading message: %s", delete_err)
         await message.answer("❌ Ошибка анализа лота")
         logger.error(f"❌ Lot analysis error for user {user_id}: {type(e).__name__}")
 

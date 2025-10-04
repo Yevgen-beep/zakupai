@@ -8,9 +8,9 @@ from unittest.mock import patch
 import pytest
 
 # Устанавливаем тестовые переменные окружения перед импортом
-os.environ["TELEGRAM_BOT_TOKEN"] = (
-    "1234567890:AABBCCDDEEFFaabbccddeeff123456789"  # Валидный формат токена
-)
+os.environ["TELEGRAM_BOT_TOKEN"] = os.getenv(
+    "TEST_TELEGRAM_BOT_TOKEN", "dummy-telegram-token"
+)  # nosec B105
 os.environ["ZAKUPAI_API_URL"] = "http://localhost:8080"
 os.environ["ZAKUPAI_API_KEY"] = "test_key"
 
@@ -101,9 +101,9 @@ class TestBillingIntegration:
 
         for message_text, expected_endpoint in test_cases:
             result = get_command_endpoint(message_text)
-            assert (
-                result == expected_endpoint
-            ), f"Expected {expected_endpoint} for {message_text}, got {result}"
+            assert result == expected_endpoint, (
+                f"Expected {expected_endpoint} for {message_text}, got {result}"
+            )
 
     def test_validate_and_log_decorator_exists(self):
         """Тест что декоратор validate_and_log_bot существует в main.py"""

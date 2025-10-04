@@ -36,7 +36,7 @@ class BatchUploadRow(BaseModel):
     def validate_status(cls, v):
         allowed_statuses = {"NEW", "APPROVED", "REJECTED"}
         if v.upper() not in allowed_statuses:
-            raise ValueError(f'Status must be one of: {", ".join(allowed_statuses)}')
+            raise ValueError(f"Status must be one of: {', '.join(allowed_statuses)}")
         return v.upper()
 
 

@@ -221,21 +221,21 @@ async def generate_complaint_fallback(
 
 Дата: {complaint_date}
 
-Лот: {lot_info['name']} (ID: {lot_id})
-Заказчик: {lot_info['customer']}
-Сумма: {lot_info.get('amount', 0):,.2f} тенге
+Лот: {lot_info["name"]} (ID: {lot_id})
+Заказчик: {lot_info["customer"]}
+Сумма: {lot_info.get("amount", 0):,.2f} тенге
 
 Основание жалобы: {reason}
 
 Подробное описание:
-В рамках анализа лота #{lot_id} "{lot_info['name']}" выявлены нарушения: {reason.lower()}.
+В рамках анализа лота #{lot_id} "{lot_info["name"]}" выявлены нарушения: {reason.lower()}.
 Указанные нарушения противоречат требованиям законодательства РК о государственных закупках.
 
 Прошу провести проверку и принять соответствующие меры.
 
 ---
 Сгенерировано системой ZakupAI
-Дата создания: {datetime.now().strftime('%d.%m.%Y %H:%M')}
+Дата создания: {datetime.now().strftime("%d.%m.%Y %H:%M")}
         """
 
         return {"text": complaint_template.strip(), "source": "fallback"}
@@ -432,7 +432,7 @@ def generate_complaint_word(
     # Footer
     doc.add_paragraph()  # Empty line
     footer = doc.add_paragraph(
-        f'Документ создан {datetime.now().strftime("%d.%m.%Y в %H:%M")}\\n'
+        f"Документ создан {datetime.now().strftime('%d.%m.%Y в %H:%M')}\\n"
         "ZakupAI © 2025 - Все права защищены"
     )
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER

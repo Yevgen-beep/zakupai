@@ -2,7 +2,7 @@
 
 import csv
 import io
-import random
+import random  # nosec B311 - non-cryptographic randomness acceptable for mock data
 from datetime import datetime, timedelta
 
 
@@ -36,17 +36,17 @@ def generate_mock_csv():
     for sku, name, category in products:
         # Generate realistic prices based on category
         if category == "Компьютеры":
-            price = random.randint(300000, 800000)  # 300k-800k tenge
+            price = random.randint(300000, 800000)  # nosec B311 - mock price generation
         elif category == "Мониторы":
-            price = random.randint(60000, 150000)  # 60k-150k tenge
+            price = random.randint(60000, 150000)  # nosec B311 - mock price generation
         elif category == "Принтеры":
-            price = random.randint(30000, 100000)  # 30k-100k tenge
+            price = random.randint(30000, 100000)  # nosec B311 - mock price generation
         elif category == "Мебель":
-            price = random.randint(40000, 120000)  # 40k-120k tenge
+            price = random.randint(40000, 120000)  # nosec B311 - mock price generation
         elif category == "Периферия":
-            price = random.randint(3000, 25000)  # 3k-25k tenge
+            price = random.randint(3000, 25000)  # nosec B311 - mock price generation
         else:  # Канцелярия
-            price = random.randint(100, 5000)  # 100-5k tenge
+            price = random.randint(100, 5000)  # nosec B311 - mock price generation
 
         unit = "шт"
         writer.writerow([sku, price, name, category, unit])
@@ -84,7 +84,7 @@ def mock_goszakup_lot(lot_id: str):
         {
             "id": lot_id,
             "title": f"Тестовый лот #{lot_id}",
-            "price": random.randint(500000, 3000000),
+            "price": random.randint(500000, 3000000),  # nosec B311 - mock price generation
             "customer": "Тестовый заказчик",
             "deadline": (datetime.now() + timedelta(days=30)).isoformat(),
             "status": "active",
@@ -118,7 +118,7 @@ def mock_risk_data(lot_id: str):
         "654321": 0.55,  # Medium risk
     }
 
-    score = risk_scores.get(lot_id, random.uniform(0.2, 0.8))
+    score = risk_scores.get(lot_id, random.uniform(0.2, 0.8))  # nosec B311
 
     if score < 0.3:
         explanation = "Низкий риск: надежный заказчик, простые требования"
@@ -142,7 +142,7 @@ def mock_risk_data(lot_id: str):
 
 def mock_margin_data(lot_price: float):
     """Generate mock margin calculation"""
-    cost_price = lot_price * random.uniform(0.7, 0.9)  # 70-90% of selling price
+    cost_price = lot_price * random.uniform(0.7, 0.9)  # nosec B311 - mock margin calculation
     profit = lot_price - cost_price
     margin_percentage = (profit / lot_price) * 100
 

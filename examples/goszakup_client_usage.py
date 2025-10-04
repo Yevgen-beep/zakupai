@@ -24,7 +24,7 @@ from bot.goszakup_client_v3 import (
 )
 
 # Токен для API (замените на ваш реальный токен)
-TOKEN = "cc9ae7eb4025aca71e2e445823d88b86"
+TOKEN = "DUMMY_TOKEN"  # nosec B105 - illustrative example token
 
 
 async def basic_search_examples():
@@ -183,7 +183,7 @@ async def caching_and_stats_examples():
 
         # Второй такой же запрос - из кеша
         start_time = datetime.now()
-        lots2 = await client.search_lots(keyword="медицинск", limit=3)
+        _ = await client.search_lots(keyword="медицинск", limit=3)
         time2 = (datetime.now() - start_time).total_seconds()
         print(f"  Второй запрос (кеш): {time2:.2f} сек")
 
@@ -297,7 +297,7 @@ async def error_handling_example():
 
     try:
         # Пример с неправильным токеном
-        async with GoszakupClient(token="invalid_token") as client:
+        async with GoszakupClient(token=TOKEN) as client:
             await client.search_lots(keyword="тест", limit=1)
     except Exception as e:
         print(f"17. Ошибка авторизации: {e}")
@@ -347,7 +347,7 @@ async def comprehensive_example():
 
             # Шаг 4: Поиск связанных контрактов
             unique_customer_bins = list(
-                set(lot.customerBin for lot in lots if lot.customerBin)
+                {lot.customerBin for lot in lots if lot.customerBin}
             )[:5]
             if unique_customer_bins:
                 contracts = await client.search_contracts(

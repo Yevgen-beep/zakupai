@@ -705,7 +705,7 @@ class AdvancedSearchRequest(BaseModel):
             allowed_statuses = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
             if str(v) not in allowed_statuses:
                 raise ValueError(
-                    f'Status must be one of: {", ".join(allowed_statuses)}'
+                    f"Status must be one of: {', '.join(allowed_statuses)}"
                 )
             return str(v)
         return v
@@ -1148,9 +1148,9 @@ async def generate_complaint_via_flowise(
 
 Дата: {date}
 
-По лоту: {lot_info['name']} (ID: {lot_id})
-Заказчик: {lot_info['customer']}
-Сумма: {lot_info.get('amount', 0):,.2f} тенге
+По лоту: {lot_info["name"]} (ID: {lot_id})
+Заказчик: {lot_info["customer"]}
+Сумма: {lot_info.get("amount", 0):,.2f} тенге
 
 Основание жалобы: {reason}
 

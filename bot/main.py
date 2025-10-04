@@ -1221,7 +1221,9 @@ def format_lot_analysis(result: dict) -> str:
         risk_level = (
             "🟢 Низкий"
             if risk_score < 0.3
-            else "🟡 Средний" if risk_score < 0.7 else "🔴 Высокий"
+            else "🟡 Средний"
+            if risk_score < 0.7
+            else "🔴 Высокий"
         )
 
         output.append(f"\n⚠️ {hbold('Риск-анализ:')}")
