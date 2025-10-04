@@ -1,14 +1,36 @@
 groups:
-  - name: zakupai_api_slo
+  - name: slo
     rules:
       - record: api_error_ratio
         expr: |
-          sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (service)
-            /
-          clamp_min(sum(rate(http_requests_total[5m])) by (service), 1e-6)
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+              /
+            clamp_min(sum(rate(http_requests_total[5m])), 1e-6)
+          )
+          or on() vector(0)
+      - record: api_error_ratio_by_service
+        expr: |
+          label_replace(
+            (
+              sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job)
+                /
+              clamp_min(sum(rate(http_requests_total[5m])) by (job), 1e-6)
+            )
+            or (
+              up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"} * 0
+            ),
+            "service", "$1", "job", "(.*)"
+          )
       - record: api_p95_latency
         expr: |
           histogram_quantile(
             0.95,
             sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          )
+          or (
+            label_replace(
+              up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"},
+              "service", "$1", "job", "(.*)"
+            ) * 0
           )

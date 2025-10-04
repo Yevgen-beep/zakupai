@@ -77,6 +77,7 @@ def bootstrap_vault():
         )
         os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
         load_kv_to_env("api", mapping={"API_KEY": "API_KEY", "X_API_KEY": "X_API_KEY"})
+        log.info("vault_bootstrap_success", loaded_keys=sorted(db_secret.keys()))
     except VaultClientError as exc:
         log.warning("Vault bootstrap skipped: %s", exc)
     except Exception:  # pragma: no cover - defensive fallback

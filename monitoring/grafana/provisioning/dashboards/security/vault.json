@@ -1,116 +1,166 @@
 {
-  "uid": "zak-vault",
+  "uid": "zak-sec-vault",
   "title": "ZakupAI - Vault",
-  "timezone": "browser",
-  "schemaVersion": 39,
+  "schemaVersion": 38,
   "version": 1,
-  "refresh": "30s",
-  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
   "panels": [
     {
       "type": "stat",
-      "title": "Vault Seal Status",
+      "title": "Vault sealed",
+      "id": 1,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
-        {"expr": "vault_core_unsealed", "refId": "A"}
+        {
+          "expr": "max(vault_core_unsealed == 0)",
+          "refId": "A"
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "red", "value": 0},
-              {"color": "green", "value": 1}
+              {"color": "green", "value": 0},
+              {"color": "red", "value": 1}
             ]
-          }
-        }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {"text": "unsealed"},
+                "1": {"text": "sealed"}
+              }
+            }
+          ]
+        },
+        "overrides": []
       },
       "options": {
-        "reduceOptions": {"calcs": ["last"], "values": false},
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
         "orientation": "horizontal",
-        "colorMode": "value"
+        "colorMode": "value",
+        "graphMode": "none"
       },
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0}
     },
     {
       "type": "stat",
-      "title": "Active Tokens",
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
-      "targets": [
-        {"expr": "vault_core_active_tokens", "refId": "A"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "orange", "value": 100}, {"color": "red", "value": 200}]}}},
-      "options": {"reduceOptions": {"calcs": ["last"], "values": false}},
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
-    },
-    {
-      "type": "stat",
-      "title": "Failed Auth (5m)",
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
-      "targets": [
-        {"expr": "sum(rate(vault_auth_failed_total[5m]))", "refId": "A"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 3, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 0.5}]}}},
-      "options": {"reduceOptions": {"calcs": ["last"], "values": false}},
-      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
-    },
-    {
-      "type": "stat",
-      "title": "Seal Threshold",
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
-      "targets": [
-        {"expr": "vault_core_threshold", "refId": "A"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short"}},
-      "options": {"reduceOptions": {"calcs": ["last"], "values": false}},
-      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0}
-    },
-    {
-      "type": "timeseries",
-      "title": "Vault Request Latency p95",
+      "title": "Vault uptime (h)",
+      "id": 5,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vault_http_request_duration_seconds_bucket[5m])) by (le, path))",
-          "legendFormat": "{{path}}",
+          "expr": "(time() - max(process_start_time_seconds)) / 3600",
           "refId": "A"
         }
       ],
-      "fieldConfig": {"defaults": {"unit": "s", "decimals": 3}},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "hours",
+          "decimals": 2
+        },
+        "overrides": []
+      },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right", "calcs": ["last"]},
-        "tooltip": {"mode": "multi", "sort": "desc"}
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
       },
-      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 4}
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0}
     },
     {
       "type": "timeseries",
-      "title": "Requests by Status",
+      "title": "Audit log entries",
+      "id": 2,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "sum(rate(vault_http_requests_total[5m])) by (code)",
-          "legendFormat": "{{code}}",
+          "expr": "rate(vault_audit_log_entries_total[5m])",
           "refId": "A"
         }
       ],
-      "fieldConfig": {"defaults": {"unit": "reqps"}},
-      "options": {"legend": {"displayMode": "list", "placement": "right"}},
-      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 4}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops" ,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "options": {
+        "legend": {"displayMode": "hidden"}
+      }
     },
     {
-      "type": "logs",
-      "title": "Vault Audit Logs",
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "type": "timeseries",
+      "title": "Request latency",
+      "id": 3,
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "{service=\"vault\", stream=\"audit\"}",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(vault_request_duration_seconds_bucket[5m])))",
           "refId": "A"
         }
       ],
-      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 14},
-      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "options": {
+        "legend": {"displayMode": "hidden"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Token creations",
+      "id": 4,
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "rate(vault_token_create_total[5m])",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 13},
+      "options": {
+        "legend": {"displayMode": "hidden"}
+      }
     }
   ]
 }

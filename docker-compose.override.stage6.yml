@@ -44,6 +44,8 @@ services:
     build:
       context: ./services/doc-service
       dockerfile: Dockerfile
+      additional_contexts:
+        - libs=./libs
 
   chromadb:
     profiles: ["stage6"]
@@ -286,7 +288,10 @@ services:
     ports:
       - "9095:9090"
     volumes:
-      - ./monitoring/prometheus:/etc/prometheus:ro
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./monitoring/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - ./monitoring/prometheus/vault-metrics.token:/etc/prometheus/vault-metrics.token:ro
       - prometheus_data:/prometheus
     networks:
       - zakupai-network

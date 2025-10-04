@@ -1,69 +1,120 @@
 {
-  "uid": "zak-audit",
-  "title": "ZakupAI - Security Audit",
-  "timezone": "browser",
-  "schemaVersion": 39,
+  "uid": "zak-sec-audit",
+  "title": "ZakupAI - Audit",
+  "schemaVersion": 38,
   "version": 1,
-  "refresh": "1m",
-  "time": {"from": "now-24h", "to": "now"},
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "service",
+        "label": "Service",
+        "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+        "definition": "label_values(http_requests_total, service)",
+        "multi": true,
+        "includeAll": true,
+        "refresh": 2
+      }
+    ]
+  },
   "panels": [
     {
-      "type": "table",
-      "title": "Auth Failures (5m)",
+      "type": "timeseries",
+      "title": "Audit endpoint throughput",
+      "id": 1,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "sum(rate(vault_auth_failed_total[5m])) by (method)",
-          "refId": "A",
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
-      "options": {"showHeader": true}
-    },
-    {
-      "type": "table",
-      "title": "HTTP 401/403 per Service",
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
-      "targets": [
-        {
-          "expr": "sum(rate(http_requests_total{status_code=~\"40[13]\"}[5m])) by (service, status_code)",
-          "refId": "A",
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
-      "options": {"showHeader": true}
-    },
-    {
-      "type": "table",
-      "title": "Blocked Requests (nginx)",
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
-      "targets": [
-        {
-          "expr": "sum(rate(nginx_http_responses_total{code=~\"4..\"}[5m])) by (code)",
-          "refId": "A",
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
-      "options": {"showHeader": true}
-    },
-    {
-      "type": "logs",
-      "title": "Security Alerts (Loki)",
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
-      "targets": [
-        {
-          "expr": "{level=\"warning\"} |= \"security\"",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", handler=~\".*audit.*\"}[5m]))",
+          "legendFormat": "{{service}}",
           "refId": "A"
         }
       ],
-      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 6},
-      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit failures",
+      "id": 2,
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", handler=~\".*audit.*\", status_code=~\"5..\"}[5m]))",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit error logs (Loki)",
+      "id": 3,
+      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "targets": [
+        {
+          "expr": "sum(rate({job=\"audit\", level=\"error\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "options": {
+        "legend": {"displayMode": "hidden"}
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Audit trail logs",
+      "id": 4,
+      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "targets": [
+        {
+          "expr": "{container=~\"calc-service|risk-engine|etl-service\"} |= \"audit\"",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 24}
     }
   ]
 }

@@ -3,8 +3,8 @@ global:
   evaluation_interval: 15s
 
 rule_files:
-  - alerts.yml
-  - rules.yml
+  - /etc/prometheus/alerts.yml
+  - /etc/prometheus/rules.yml
 
 alerting:
   alertmanagers:
@@ -105,12 +105,12 @@ scrape_configs:
         replacement: billing
 
   - job_name: 'nginx'
-    metrics_path: /metrics
     static_configs:
       - targets: ['nginx-exporter:9113']
     relabel_configs:
       - target_label: service
         replacement: gateway
+
   - job_name: 'vault'
     metrics_path: /v1/sys/metrics
     params:
@@ -119,5 +119,7 @@ scrape_configs:
     static_configs:
       - targets: ['vault:8200']
     tls_config:
-      ca_file: /etc/prometheus/vault-ca.pem
-    bearer_token_file: vault-metrics.token
+      insecure_skip_verify: true
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/vault-metrics.token

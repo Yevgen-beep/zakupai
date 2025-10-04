@@ -21,9 +21,10 @@ scrape_configs:
             service: service
             procurement_type: procurement_type
             compliance_flag: compliance_flag
+      - template:
+          source: message
+          template: '{{ if .Value }}{{ .Value }}{{ else }}{{ .log }}{{ end }}'
       - labels:
-          job:
-          container:
           service:
           procurement_type:
           compliance_flag:
@@ -31,11 +32,14 @@ scrape_configs:
           source: message
           remove_source: true
     relabel_configs:
+      - source_labels: [__meta_docker_container_name]
+        regex: /zakupai-.+
+        action: keep
       - source_labels: [__meta_docker_container_networks]
         regex: .*(stage6|zakupai-network).*
         action: keep
-      - target_label: service
-        replacement: unknown
+      - target_label: stream
+        replacement: docker
       - source_labels: [__meta_docker_container_label_com_docker_compose_service]
         regex: (.+)
         target_label: service

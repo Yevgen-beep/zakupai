@@ -59,6 +59,7 @@ def bootstrap_vault():
                 "GOSZAKUP_API_URL": "GOSZAKUP_API_URL",
             },
         )
+        _etl_vault_logger.info("Vault bootstrap success: %s", sorted(db_secret.keys()))
     except VaultClientError as exc:
         _etl_vault_logger.warning("Vault bootstrap skipped: %s", exc)
     except Exception:  # pragma: no cover - defensive fallback

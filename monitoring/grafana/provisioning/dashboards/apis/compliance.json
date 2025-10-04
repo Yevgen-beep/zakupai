@@ -1,57 +1,108 @@
 {
-  "uid": "zak-compliance",
-  "title": "ZakupAI - Compliance",
-  "timezone": "browser",
-  "schemaVersion": 39,
-  "version": 2,
+  "uid": "zak-api-compliance",
+  "title": "ZakupAI - Compliance APIs",
+  "schemaVersion": 38,
+  "version": 1,
   "refresh": "30s",
   "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "service",
+        "label": "Compliance services",
+        "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+        "definition": "label_values(http_requests_total{service=~\"etl|risk|doc\"}, service)",
+        "multi": true,
+        "includeAll": true,
+        "refresh": 2
+      }
+    ]
+  },
   "panels": [
     {
       "type": "timeseries",
-      "title": "Anti-Dumping %",
+      "title": "Compliance throughput",
+      "id": 1,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "anti_dumping_percent",
-          "legendFormat": "{{service}} • lot {{lot_id}}",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\"}[5m]))",
+          "legendFormat": "{{service}}",
           "refId": "A"
         }
       ],
-      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}},
-      "options": {
-        "legend": {"displayMode": "list", "placement": "right", "calcs": ["last", "max"]},
-        "tooltip": {"mode": "multi", "sort": "desc"}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
       },
-      "gridPos": {"h": 9, "w": 14, "x": 0, "y": 0}
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
     },
     {
-      "type": "table",
-      "title": "Active Anti-Dumping Alerts",
+      "type": "timeseries",
+      "title": "Compliance errors",
+      "id": 2,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "ALERTS{alertname=\"AntiDumpingTooHigh\", alertstate=\"firing\"}",
-          "refId": "A",
-          "format": "table",
-          "instant": true
-        }
-      ],
-      "gridPos": {"h": 9, "w": 10, "x": 14, "y": 0},
-      "options": {"showHeader": true}
-    },
-    {
-      "type": "logs",
-      "title": "Compliance Logs (Promtail)",
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
-      "targets": [
-        {
-          "expr": "{service=\"etl-service\", level=\"warning\"} |= \"compliance\"",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m]))",
+          "legendFormat": "{{service}}",
           "refId": "A"
         }
       ],
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 9},
-      "options": {"dedupStrategy": "none", "showTime": true, "showLabels": true}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency P95",
+      "id": 3,
+      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right"}
+      }
     }
   ]
 }

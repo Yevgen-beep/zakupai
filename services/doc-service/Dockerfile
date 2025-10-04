@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Копируем общую библиотеку из дополнительного контекста libs
 COPY --from=libs /zakupai_common /app/libs/zakupai_common
+RUN pip install /app/libs/zakupai_common
+ENV PYTHONPATH=/app:/app/libs:${PYTHONPATH}
 # Стандартный порт внутри контейнера
 ENV PORT=8000
 EXPOSE 8000

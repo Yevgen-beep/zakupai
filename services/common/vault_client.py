@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 
 import hvac
+
+log = logging.getLogger(__name__)
 
 _DEFAULT_MOUNT = os.getenv("VAULT_KV_MOUNT", "zakupai")
 
@@ -33,19 +36,22 @@ def _read_token() -> str:
 
 
 def _should_verify_tls() -> str | bool:
-    cert_path = os.getenv("VAULT_CACERT")
-    if not cert_path:
-        # Default to certificate verification. hvac will fall back to certifi bundle.
-        return True
-
-    lowered = cert_path.lower()
-    if lowered in {"0", "false", "no"}:
+    if os.getenv("VAULT_SKIP_VERIFY", "").lower() in {"1", "true", "yes"}:
         return False
 
-    path = Path(cert_path)
-    if not path.exists():
-        raise VaultClientError(f"VAULT_CACERT points to missing file: {cert_path}")
-    return str(path)
+    cert_path = os.getenv("VAULT_CACERT")
+    if cert_path:
+        lowered = cert_path.lower()
+        if lowered in {"0", "false", "no"}:
+            return False
+
+        path = Path(cert_path)
+        if not path.exists():
+            raise VaultClientError(f"VAULT_CACERT points to missing file: {cert_path}")
+        return str(path)
+
+    # No CA provided: allow self-signed dev deployments
+    return False
 
 
 @lru_cache(maxsize=1)
@@ -85,7 +91,13 @@ def load_kv_to_env(
         The raw secret dictionary fetched from Vault.
     """
 
-    data = read_kv(path, mount_point=mount_point)
+    try:
+        data = read_kv(path, mount_point=mount_point)
+    except hvac.exceptions.InvalidPath as exc:  # type: ignore[attr-defined]
+        raise VaultClientError(
+            f"Vault secret '{path}' not found in mount '{mount_point or _DEFAULT_MOUNT}'"
+        ) from exc
+
     if mapping:
         items = {env_key: data[key] for key, env_key in mapping.items() if key in data}
     else:
@@ -94,6 +106,8 @@ def load_kv_to_env(
     for env_key, value in items.items():
         if override or not os.environ.get(env_key):
             os.environ[env_key] = str(value)
+        else:
+            log.debug("Preserving existing env var %s", env_key)
 
     return data
 

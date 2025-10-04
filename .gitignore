@@ -43,6 +43,11 @@ __pycache__/
 .pytest_cache/
 .coverage
 
+# Vault secrets and TLS material
+.secrets/
+monitoring/vault/tls/*
+monitoring/prometheus/vault-metrics.token
+
 # Docker volumes data
 data/
 volumes/

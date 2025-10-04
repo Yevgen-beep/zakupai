@@ -1,26 +1,26 @@
 apiVersion: 1
 providers:
-  - name: "ZakupAI Overview"
+  - name: ZakupAI Overview
     orgId: 1
-    folder: "ZakupAI / Overview"
+    folder: overview
     type: file
     disableDeletion: false
-    allowUiUpdates: true
+    updateIntervalSeconds: 30
     options:
       path: /etc/grafana/provisioning/dashboards/overview
-  - name: "ZakupAI APIs"
+  - name: ZakupAI APIs
     orgId: 1
-    folder: "ZakupAI / APIs"
+    folder: apis
     type: file
     disableDeletion: false
-    allowUiUpdates: true
+    updateIntervalSeconds: 30
     options:
       path: /etc/grafana/provisioning/dashboards/apis
-  - name: "ZakupAI Security"
+  - name: ZakupAI Security
     orgId: 1
-    folder: "ZakupAI / Security"
+    folder: security
     type: file
     disableDeletion: false
-    allowUiUpdates: true
+    updateIntervalSeconds: 30
     options:
       path: /etc/grafana/provisioning/dashboards/security
