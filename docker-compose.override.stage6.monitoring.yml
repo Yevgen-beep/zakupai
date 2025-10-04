@@ -1,7 +1,11 @@
 services:
   grafana:
+    environment:
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/overview/zakupai-overview.json
     ports:
       - "3030:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
 
   loki:
     ports:
