@@ -6,13 +6,15 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY requirements.txt .
+COPY services/doc-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-# Копируем общую библиотеку из дополнительного контекста libs
-COPY --from=libs /zakupai_common /app/libs/zakupai_common
-RUN pip install /app/libs/zakupai_common
+# Copy shared libraries
+COPY libs/zakupai_common /app/libs/zakupai_common
+RUN pip install --no-cache-dir /app/libs/zakupai_common
+
+# Copy application code
+COPY services/doc-service/ .
 ENV PYTHONPATH=/app:/app/libs:${PYTHONPATH}
 # Стандартный порт внутри контейнера
 ENV PORT=8000

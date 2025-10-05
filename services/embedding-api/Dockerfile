@@ -5,13 +5,15 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY requirements.txt .
+COPY services/embedding-api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-# Копируем общую библиотеку из дополнительного контекста libs
-COPY --from=libs /zakupai_common /app/libs/zakupai_common
-RUN pip install /app/libs/zakupai_common
+# Copy shared libraries
+COPY libs/zakupai_common /app/libs/zakupai_common
+RUN pip install --no-cache-dir /app/libs/zakupai_common
+
+# Copy application code
+COPY services/embedding-api/ .
 ENV PYTHONPATH=/app:/app/libs:${PYTHONPATH}
 EXPOSE 8000
 

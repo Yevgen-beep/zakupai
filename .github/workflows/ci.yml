@@ -62,7 +62,8 @@ jobs:
       - name: Build ${{ matrix.svc }}
         uses: docker/build-push-action@v6
         with:
-          context: ./services/${{ matrix.svc }}
+          context: .
+          file: ./services/${{ matrix.svc }}/Dockerfile
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
