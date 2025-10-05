@@ -115,6 +115,7 @@ jobs:
           done
       - name: Apply bootstrap schema
         run: |
+          timeout 60 bash -c 'until docker compose exec db pg_isready -U postgres >/dev/null 2>&1; do sleep 2; done'
           for script in db/init/*.sql; do
             docker compose exec -T db psql -U postgres -d zakupai -f "$script" || exit 1
           done
