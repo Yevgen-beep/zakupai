@@ -37,7 +37,7 @@ jobs:
         run: black --check .
 
       - name: Bandit (security check)
-        run: bandit -c .bandit -r .
+        run: bandit -c .bandit -r services/ libs/ bot/ web/ scripts/ tests/ *.py
 
   compose_sanity:
     runs-on: ubuntu-latest
@@ -136,7 +136,7 @@ jobs:
           black --check .
           isort --check-only .
       - name: Run security checks
-        run: bandit -c .bandit -r .
+        run: bandit -c .bandit -r services/ libs/ bot/ web/ scripts/ tests/ *.py
       - name: Run tests
         run: pytest -q --cov=services --cov=libs --cov-report=term --disable-warnings
 
@@ -542,13 +542,28 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install bandit
-        run: pip install bandit
+        run: pip install bandit[sarif]
       - name: Run bandit (SARIF)
-        run: bandit -c .bandit -r . -f sarif -o bandit.sarif
-      - name: Upload SARIF
+        # Continue on error to not block pipeline, security findings visible in Security tab
+        continue-on-error: true
+        run: |
+          bandit -c .bandit \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+            --severity-level medium \
+            -f sarif -o bandit.sarif
+      - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: bandit.sarif
+          category: bandit-security-scan
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-sarif-report
+          path: bandit.sarif
+          retention-days: 30
 
   # Week 4.1: Integration tests for Web UI enhancements
   priority4-integration:

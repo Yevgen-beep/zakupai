@@ -1,9 +1,12 @@
 skips:
   - B101
-exclude_dirs:
+
+exclude:
   - .venv
   - venv
   - build
   - dist
   - migrations
   - __pycache__
+  - node_modules
+  - .git
