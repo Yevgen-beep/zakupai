@@ -98,6 +98,9 @@ trdbuy_table = table(
     column("nameRu"),
 )
 
+# Legacy handle for tests that patch chroma client directly
+chroma_client = None
+
 
 # Redis setup for caching
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

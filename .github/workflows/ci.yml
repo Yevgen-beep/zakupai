@@ -676,7 +676,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary jinja2
           pip install redis pandas chromadb httpx structlog pydantic apscheduler prometheus-fastapi-instrumentator
-          pip install pytest pytest-timeout pytest-asyncio pytest-mock requests
+          pip install pytest pytest-timeout pytest-asyncio pytest-mock requests responses
           pip install python-telegram-bot aiohttp reportlab python-multipart
 
       - name: Set up test environment
@@ -865,7 +865,7 @@ jobs:
           pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary jinja2
           pip install redis pandas httpx structlog pydantic python-multipart apscheduler prometheus-fastapi-instrumentator
           pip install reportlab python-docx aiofiles
-          pip install locust pytest pytest-timeout pytest-asyncio
+          pip install locust pytest pytest-timeout pytest-asyncio responses
           pip install prometheus-client
 
       - name: Set up test environment

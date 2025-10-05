@@ -249,7 +249,7 @@ jobs:
           case "${{ matrix.test-suite.name }}" in
             unit-tests)
               find services -name requirements.txt -exec pip install -r {} \;
-              pip install pytest pytest-timeout
+              pip install pytest pytest-timeout responses
               ;;
             etl-*)
               cd services/etl-service && pip install -r requirements.txt
@@ -261,7 +261,7 @@ jobs:
               ;;
             web*)
               cd web && pip install -r requirements.txt
-              pip install pytest pytest-timeout pytest-asyncio httpx reportlab
+              pip install pytest pytest-timeout pytest-asyncio httpx reportlab responses
               ;;
           esac
 
