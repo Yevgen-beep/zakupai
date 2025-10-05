@@ -131,7 +131,9 @@ services:
     restart: unless-stopped
 
   billing-service:
-    build: ./services/billing-service
+    build:
+      context: .
+      dockerfile: services/billing-service/Dockerfile
     container_name: zakupai-billing-service
     ports:
       - "7004:8000"
@@ -168,10 +170,8 @@ services:
 
   gateway:
     build:
-      context: ./services/gateway
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: services/gateway/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/gateway:${TAG:-stage5}
@@ -264,10 +264,8 @@ services:
 
   zakupai-bot:
     build:
-      context: ./bot
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: bot/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/bot:${TAG:-stage5}
@@ -293,10 +291,8 @@ services:
 
   web-ui:
     build:
-      context: ./web
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: web/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/web-ui:${TAG:-stage5}
