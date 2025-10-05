@@ -110,7 +110,9 @@ jobs:
       - name: Prepare bot .env
         run: cp bot/.env.example bot/.env
       - name: Start database
-        run: docker compose up -d db
+        run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
+          docker compose up -d db
       - name: Ensure table ownership for migrator
         run: |
           tables=(subjects trdbuy lots contracts rnu)
@@ -120,14 +122,19 @@ jobs:
           done
       - name: Apply bootstrap schema
         run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
           timeout 60 bash -c 'until docker compose exec db pg_isready -U postgres >/dev/null 2>&1; do sleep 2; done'
           for script in db/init/*.sql; do
             docker compose exec -T db psql -U postgres -d zakupai -f "$script" || exit 1
           done
       - name: Wait for database
-        run: timeout 60 bash -c 'until docker compose exec db pg_isready -U zakupai; do sleep 2; done'
+        run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
+          timeout 60 bash -c 'until docker compose exec db pg_isready -U zakupai; do sleep 2; done'
       - name: Run migrations
-        run: docker compose run --rm migrator
+        run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
+          docker compose run --rm migrator
       - name: Stop containers
         if: always()
         run: docker compose down
@@ -765,9 +772,9 @@ jobs:
           FLOWISE_API_URL: "http://mock-flowise:3000"
         run: |
           # Run specific Week 4.1 tests
-          python -m pytest tests/test_e2e_week4.py -v --tb=short --timeout=30
-          python -m pytest tests/test_import_prices.py -v --tb=short --timeout=30
-          python -m pytest tests/test_lot_summary.py -v --tb=short --timeout=30
+          python -m pytest tests/test_e2e_week4.py -v --tb=short
+          python -m pytest tests/test_import_prices.py -v --tb=short
+          python -m pytest tests/test_lot_summary.py -v --tb=short
 
       - name: Start Web UI service for smoke tests
         env:
@@ -1006,14 +1013,14 @@ jobs:
           FLOWISE_API_URL: "http://localhost:3000"
         run: |
           # Run Week 4.2 feature tests
-          python -m pytest tests/test_flowise_week4_2.py -v --tb=short --timeout=30
+          python -m pytest tests/test_flowise_week4_2.py -v --tb=short
 
       - name: Run Advanced Search Tests
         env:
           BASE_URL: "http://localhost:8000"
         run: |
           # Run advanced search tests
-          python -m pytest tests/test_advanced_search.py -v --tb=short --timeout=30
+          python -m pytest tests/test_advanced_search.py -v --tb=short
 
       - name: Run Locust Performance Tests
         env:

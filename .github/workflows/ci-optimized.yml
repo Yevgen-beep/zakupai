@@ -118,6 +118,7 @@ jobs:
         run: cp bot/.env.example bot/.env
       - name: Apply bootstrap schema
         run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
           docker compose up -d db
           timeout 60 bash -c "until docker compose exec db pg_isready -U postgres >/dev/null 2>&1; do sleep 2; done"
           for script in db/init/*.sql; do
@@ -132,13 +133,19 @@ jobs:
           restore-keys: docker-db-${{ runner.os }}-
 
       - name: Start database
-        run: docker compose up -d db
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose up -d db
 
       - name: Wait for database
-        run: timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
 
       - name: Run migrations
-        run: docker compose run --rm migrator
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose run --rm migrator
 
       - name: Export database state
         run: |
