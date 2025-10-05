@@ -945,6 +945,8 @@ class Supplier(BaseModel):
     contacts: str
     link: str
     location: str | None = None
+
+
 async def get_lot_info(lot_id: int) -> dict:
     """Get basic lot information"""
     try:

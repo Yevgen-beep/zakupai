@@ -1,6 +1,6 @@
+---
 skips:
-  - B101
-
+  - B101  # allow asserts in tests
 exclude:
   - .venv
   - venv

@@ -37,7 +37,10 @@ jobs:
         run: black --check .
 
       - name: Bandit (security check)
-        run: bandit -c .bandit -r services/ libs/ bot/ web/ scripts/ tests/ *.py
+        run: |
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py
 
   compose_sanity:
     runs-on: ubuntu-latest
@@ -48,7 +51,9 @@ jobs:
       - name: Prepare bot .env
         run: cp bot/.env.example bot/.env
       - name: Docker Compose config
-        run: docker compose config -q
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose config -q
 
   build:
     runs-on: ubuntu-latest
@@ -162,7 +167,10 @@ jobs:
           black --check .
           isort --check-only .
       - name: Run security checks
-        run: bandit -c .bandit -r services/ libs/ bot/ web/ scripts/ tests/ *.py
+        run: |
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py
       - name: Run tests
         run: pytest -q --cov=services --cov=libs --cov-report=term --disable-warnings
 
@@ -598,6 +606,7 @@ jobs:
         continue-on-error: true
         run: |
           bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
             -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
             --severity-level medium \
             -f sarif -o bandit.sarif
@@ -682,7 +691,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary jinja2
           pip install redis pandas chromadb httpx structlog pydantic apscheduler prometheus-fastapi-instrumentator
-          pip install pytest pytest-timeout pytest-asyncio pytest-mock requests responses
+          pip install pytest pytest-timeout pytest-asyncio pytest-mock requests responses python-docx
           pip install python-telegram-bot aiohttp reportlab python-multipart
 
       - name: Set up test environment

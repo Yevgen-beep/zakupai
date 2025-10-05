@@ -56,6 +56,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install bandit[sarif]
           bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
             -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
             --severity-level medium \
             -f sarif -o bandit.sarif
@@ -70,7 +71,7 @@ jobs:
         if: matrix.check == 'compose-config'
         run: |
           cp .env.example .env
-          cp bot/.env.example bot/.env
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
           docker compose config -q
 
   # Оптимизированная сборка с улучшенным кешированием

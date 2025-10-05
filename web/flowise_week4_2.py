@@ -31,9 +31,7 @@ class ComplaintRequest(BaseModel):
     """Request model for complaint generation with enhanced validation"""
 
     reason: str = Field(..., description="Complaint reason")
-    date: str | None = Field(
-        None, description="Complaint date (ISO format YYYY-MM-DD)"
-    )
+    date: str | None = Field(None, description="Complaint date (ISO format YYYY-MM-DD)")
 
     @field_validator("reason")
     @classmethod

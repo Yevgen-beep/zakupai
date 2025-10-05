@@ -29,5 +29,13 @@ repos:
     rev: 1.8.6
     hooks:
       - id: bandit
-        args: ["-c", ".bandit", "-r", "."]
+        args:
+          [
+            "-c",
+            ".bandit",
+            "-x",
+            ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git",
+            "-r",
+            ".",
+          ]
         exclude: ^(\.venv/|build/|dist/|\.eggs/|\.tox/)
