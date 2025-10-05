@@ -35,6 +35,7 @@ CREATE TABLE subjects (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE subjects OWNER TO zakupai;
 
 -- Торговые процедуры/объявления о закупках
 CREATE TABLE trdbuy (
@@ -51,6 +52,7 @@ CREATE TABLE trdbuy (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (customerBin) REFERENCES subjects(bin) ON DELETE SET NULL
 );
+ALTER TABLE trdbuy OWNER TO zakupai;
 
 -- Лоты
 CREATE TABLE lots (
@@ -64,6 +66,7 @@ CREATE TABLE lots (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (trdBuyId) REFERENCES trdbuy(id) ON DELETE CASCADE
 );
+ALTER TABLE lots OWNER TO zakupai;
 
 -- Контракты
 CREATE TABLE contracts (
@@ -80,6 +83,7 @@ CREATE TABLE contracts (
     FOREIGN KEY (trdBuyId) REFERENCES trdbuy(id) ON DELETE CASCADE,
     FOREIGN KEY (supplierBin) REFERENCES subjects(bin) ON DELETE SET NULL
 );
+ALTER TABLE contracts OWNER TO zakupai;
 
 -- Реестр недобросовестных участников
 CREATE TABLE rnu (
@@ -92,6 +96,7 @@ CREATE TABLE rnu (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (bin) REFERENCES subjects(bin) ON DELETE CASCADE
 );
+ALTER TABLE rnu OWNER TO zakupai;
 
 -- 6. Создание индексов
 CREATE INDEX idx_subjects_bin ON subjects(bin) WHERE bin IS NOT NULL;
