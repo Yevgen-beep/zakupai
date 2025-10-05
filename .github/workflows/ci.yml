@@ -43,6 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - name: Docker Compose config
         run: docker compose config -q
 
@@ -50,9 +52,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: precommit
     concurrency:
-      group: ci-build-${{ github.ref }}
+      group: ci-build-${{ github.ref }}-${{ matrix.svc }}
       cancel-in-progress: true
     strategy:
+      fail-fast: false
       matrix:
         svc: ["calc-service", "risk-engine", "doc-service", "embedding-api", "etl-service"]
     steps:
@@ -95,11 +98,16 @@ jobs:
     needs: precommit
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - name: Start database
         run: docker compose up -d db
+      - name: Wait for database
+        run: timeout 60 bash -c 'until docker compose exec db pg_isready -U zakupai; do sleep 2; done'
       - name: Run migrations
         run: docker compose run --rm migrator
       - name: Stop containers
+        if: always()
         run: docker compose down
 
   pytest:
@@ -198,6 +206,8 @@ jobs:
         service: [calc, risk, doc, emb]
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - name: Start db
         run: docker compose up -d db
       - name: Start ${{ matrix.service }} service
@@ -225,6 +235,8 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -266,6 +278,8 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -323,6 +337,8 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -373,6 +389,8 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -446,6 +464,8 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -569,6 +589,8 @@ jobs:
   # Week 4.1: Integration tests for Web UI enhancements
   priority4-integration:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]

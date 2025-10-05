@@ -68,7 +68,9 @@ jobs:
 
       - name: Validate Docker Compose
         if: matrix.check == 'compose-config'
-        run: docker compose config -q
+        run: |
+          cp .env.example .env
+          docker compose config -q
 
   # Оптимизированная сборка с улучшенным кешированием
   build-services:
@@ -107,6 +109,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create .env from example
+        run: cp .env.example .env
 
       - name: Cache Docker layers
         uses: actions/cache@v4
