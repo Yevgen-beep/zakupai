@@ -115,6 +115,13 @@ jobs:
         run: cp .env.example .env
       - name: Prepare bot .env
         run: cp bot/.env.example bot/.env
+      - name: Apply bootstrap schema
+        run: |
+          docker compose up -d db
+          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          for script in db/init/*.sql; do
+            docker compose exec -T db psql -U postgres -d zakupai -f "$script" || exit 1
+          done
 
       - name: Cache Docker layers
         uses: actions/cache@v4
