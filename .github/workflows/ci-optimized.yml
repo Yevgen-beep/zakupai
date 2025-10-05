@@ -70,6 +70,7 @@ jobs:
         if: matrix.check == 'compose-config'
         run: |
           cp .env.example .env
+          cp bot/.env.example bot/.env
           docker compose config -q
 
   # Оптимизированная сборка с улучшенным кешированием
@@ -112,6 +113,8 @@ jobs:
 
       - name: Create .env from example
         run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
 
       - name: Cache Docker layers
         uses: actions/cache@v4
@@ -246,7 +249,7 @@ jobs:
           case "${{ matrix.test-suite.name }}" in
             unit-tests)
               find services -name requirements.txt -exec pip install -r {} \;
-              pip install pytest
+              pip install pytest pytest-timeout
               ;;
             etl-*)
               cd services/etl-service && pip install -r requirements.txt
@@ -258,7 +261,7 @@ jobs:
               ;;
             web*)
               cd web && pip install -r requirements.txt
-              pip install pytest pytest-asyncio httpx reportlab
+              pip install pytest pytest-timeout pytest-asyncio httpx reportlab
               ;;
           esac
 
