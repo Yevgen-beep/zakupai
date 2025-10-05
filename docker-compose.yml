@@ -109,6 +109,7 @@ services:
       dockerfile: Dockerfile.migration
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+      - DB_URL=${DATABASE_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
     volumes:
       - .:/app
     depends_on:
@@ -116,6 +117,7 @@ services:
         condition: service_healthy
     networks:
       - zakupai-network
+    command: alembic -c db/alembic.ini upgrade head
 
   chromadb:
     image: chromadb/chroma:latest
