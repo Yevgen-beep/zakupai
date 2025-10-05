@@ -3,14 +3,15 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Установка зависимостей
-COPY requirements.txt .
+COPY services/goszakup-api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy shared libraries
+COPY libs/zakupai_common /app/libs/zakupai_common
+RUN pip install --no-cache-dir /app/libs/zakupai_common
+
 # Копирование кода
-COPY . .
-# Копируем общую библиотеку из дополнительного контекста libs
-COPY --from=libs /zakupai_common /app/libs/zakupai_common
-RUN pip install /app/libs/zakupai_common
+COPY services/goszakup-api/ .
 ENV PYTHONPATH=/app:/app/libs:${PYTHONPATH}
 
 EXPOSE 8001

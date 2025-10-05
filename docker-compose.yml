@@ -22,10 +22,8 @@ services:
 
   embedding-api:
     build:
-      context: ./services/embedding-api
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: services/embedding-api/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/embedding-api:${TAG:-stage5}
@@ -45,10 +43,8 @@ services:
 
   calc-service:
     build:
-      context: ./services/calc-service
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: services/calc-service/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/calc-service:${TAG:-stage5}
@@ -66,10 +62,8 @@ services:
 
   risk-engine:
     build:
-      context: ./services/risk-engine
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: services/risk-engine/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/risk-engine:${TAG:-stage5}
@@ -92,9 +86,8 @@ services:
 
   doc-service:
     build:
-      context: ./services/doc-service
-      additional_contexts:
-        - libs=./libs
+      context: .
+      dockerfile: services/doc-service/Dockerfile
     container_name: zakupai-doc-service
     ports:
       - "7003:8000"
@@ -126,9 +119,8 @@ services:
 
   goszakup-api:
     build:
-      context: ./services/goszakup-api
-      additional_contexts:
-        - libs=./libs
+      context: .
+      dockerfile: services/goszakup-api/Dockerfile
     container_name: zakupai-goszakup-api
     ports:
       - "7005:8001"
@@ -154,10 +146,8 @@ services:
 
   etl-service:
     build:
-      context: ./services/etl-service
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
+      context: .
+      dockerfile: services/etl-service/Dockerfile
       args:
         - TAG=${TAG:-stage5}
     image: zakupai/etl-service:${TAG:-stage5}

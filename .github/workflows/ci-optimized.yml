@@ -54,8 +54,11 @@ jobs:
         if: matrix.check == 'security'
         run: |
           python -m pip install --upgrade pip
-          pip install bandit
-          bandit -q -r services -f sarif -o bandit.sarif
+          pip install bandit[sarif]
+          bandit -c .bandit \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+            --severity-level medium \
+            -f sarif -o bandit.sarif
 
       - name: Upload SARIF
         if: matrix.check == 'security'
@@ -82,7 +85,8 @@ jobs:
       - name: Build and cache ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
-          context: ./services/${{ matrix.service }}
+          context: .
+          file: ./services/${{ matrix.service }}/Dockerfile
           push: false
           cache-from: |
             type=gha,scope=${{ matrix.service }}
