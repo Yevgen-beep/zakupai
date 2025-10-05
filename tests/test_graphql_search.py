@@ -14,9 +14,7 @@ sys.path.append(str(Path(__file__).parent.parent / "bot"))
 
 from search.graphql_v2_client import GraphQLV2Client, LotResult
 
-TEST_GRAPHQL_TOKEN = os.getenv(
-    "GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token"
-)  # nosec B105
+TEST_GRAPHQL_TOKEN = os.getenv("GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token")  # nosec B105
 
 
 class TestGraphQLV2Client(unittest.IsolatedAsyncioTestCase):

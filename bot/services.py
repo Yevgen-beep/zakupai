@@ -389,7 +389,9 @@ def format_lot_analysis(analysis: LotAnalysisResult) -> str:
         risk_emoji = (
             "🟢"
             if analysis.risk.level == "low"
-            else "🟡" if analysis.risk.level == "medium" else "🔴"
+            else "🟡"
+            if analysis.risk.level == "medium"
+            else "🔴"
         )
         text += f"{risk_emoji} <b>Риск: {analysis.risk.level.upper()}</b> ({analysis.risk.score:.2f})\n"
         if analysis.risk.explanation:

@@ -40,9 +40,9 @@ class TestPriority1Integration:
                 async with session.get(
                     url, timeout=aiohttp.ClientTimeout(total=10)
                 ) as resp:
-                    assert (
-                        resp.status == 200
-                    ), f"{name} health check failed with status {resp.status}"
+                    assert resp.status == 200, (
+                        f"{name} health check failed with status {resp.status}"
+                    )
 
                     try:
                         data = await resp.json()
@@ -67,9 +67,9 @@ class TestPriority1Integration:
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
-                assert (
-                    resp.status == 200
-                ), f"GraphQL search failed with status {resp.status}"
+                assert resp.status == 200, (
+                    f"GraphQL search failed with status {resp.status}"
+                )
 
                 data = await resp.json()
                 api_used = data.get("api_used", "unknown")
@@ -93,9 +93,9 @@ class TestPriority1Integration:
                 params=params,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
-                assert (
-                    resp.status == 200
-                ), f"REST search failed with status {resp.status}"
+                assert resp.status == 200, (
+                    f"REST search failed with status {resp.status}"
+                )
 
                 data = await resp.json()
                 api_used = data.get("api_used", "unknown")
@@ -118,9 +118,9 @@ class TestPriority1Integration:
                 f"{self.chromadb_url}/api/v2/heartbeat",
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
-                assert (
-                    resp.status == 200
-                ), f"ChromaDB heartbeat failed with status {resp.status}"
+                assert resp.status == 200, (
+                    f"ChromaDB heartbeat failed with status {resp.status}"
+                )
 
                 try:
                     data = await resp.json()
@@ -136,9 +136,9 @@ class TestPriority1Integration:
                 f"{self.embedding_url}/chroma/collections",
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
-                assert (
-                    resp.status == 200
-                ), f"Collections endpoint failed with status {resp.status}"
+                assert resp.status == 200, (
+                    f"Collections endpoint failed with status {resp.status}"
+                )
 
                 data = await resp.json()
                 count = data.get("count", 0)
@@ -170,9 +170,9 @@ class TestPriority1Integration:
                 json=test_document,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                assert (
-                    resp.status == 200
-                ), f"Document indexing failed with status {resp.status}"
+                assert resp.status == 200, (
+                    f"Document indexing failed with status {resp.status}"
+                )
                 log("✅ Document indexing: OK")
 
             # Step 2: Search for the indexed document
@@ -187,9 +187,9 @@ class TestPriority1Integration:
                 json=search_query,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                assert (
-                    resp.status == 200
-                ), f"Semantic search failed with status {resp.status}"
+                assert resp.status == 200, (
+                    f"Semantic search failed with status {resp.status}"
+                )
 
                 data = await resp.json()
                 total_found = data.get("total_found", 0)

@@ -668,7 +668,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary
-          pip install redis pandas chromadb httpx structlog pydantic apscheduler
+          pip install redis pandas chromadb httpx structlog pydantic apscheduler prometheus-fastapi-instrumentator
           pip install pytest pytest-timeout pytest-asyncio pytest-mock requests
           pip install python-telegram-bot aiohttp reportlab python-multipart
 
@@ -856,7 +856,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary
-          pip install redis pandas httpx structlog pydantic python-multipart apscheduler
+          pip install redis pandas httpx structlog pydantic python-multipart apscheduler prometheus-fastapi-instrumentator
           pip install reportlab python-docx aiofiles
           pip install locust pytest pytest-timeout pytest-asyncio
           pip install prometheus-client

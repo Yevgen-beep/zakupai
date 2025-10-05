@@ -794,7 +794,9 @@ def format_search_results_v2(
             source_emoji = (
                 "🚀"
                 if lot["source"] == "graphql_v2"
-                else "🔄" if lot["source"] == "graphql_v3" else "📡"
+                else "🔄"
+                if lot["source"] == "graphql_v3"
+                else "📡"
             )
             text += f"{source_emoji} Источник: {lot['source']}\n"
 

@@ -84,9 +84,7 @@ def mock_goszakup_lot(lot_id: str):
         {
             "id": lot_id,
             "title": f"Тестовый лот #{lot_id}",
-            "price": random.randint(
-                500000, 3000000
-            ),  # nosec B311 - mock price generation
+            "price": random.randint(500000, 3000000),  # nosec B311 - mock price generation
             "customer": "Тестовый заказчик",
             "deadline": (datetime.now() + timedelta(days=30)).isoformat(),
             "status": "active",
@@ -144,9 +142,7 @@ def mock_risk_data(lot_id: str):
 
 def mock_margin_data(lot_price: float):
     """Generate mock margin calculation"""
-    cost_price = lot_price * random.uniform(
-        0.7, 0.9
-    )  # nosec B311 - mock margin calculation
+    cost_price = lot_price * random.uniform(0.7, 0.9)  # nosec B311 - mock margin calculation
     profit = lot_price - cost_price
     margin_percentage = (profit / lot_price) * 100
 

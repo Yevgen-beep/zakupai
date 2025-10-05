@@ -33,9 +33,7 @@ from goszakup_client_v3 import (
     with_retry,
 )
 
-TEST_API_TOKEN = os.getenv(
-    "GOSZAKUP_V3_TEST_TOKEN", "dummy-token-for-tests"
-)  # nosec B105
+TEST_API_TOKEN = os.getenv("GOSZAKUP_V3_TEST_TOKEN", "dummy-token-for-tests")  # nosec B105
 
 
 @pytest.fixture
