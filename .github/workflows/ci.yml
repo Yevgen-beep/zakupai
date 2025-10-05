@@ -106,6 +106,13 @@ jobs:
         run: cp bot/.env.example bot/.env
       - name: Start database
         run: docker compose up -d db
+      - name: Ensure table ownership for migrator
+        run: |
+          tables=(subjects trdbuy lots contracts rnu)
+          for table in "${tables[@]}"; do
+            docker compose exec -T db psql -U postgres -d zakupai \
+              -c "ALTER TABLE IF EXISTS $table OWNER TO zakupai;" || true
+          done
       - name: Wait for database
         run: timeout 60 bash -c 'until docker compose exec db pg_isready -U zakupai; do sleep 2; done'
       - name: Run migrations
