@@ -21,8 +21,12 @@ from search.search_service import (
     search_lots_for_telegram,
 )
 
-TEST_GRAPHQL_V2_TOKEN = os.getenv("GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token")  # nosec B105
-TEST_REST_V3_TOKEN = os.getenv("GOSZAKUP_V3_TEST_TOKEN", "dummy-rest-token")  # nosec B105
+TEST_GRAPHQL_V2_TOKEN = os.getenv(
+    "GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token"
+)  # nosec B105
+TEST_REST_V3_TOKEN = os.getenv(
+    "GOSZAKUP_V3_TEST_TOKEN", "dummy-rest-token"
+)  # nosec B105
 
 
 class TestFallbackLogic(unittest.IsolatedAsyncioTestCase):

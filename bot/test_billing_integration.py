@@ -101,9 +101,9 @@ class TestBillingIntegration:
 
         for message_text, expected_endpoint in test_cases:
             result = get_command_endpoint(message_text)
-            assert result == expected_endpoint, (
-                f"Expected {expected_endpoint} for {message_text}, got {result}"
-            )
+            assert (
+                result == expected_endpoint
+            ), f"Expected {expected_endpoint} for {message_text}, got {result}"
 
     def test_validate_and_log_decorator_exists(self):
         """Тест что декоратор validate_and_log_bot существует в main.py"""

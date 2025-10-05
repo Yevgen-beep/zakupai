@@ -103,6 +103,20 @@ services:
       - ai-network
     restart: unless-stopped
 
+  migrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.migration
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://zakupai:zakupai@db:5432/zakupai}
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+
   chromadb:
     image: chromadb/chroma:latest
     container_name: zakupai-chromadb

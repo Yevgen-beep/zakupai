@@ -44,6 +44,6 @@ def test_audit_log_created():
         cur.execute("SELECT COUNT(*) FROM audit_logs WHERE service = 'risk-engine'")
         count_after = cur.fetchone()[0]
 
-    assert count_after == count_before + 1, (
-        f"Expected audit log count to increase by 1, got {count_after} vs {count_before}"
-    )
+    assert (
+        count_after == count_before + 1
+    ), f"Expected audit log count to increase by 1, got {count_after} vs {count_before}"
