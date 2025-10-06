@@ -181,8 +181,12 @@ class ExportMixin:
             for cell in column:
                 try:
                     max_length = max(max_length, len(str(cell.value)))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to calculate width for column %s: %s",
+                        column_letter,
+                        exc,
+                    )
             adjusted_width = min(max_length + 2, 50)
             worksheet.column_dimensions[column_letter].width = adjusted_width
 

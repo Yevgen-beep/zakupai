@@ -1,0 +1,49 @@
+services:
+  grafana:
+    environment:
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/overview/zakupai-overview.json
+    ports:
+      - "3030:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+
+  loki:
+    ports:
+      - "3100:3100"
+
+  alertmanager-bot:
+    image: metalmatze/alertmanager-bot:0.4.3
+    container_name: zakupai-alertmanager-bot-stage6
+    env_file:
+      - .env
+    command:
+      - --alertmanager.url=http://alertmanager:9093
+      - --store=bolt
+      - --bolt.path=/data/bot.db
+      - --template.paths=/templates/default.tmpl
+      - --telegram.token=${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN}
+      - --telegram.admin=${TELEGRAM_ADMIN_ID:?set TELEGRAM_ADMIN_ID}
+      - --log.level=info
+    volumes:
+      - ./monitoring/alertmanager-bot:/data
+      - ./monitoring/templates:/templates
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.2
+    container_name: zakupai-nginx-exporter-stage6
+    command:
+      - -nginx.scrape-uri=http://gateway:80/stub_status
+    depends_on:
+      - gateway
+    networks:
+      - zakupai-network
+    ports:
+      - "9113:9113"
+    restart: unless-stopped
+
+networks:
+  zakupai-network:
+    external: false

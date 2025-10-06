@@ -54,8 +54,12 @@ jobs:
         if: matrix.check == 'security'
         run: |
           python -m pip install --upgrade pip
-          pip install bandit
-          bandit -q -r services -f sarif -o bandit.sarif
+          pip install bandit[sarif]
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+            --severity-level medium \
+            -f sarif -o bandit.sarif
 
       - name: Upload SARIF
         if: matrix.check == 'security'
@@ -65,7 +69,10 @@ jobs:
 
       - name: Validate Docker Compose
         if: matrix.check == 'compose-config'
-        run: docker compose config -q
+        run: |
+          cp .env.example .env
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose config -q
 
   # Оптимизированная сборка с улучшенным кешированием
   build-services:
@@ -82,7 +89,8 @@ jobs:
       - name: Build and cache ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
-          context: ./services/${{ matrix.service }}
+          context: .
+          file: ./services/${{ matrix.service }}/Dockerfile
           push: false
           cache-from: |
             type=gha,scope=${{ matrix.service }}
@@ -104,6 +112,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - name: Apply bootstrap schema
+        run: |
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          DB_NAME=$(grep -m1 '^POSTGRES_DB=' .env | cut -d'=' -f2-)
+          DB_NAME=${DB_NAME:-zakupai}
+
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose up -d db
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"
+          for script in db/init/*.sql; do
+            cat "$script" | docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 || exit 1
+          done
+
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
@@ -112,13 +139,22 @@ jobs:
           restore-keys: docker-db-${{ runner.os }}-
 
       - name: Start database
-        run: docker compose up -d db
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose up -d db
 
       - name: Wait for database
-        run: timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
 
       - name: Run migrations
-        run: docker compose run --rm migrator
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose run --rm migrator
 
       - name: Export database state
         run: |
@@ -208,8 +244,12 @@ jobs:
 
       - name: Restore database state
         run: |
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+
           docker compose up -d db
-          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
           docker compose exec -T db psql -U zakupai -d zakupai < /tmp/migrated-db.sql || true
 
       - name: Start required services
@@ -237,7 +277,7 @@ jobs:
           case "${{ matrix.test-suite.name }}" in
             unit-tests)
               find services -name requirements.txt -exec pip install -r {} \;
-              pip install pytest
+              pip install pytest pytest-timeout responses
               ;;
             etl-*)
               cd services/etl-service && pip install -r requirements.txt
@@ -249,7 +289,7 @@ jobs:
               ;;
             web*)
               cd web && pip install -r requirements.txt
-              pip install pytest pytest-asyncio httpx reportlab
+              pip install pytest pytest-timeout pytest-asyncio httpx reportlab responses
               ;;
           esac
 
@@ -325,8 +365,12 @@ jobs:
 
       - name: Start services
         run: |
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+
           docker compose up -d db
-          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
           docker compose exec -T db psql -U zakupai -d zakupai < /tmp/migrated-db.sql || true
 
           case "${{ matrix.service }}" in

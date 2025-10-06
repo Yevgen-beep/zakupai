@@ -5,11 +5,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY bot/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip && \
     pip install --prefer-binary --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy shared libraries
+COPY libs/zakupai_common /app/libs/zakupai_common
+RUN pip install --no-cache-dir /app/libs/zakupai_common
+
+# Copy application code
+COPY bot/ .
 
 CMD ["python","/app/main.py"]

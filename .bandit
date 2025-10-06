@@ -1,3 +1,12 @@
-[bandit]
-skips = B101
-exclude_dirs = tests,**/test_*.py,web/test_*.py
+---
+skips:
+  - B101  # allow asserts in tests
+exclude:
+  - .venv
+  - venv
+  - build
+  - dist
+  - migrations
+  - __pycache__
+  - node_modules
+  - .git

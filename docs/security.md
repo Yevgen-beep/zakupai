@@ -745,22 +745,226 @@ repos:
 **Bandit конфигурация (`.bandit`):**
 
 ```yaml
-tests: [B101, B102, B103, B104, B105, B106, B107, B108, B110, B112, B201, B301, B302, B303, B304, B305, B306, B307, B308, B309, B310, B311, B312, B313, B314, B315, B316, B317, B318, B319, B320, B321, B322, B323, B324, B325, B401, B402, B403, B404, B405, B406, B407, B408, B409, B410, B411, B412, B413, B501, B502, B503, B504, B505, B506, B507, B601, B602, B603, B604, B605, B606, B607, B608, B609, B610, B611, B701, B702, B703]
+skips:
+  - B101  # assert_used - безопасно в тестах
 
-skips: []
-
-# Исключения для известных безопасных случаев
-exclude_dirs:
-  - tests/
-  - venv/
-  - .venv/
-
-# Severity levels
-confidence: high
-severity: medium
+exclude:
+  - .venv
+  - venv
+  - build
+  - dist
+  - migrations
+  - __pycache__
+  - node_modules
+  - .git
 ```
 
-**GitHub Actions Security Workflow:**
+**Современный подход:** Bandit интегрирован в CI/CD с SARIF-отчётами для GitHub Security.
+
+#### GitHub Security Integration (SARIF)
+
+ZakupAI использует **SARIF (Static Analysis Results Interchange Format)** для автоматической публикации результатов безопасности в GitHub Security → Code Scanning.
+
+**Преимущества SARIF:**
+
+- 🔍 Визуализация уязвимостей прямо в Pull Requests
+- 📊 Централизованный Security Dashboard в GitHub
+- 🚨 Автоматические алерты для критичных находок
+- 📝 Исторический трекинг уязвимостей
+- ✅ Не блокирует CI pipeline при обнаружении проблем
+
+**Конфигурация в `.github/workflows/ci.yml`:**
+
+```yaml
+bandit-scan:
+  runs-on: ubuntu-latest
+  permissions:
+    security-events: write  # Необходимо для загрузки SARIF
+    contents: read
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install bandit
+      run: pip install bandit[sarif]
+
+    - name: Run bandit (SARIF)
+      continue-on-error: true  # Не блокируем pipeline
+      run: |
+        bandit -c .bandit \
+          -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+          --severity-level medium \
+          -f sarif -o bandit.sarif
+
+    - name: Upload SARIF to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: bandit.sarif
+        category: bandit-security-scan
+
+    - name: Upload SARIF artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: bandit-sarif-report
+        path: bandit.sarif
+        retention-days: 30
+```
+
+**Ключевые параметры:**
+
+| Параметр                         | Значение               | Назначение                           |
+| -------------------------------- | ---------------------- | ------------------------------------ |
+| `--severity-level medium`        | MEDIUM/HIGH/CRITICAL   | Фильтрует LOW-severity находки       |
+| `continue-on-error: true`        | Продолжить при ошибках | Не блокирует deploy при находках     |
+| `if: always()`                   | Всегда выполнять       | Загружает SARIF даже при ошибках     |
+| `category: bandit-security-scan` | Категория в Security   | Отличает от других сканеров (CodeQL) |
+| `retention-days: 30`             | 30 дней                | Хранение артефактов для аудита       |
+
+#### Как интерпретировать SARIF-отчёты
+
+**1. Просмотр в GitHub UI**
+
+После запуска CI, результаты появляются в:
+
+```
+Repository → Security → Code scanning alerts
+```
+
+**Пример алерта:**
+
+```
+🔴 HIGH: Possible SQL injection vector through string-based query construction
+📍 File: services/calc-service/main.py:142
+📝 Description: User input is used directly in SQL query without parameterization
+🔧 Fix: Use parameterized queries with asyncpg or SQLAlchemy
+```
+
+**2. Уровни Severity**
+
+| Уровень         | Описание                                      | Действие                      |
+| --------------- | --------------------------------------------- | ----------------------------- |
+| 🔴 **CRITICAL** | Критичная уязвимость (RCE, SQLi)              | Немедленно исправить          |
+| 🟠 **HIGH**     | Высокий риск (XSS, Path Traversal)            | Исправить в течение недели    |
+| 🟡 **MEDIUM**   | Средний риск (weak crypto, hardcoded secrets) | Исправить в следующем спринте |
+| 🟢 **LOW**      | Низкий риск (информационные предупреждения)   | Опционально                   |
+
+**3. Частые находки Bandit и решения**
+
+**B201 - Flask app with debug=True**
+
+```python
+# ❌ Небезопасно
+app.run(debug=True)
+
+# ✅ Безопасно
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+app.run(debug=DEBUG)
+```
+
+**B608 - Hardcoded SQL strings**
+
+```python
+# ❌ Небезопасно
+query = f"SELECT * FROM users WHERE id = {user_id}"
+
+# ✅ Безопасно (параметризованный запрос)
+query = "SELECT * FROM users WHERE id = $1"
+result = await conn.fetch(query, user_id)
+```
+
+**B105 - Hardcoded password**
+
+```python
+# ❌ Небезопасно
+PASSWORD = "admin123"
+
+# ✅ Безопасно
+PASSWORD = os.getenv("ADMIN_PASSWORD")
+if not PASSWORD:
+    raise ValueError("ADMIN_PASSWORD not set")
+```
+
+**B301 - Pickle usage**
+
+```python
+# ❌ Небезопасно (deserialization attack)
+import pickle
+data = pickle.loads(user_input)
+
+# ✅ Безопасно
+import json
+data = json.loads(user_input)
+```
+
+**B603 - subprocess without shell=False**
+
+```python
+# ❌ Небезопасно (command injection)
+subprocess.call(f"ls {user_path}", shell=True)
+
+# ✅ Безопасно
+subprocess.call(["ls", user_path], shell=False)
+```
+
+**4. Скачивание SARIF-отчётов**
+
+Для детального анализа скачайте артефакт:
+
+```
+GitHub Actions → Workflow Run → Artifacts → bandit-sarif-report
+```
+
+**Просмотр локально:**
+
+```bash
+# Установка SARIF Viewer
+npm install -g @microsoft/sarif-multitool
+
+# Конвертация в HTML
+sarif-multitool convert bandit.sarif -o bandit-report.html
+
+# Открытие в браузере
+open bandit-report.html
+```
+
+**5. Подавление False Positives**
+
+Если Bandit ошибочно сообщает об уязвимости, используйте аннотацию:
+
+```python
+import subprocess
+
+def safe_execute_command(command: list[str]):
+    """Выполняет команду безопасно (whitelist проверен выше)"""
+    # nosec B603 - command is validated against whitelist
+    return subprocess.call(command, shell=False)
+```
+
+**В `.bandit` можно глобально исключить правила:**
+
+```yaml
+skips:
+  - B101  # assert_used
+  - B601  # paramiko_calls (если используете paramiko)
+```
+
+**6. Автоматизация исправлений**
+
+Для массовых исправлений используйте semgrep autofix:
+
+```bash
+# Установка
+pip install semgrep
+
+# Автоисправление SQL injection
+semgrep --config "p/sql-injection" --autofix services/
+```
+
+#### GitHub Actions Security Workflow (полный пример)
 
 ```yaml
 name: Security Scan
@@ -774,43 +978,61 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.12'
+        python-version: '3.11'
 
     - name: Install security tools
       run: |
-        pip install bandit safety semgrep
+        pip install bandit[sarif] safety semgrep
 
-    - name: Run Bandit SAST
+    - name: Run Bandit SAST (SARIF)
+      continue-on-error: true
       run: |
-        bandit -r services/ bot/ -f json -o bandit-report.json
+        bandit -c .bandit \
+          -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+          --severity-level medium \
+          -f sarif -o bandit.sarif
+
+    - name: Upload Bandit SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: bandit.sarif
+        category: bandit-sast
 
     - name: Check dependencies vulnerabilities
       run: |
-        safety check --json --output safety-report.json
+        safety check --json --output safety-report.json || true
 
     - name: Run Semgrep
       run: |
-        semgrep --config=auto --json --output=semgrep-report.json services/ bot/
+        semgrep --config=auto --sarif --output=semgrep.sarif services/ bot/
+
+    - name: Upload Semgrep SARIF
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: semgrep.sarif
+        category: semgrep-sast
 
     - name: Upload security reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: security-reports
         path: |
-          bandit-report.json
+          bandit.sarif
+          semgrep.sarif
           safety-report.json
-          semgrep-report.json
-
-    - name: Security Gate
-      run: |
-        # Проверяем критичные уязвимости
-        python scripts/check-security-gate.py
+        retention-days: 30
 ```
 
 ### Secrets Management

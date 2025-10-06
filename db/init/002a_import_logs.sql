@@ -1,19 +1,6 @@
--- Migration 012: CSV Import Logs and Price Tables
+-- Migration 012: CSV Import Logs
 -- Week 4.1: Web UI CSV import functionality
-
--- Create prices table for imported data
-CREATE TABLE IF NOT EXISTS prices (
-    id BIGSERIAL PRIMARY KEY,
-    product_name TEXT NOT NULL,
-    amount NUMERIC(20,2) NOT NULL CHECK (amount >= 0),
-    supplier_bin VARCHAR(12) NOT NULL CHECK (supplier_bin ~ '^[0-9]{12}$'),
-    imported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    -- Indexes for performance
-    INDEX idx_prices_product_name ON prices(product_name),
-    INDEX idx_prices_supplier_bin ON prices(supplier_bin),
-    INDEX idx_prices_imported_at ON prices(imported_at DESC)
-);
+-- Note: prices table already exists in 002_schema_v2.sql
 
 -- Create import logs table for tracking CSV import operations
 CREATE TABLE IF NOT EXISTS import_logs (
@@ -26,12 +13,12 @@ CREATE TABLE IF NOT EXISTS import_logs (
     error_details JSONB, -- Store row-level errors as JSON array
     file_size_mb NUMERIC(10,3),
     processing_time_ms INTEGER,
-    imported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    -- Indexes
-    INDEX idx_import_logs_status ON import_logs(status),
-    INDEX idx_import_logs_imported_at ON import_logs(imported_at DESC)
+    imported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_import_logs_status ON import_logs(status);
+CREATE INDEX IF NOT EXISTS idx_import_logs_imported_at ON import_logs(imported_at DESC);
 
 -- Create function to update import log status
 CREATE OR REPLACE FUNCTION update_import_status(
@@ -55,10 +42,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Add sample data for testing (optional)
--- INSERT INTO prices (product_name, amount, supplier_bin) VALUES
--- ('Офисная мебель', 150000, '123456789012'),
--- ('Компьютерное оборудование', 250000, '234567890123'),
--- ('Канцелярские товары', 15000, '345678901234');
-
-COMMENT ON TABLE prices IS 'Imported price data from CSV files';
+-- INSERT INTO prices (title, price, source, sku) VALUES
+-- ('Офисная мебель', 150000, 'csv', 'ITEM-001'),
+-- ('Компьютерное оборудование', 250000, 'csv', 'ITEM-002'),
+-- ('Канцелярские товары', 15000, 'csv', 'ITEM-003');
 COMMENT ON TABLE import_logs IS 'Log of CSV import operations with status and error tracking';

@@ -6,7 +6,7 @@ PYTHON_EXEC ?= python3
 DB_USER ?= ${POSTGRES_USER}
 DB_NAME ?= ${DB_NAME_OVERRIDE:-zakupai}
 
-.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test
+.PHONY: help up down restart ps logs build pull dbsh test lint fmt smoke smoke-calc smoke-risk smoke-doc smoke-emb seed gateway-up smoke-gw migrate alembic-rev alembic-stamp test-sec e2e workflows-up workflows-down setup-workflows test-priority1 chroma-up chroma-test etl-test test-priority2 webui-test stage6-up stage6-down stage6-smoke stage6-status stage6-logs stage6-monitoring-up monitoring-test monitoring-test-ci monitoring-test-keep send-test-alert
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /: /' | sort
@@ -240,3 +240,106 @@ webui-test: ## Run E2E tests for Web UI (pytest + bash script)
 	@cd web && $(PYTHON_EXEC) -m pytest test_e2e_webui.py -v
 	@echo "🔍 Running Web UI smoke tests..."
 	@bash web/test_e2e_webui.sh
+
+# =============================================================================
+# STAGE6: ЕДИНЫЙ БОЕВОЙ СТЕК (ЯДРО + МОНИТОРИНГ)
+# =============================================================================
+
+stage6-monitoring-up: ## Start Stage6 monitoring stack (with Telegram credentials validation)
+	@echo "🔐 Validating Telegram alert credentials..."
+	@bash -c '\
+		set -euo pipefail; \
+		TOKEN=$$(sed -n "s/^TELEGRAM_BOT_TOKEN=//p" .env | tail -n1); \
+		ADMIN=$$(sed -n "s/^TELEGRAM_ADMIN_ID=//p" .env | tail -n1); \
+		invalid(){ [ -z "$$1" ] || [ "$$1" = "changeme" ] || [ "$$1" = "CHANGE_IN_PRODUCTION" ]; }; \
+		if invalid "$$TOKEN" || invalid "$$ADMIN"; then \
+			echo "❌ Telegram credentials not set in .env"; \
+			exit 1; \
+		fi'
+	@echo "🚀 Starting Stage6 monitoring stack..."
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml -f docker-compose.override.stage6.monitoring.yml --profile stage6 up -d grafana prometheus alertmanager promtail loki node-exporter-stage6 cadvisor blackbox-exporter alertmanager-bot
+	@echo "✅ Stage6 monitoring stack started!"
+
+stage6-up: ## Start full Stage6 stack (core services + monitoring)
+	@echo "🚀 Starting Stage6 stack (core + monitoring)..."
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 up -d --build
+	@echo "✅ Stage6 stack started!"
+	@echo "   📊 Grafana: http://localhost:3001 (admin/admin)"
+	@echo "   📈 Prometheus: http://localhost:9090"
+	@echo "   🚨 Alertmanager: http://localhost:9093"
+	@echo "   🌐 ZakupAI Gateway: http://localhost:8080"
+	@echo "   📱 Web UI: http://localhost:8082"
+	@echo "   🔧 Node Exporter: http://localhost:19100/metrics"
+	@echo "   📊 cAdvisor: http://localhost:8081"
+
+stage6-down: ## Stop Stage6 stack
+	@echo "🛑 Stopping Stage6 stack..."
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 down
+	@echo "✅ Stage6 stack stopped!"
+
+stage6-smoke: ## Run Stage6 smoke tests
+	@echo "🧪 Running Stage6 smoke tests..."
+	@bash stage6-smoke.sh
+	@echo "✅ Stage6 smoke tests completed!"
+
+stage6-status: ## Show Stage6 services status
+	@echo "📊 Stage6 Stack Status:"
+	@echo "======================"
+	@$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 ps --format "table {{.Name}}\t{{.State}}\t{{.Status}}\t{{.Ports}}"
+
+stage6-logs: ## Show Stage6 services logs
+	@echo "📋 Stage6 Services Logs (last 50 lines):"
+	@echo "========================================"
+	@$(COMPOSE) -f docker-compose.yml -f docker-compose.override.stage6.yml --profile stage6 logs --tail=50
+
+monitoring-test: ## Run Stage6 monitoring validation tests (full stack test)
+	@bash stage6-monitoring-test.sh
+
+monitoring-test-ci: ## Run monitoring tests in CI mode (assumes stack is running)
+	@bash stage6-monitoring-test.sh --ci
+
+monitoring-test-keep: ## Run monitoring tests and keep stack running
+	@bash stage6-monitoring-test.sh --keep-up
+
+send-test-alert: ## Send synthetic test alert to Alertmanager (should appear in Telegram)
+	curl -X POST http://localhost:9093/api/v1/alerts -d '[{"labels":{"alertname":"TestAlert","severity":"critical"},"annotations":{"summary":"Bot check","description":"If you see this in Telegram — alertmanager-bot works."}}]'
+
+# =============================================================================
+# ALEMBIC MIGRATION TARGETS
+# =============================================================================
+
+mig-revision: ## Create new Alembic revision (usage: make mig-revision SERVICE=billing-service m="message")
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-revision SERVICE=billing-service m="message")
+endif
+ifndef m
+	$(error Message is required. Usage: make mig-revision SERVICE=$(SERVICE) m="your message")
+endif
+	cd services/$(SERVICE) && alembic revision -m "$(m)"
+
+mig-upgrade: ## Run Alembic upgrade to head (usage: make mig-upgrade SERVICE=billing-service)
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-upgrade SERVICE=billing-service)
+endif
+	cd services/$(SERVICE) && alembic upgrade head
+
+mig-downgrade: ## Run Alembic downgrade (usage: make mig-downgrade SERVICE=billing-service r="revision")
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-downgrade SERVICE=billing-service r="revision")
+endif
+ifndef r
+	$(error Revision is required. Usage: make mig-downgrade SERVICE=$(SERVICE) r="-1")
+endif
+	cd services/$(SERVICE) && alembic downgrade $(r)
+
+mig-stamp: ## Stamp current database as head revision (usage: make mig-stamp SERVICE=billing-service)
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-stamp SERVICE=billing-service)
+endif
+	cd services/$(SERVICE) && alembic stamp head
+
+mig-sql: ## Generate SQL for upgrade (usage: make mig-sql SERVICE=billing-service)
+ifndef SERVICE
+	$(error SERVICE is required. Usage: make mig-sql SERVICE=billing-service)
+endif
+	cd services/$(SERVICE) && alembic upgrade head --sql

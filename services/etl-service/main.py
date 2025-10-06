@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import math
 import os
 import tempfile
@@ -22,16 +23,50 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from middleware import FileSizeMiddleware
 from models import BatchUploadError, BatchUploadResponse, BatchUploadRow, ETLBatchUpload
 from PIL import Image
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from zakupai_common.audit import AuditLogger
+from starlette.responses import Response
+
+from services.common.vault_client import VaultClientError, load_kv_to_env
+from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
 from zakupai_common.fastapi.health import health_router
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.logging import setup_logging
+from zakupai_common.metrics import record_goszakup_error
 
 load_dotenv()
+
+_etl_vault_logger = logging.getLogger("etl.vault")
+
+
+def bootstrap_vault():
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+        os.environ.setdefault(
+            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
+        )
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+        load_kv_to_env(
+            "goszakup",
+            mapping={
+                "GOSZAKUP_TOKEN": "GOSZAKUP_TOKEN",
+                "GOSZAKUP_API_URL": "GOSZAKUP_API_URL",
+            },
+        )
+        _etl_vault_logger.info("Vault bootstrap success: %s", sorted(db_secret.keys()))
+    except VaultClientError as exc:
+        _etl_vault_logger.warning("Vault bootstrap skipped: %s", exc)
+    except Exception:  # pragma: no cover - defensive fallback
+        _etl_vault_logger.exception("Vault bootstrap failed")
+
+
+bootstrap_vault()
 
 # Configure logging with structlog
 structlog.configure(
@@ -48,6 +83,10 @@ structlog.configure(
 )
 
 logger = structlog.get_logger(__name__)
+
+SERVICE_NAME = "etl"
+
+audit_logger = get_audit_logger(SERVICE_NAME)
 
 # Database setup
 DATABASE_URL = os.getenv(
@@ -77,6 +116,7 @@ setup_logging("etl-service")
 # Add middleware
 app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(FileSizeMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
 
 # Constants
 MAX_FILE_SIZE_MB = 50
@@ -87,7 +127,6 @@ MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 app.include_router(health_router)
 
 # Fallback policy for goszakup API
-audit = AuditLogger()
 CACHE_FILE = "etl_cache.json"
 
 
@@ -98,12 +137,31 @@ def fetch_with_fallback(url: str, retries: int = 3, ttl: int = 86400) -> dict | 
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
-            audit.log_request("etl-service", url, str(data), f"fetch_attempt_{attempt}")
+            audit_logger.info(
+                "goszakup_fetch_success url=%s attempt=%s",
+                url,
+                attempt,
+                extra={
+                    "procurement_type": None,
+                    "compliance_flag": None,
+                    "endpoint": url,
+                },
+            )
             with open(CACHE_FILE, "w") as f:
                 json.dump({"timestamp": time.time(), "data": data}, f)
             return data
         except Exception as e:
-            audit.log_request("etl-service", url, str(e), "fetch_error")
+            record_goszakup_error(SERVICE_NAME, url, type(e).__name__)
+            audit_logger.info(
+                "goszakup_fetch_error url=%s reason=%s",
+                url,
+                type(e).__name__,
+                extra={
+                    "procurement_type": None,
+                    "compliance_flag": None,
+                    "endpoint": url,
+                },
+            )
             if attempt < retries - 1:
                 time.sleep(2**attempt)
             continue
@@ -113,10 +171,26 @@ def fetch_with_fallback(url: str, retries: int = 3, ttl: int = 86400) -> dict | 
         with open(CACHE_FILE) as f:
             cache = json.load(f)
             if time.time() - cache.get("timestamp", 0) < ttl:
-                audit.log_request("etl-service", url, "cache_hit", "fallback_success")
+                audit_logger.info(
+                    "goszakup_cache_hit url=%s",
+                    url,
+                    extra={
+                        "procurement_type": None,
+                        "compliance_flag": None,
+                        "endpoint": url,
+                    },
+                )
                 return cache.get("data")
 
-    audit.log_request("etl-service", url, "cache_miss", "fallback_fail")
+    audit_logger.info(
+        "goszakup_cache_miss url=%s",
+        url,
+        extra={
+            "procurement_type": None,
+            "compliance_flag": None,
+            "endpoint": url,
+        },
+    )
     return None
 
 
@@ -1382,3 +1456,13 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

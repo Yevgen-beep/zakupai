@@ -1,0 +1,30 @@
+[ req ]
+default_bits       = 4096
+default_md         = sha256
+prompt             = no
+distinguished_name = dn
+req_extensions     = req_ext
+
+[ dn ]
+C                  = KZ
+ST                 = Almaty
+L                  = Almaty
+O                  = ZakupAI
+OU                 = Platform
+CN                 = vault.zakupai.local
+
+[ req_ext ]
+subjectAltName     = @alt_names
+
+[ alt_names ]
+DNS.1              = vault
+DNS.2              = vault.zakupai.local
+DNS.3              = localhost
+IP.1               = 127.0.0.1
+
+[ v3_ext ]
+authorityKeyIdentifier=keyid,issuer
+basicConstraints   = CA:FALSE
+keyUsage           = digitalSignature, keyEncipherment
+extendedKeyUsage   = serverAuth
+subjectAltName     = @alt_names

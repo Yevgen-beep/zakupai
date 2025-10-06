@@ -6,6 +6,7 @@ GraphQL v2 клиент для работы с API goszakup.gov.kz
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -371,8 +372,8 @@ class GraphQLV2Client:
 # Функция для тестирования
 async def test_graphql_v2_client():
     """Тестовая функция для GraphQL v2 клиента"""
-    # Заглушка токена - нужен реальный для тестирования
-    token = "test_token"
+    # Заглушка токена - используется безопасное значение для локального тестирования
+    token = os.getenv("GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token")
 
     client = GraphQLV2Client(token)
 

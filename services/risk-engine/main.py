@@ -11,17 +11,22 @@ import psycopg2
 import yaml
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, validator
 
 # Import RNU client
 from rnu_client import RNUClient, RNUValidationError, get_rnu_client
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-from zakupai_common.audit import AuditLogger
+
+from services.common.vault_client import VaultClientError, load_kv_to_env
+from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
 from zakupai_common.fastapi.health import health_router
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.logging import setup_logging
+from zakupai_common.metrics import set_anti_dumping
 
 try:
     from typing import Annotated  # py>=3.9
@@ -57,6 +62,34 @@ logging.basicConfig(
 )
 
 log = structlog.get_logger("risk-engine")
+
+
+def bootstrap_vault():
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("DB_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("DB_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("DB_NAME", db_secret.get("POSTGRES_DB", ""))
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault(
+            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
+        )
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+        load_kv_to_env("api", mapping={"API_KEY": "API_KEY", "X_API_KEY": "X_API_KEY"})
+        log.info("vault_bootstrap_success", loaded_keys=sorted(db_secret.keys()))
+    except VaultClientError as exc:
+        log.warning("Vault bootstrap skipped: %s", exc)
+    except Exception:  # pragma: no cover - defensive fallback
+        log.exception("Vault bootstrap failed")
+
+
+bootstrap_vault()
+
+SERVICE_NAME = "risk"
+
+
+audit_logger = get_audit_logger(SERVICE_NAME)
 
 
 def _rid(x: str | None) -> str:
@@ -517,6 +550,7 @@ setup_logging("risk-engine")
 # Add middleware
 app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(AuditMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
 
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
@@ -576,6 +610,8 @@ def risk_score(req: ScoreRequest, request: Request):
 
     start_time = time.time()
     request_id = getattr(request.state, "rid", str(uuid.uuid4()))
+    lot: dict[str, Any] | None = None
+    anti_dumping_percent = 0.0
 
     log.info(
         "Risk score calculation started",
@@ -599,6 +635,15 @@ def risk_score(req: ScoreRequest, request: Request):
         flags = _compute_flags(lot, market_sum)
         score = _score(flags)
 
+        lot_price = float(lot.get("price") or 0)
+        if market_sum and market_sum > 0:
+            anti_dumping_percent = max(0.0, (market_sum - lot_price) / market_sum * 100)
+        else:
+            anti_dumping_percent = 0.0
+
+        set_anti_dumping(SERVICE_NAME, str(req.lot_id), anti_dumping_percent)
+        flags["anti_dumping_percent"] = round(anti_dumping_percent, 2)
+
         explain = {
             "weights": WEIGHTS,
             "thresholds": TH,
@@ -620,7 +665,7 @@ def risk_score(req: ScoreRequest, request: Request):
             request_id=request_id,
         )
 
-        return {
+        result = {
             "lot_id": req.lot_id,
             "score": score,
             "flags": flags,
@@ -641,13 +686,18 @@ def risk_score(req: ScoreRequest, request: Request):
             request_id=request_id,
         )
         raise HTTPException(500, "Internal server error") from e
-
-    # Audit logging for AI/ML requests
-    audit = AuditLogger()
-    customer_bin = lot.get("customer_bin", "unknown")
-    input_data = f"lot={req.lot_id},bin={customer_bin}"
-    output_data = f"score={score}"
-    audit.log_request("risk-engine", input_data, output_data)
+    else:
+        compliance_flag = "anti_dumping" if anti_dumping_percent > 15 else None
+        audit_logger.info(
+            "risk_score",
+            extra={
+                "lot_id": str(req.lot_id),
+                "anti_dumping_percent": round(anti_dumping_percent, 2),
+                "procurement_type": lot.get("procurement_type") if lot else None,
+                "compliance_flag": compliance_flag,
+            },
+        )
+        return result
 
 
 # ---------- RNU Validation Models ----------
@@ -945,3 +995,8 @@ async def get_user_rnu_subscriptions(user_id: int):
     except Exception as e:
         log.error(f"Error getting RNU subscriptions: {e}")
         raise HTTPException(500, "Internal server error") from e
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

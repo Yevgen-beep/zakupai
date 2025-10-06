@@ -8,9 +8,9 @@ from unittest.mock import patch
 import pytest
 
 # Устанавливаем тестовые переменные окружения перед импортом
-os.environ["TELEGRAM_BOT_TOKEN"] = (
-    "1234567890:AABBCCDDEEFFaabbccddeeff123456789"  # Валидный формат токена
-)
+os.environ["TELEGRAM_BOT_TOKEN"] = os.getenv(
+    "TEST_TELEGRAM_BOT_TOKEN", "dummy-telegram-token"
+)  # nosec B105
 os.environ["ZAKUPAI_API_URL"] = "http://localhost:8080"
 os.environ["ZAKUPAI_API_KEY"] = "test_key"
 

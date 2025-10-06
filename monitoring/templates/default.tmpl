@@ -1,0 +1,12 @@
+{{ define "default.message" }}
+🚨 *{{ .CommonLabels.alertname }}* ({{ .Status | toUpper }})
+
+*Service*: {{ if .CommonLabels.service }}{{ .CommonLabels.service }}{{ else }}n/a{{ end }}
+*Severity*: {{ if .CommonLabels.severity }}{{ .CommonLabels.severity }}{{ else }}n/a{{ end }}
+*Summary*: {{ if .CommonAnnotations.summary }}{{ .CommonAnnotations.summary }}{{ else }}{{ end }}
+*Description*: {{ if .CommonAnnotations.description }}{{ .CommonAnnotations.description }}{{ else }}{{ end }}
+
+{{ range .Alerts }}- *Instance*: `{{ .Labels.instance }}` ({{ .Labels.job }})
+  *Starts*: {{ .StartsAt.Format "2006-01-02 15:04:05" }} UTC
+{{ end }}
+{{ end }}

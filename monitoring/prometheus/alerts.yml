@@ -1,56 +1,60 @@
 groups:
-  - name: zakupai_alerts
+  - name: zakupai_infrastructure
     rules:
-      - alert: ServiceDown
-        expr: up == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Service {{ $labels.instance }} is down"
-          description: "Service {{ $labels.instance }} has been down for more than 1 minute."
-
-      - alert: HighHTTPErrorRate
-        expr: rate(probe_http_status_code{code=~"5.."}[5m]) > 0
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High HTTP 5xx error rate on {{ $labels.instance }}"
-          description: "HTTP 5xx errors detected on {{ $labels.instance }} for more than 1 minute."
-
-      - alert: DatabaseDown
-        expr: probe_success{instance=~".*health.*"} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Database connection failed for {{ $labels.instance }}"
-          description: "Database health check failing for {{ $labels.instance }} for more than 1 minute."
-
       - alert: HighCPUUsage
-        expr: (1 - rate(container_cpu_usage_seconds_total{name!=""}[5m])) * 100 > 80
-        for: 2m
+        expr: (100 - avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m]) * 100)) > 80
+        for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "High CPU usage on container {{ $labels.name }}"
-          description: "Container {{ $labels.name }} CPU usage is above 80% for more than 2 minutes."
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "Average CPU usage exceeded 80% for more than 5 minutes."
 
-      - alert: HighMemoryUsage
-        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High memory usage on container {{ $labels.name }}"
-          description: "Container {{ $labels.name }} memory usage is above 90% for more than 2 minutes."
-
-      - alert: LowDiskSpace
-        expr: (1 - (node_filesystem_free_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes)) * 100 > 90
+  - name: zakupai_application
+    rules:
+      - alert: ApiErrorBurst
+        expr: sum by (service) (increase(http_requests_total{status_code=~"5.."}[1m])) >= 5
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Low disk space on {{ $labels.instance }}"
-          description: "Disk usage is above 90% on {{ $labels.instance }} {{ $labels.mountpoint }}."
+          summary: "HTTP 5xx burst on {{ $labels.service }}"
+          description: "Detected at least 5 HTTP 5xx responses within the last minute."
+
+      - alert: ServiceDown
+        expr: up{job=~"gateway|calc-service|risk-engine|doc-service|embedding-api|etl-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Target {{ $labels.instance }} is down for 2m."
+
+      - alert: HighHTTP5xx
+        expr: increase(http_requests_total{status_code=~"5.."}[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP 5xx on {{ $labels.service }}"
+          description: "More than 5 errors in 5m on {{ $labels.service }}."
+
+  - name: zakupai_business
+    rules:
+      - alert: AntiDumpingTooHigh
+        expr: max_over_time(anti_dumping_percent[5m]) > 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Anti-dumping > 15% for {{ $labels.service }}"
+          description: "Lot {{ $labels.lot_id }} has anti-dumping {{ $value }}%."
+
+      - alert: HighGoszakupErrors
+        expr: increase(goszakup_request_errors_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Goszakup API errors on {{ $labels.service }}"
+          description: "More than 10 errors in 5m from endpoint {{ $labels.endpoint }} due to {{ $labels.reason }}."

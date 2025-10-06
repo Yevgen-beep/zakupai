@@ -12,9 +12,16 @@ from typing import Any
 import aiohttp
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
+from starlette.responses import Response
+
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
+from zakupai_common.metrics import record_goszakup_error
 
 logger = logging.getLogger(__name__)
+
+SERVICE_NAME = "goszakup"
 
 
 # Модели данных
@@ -85,6 +92,7 @@ class UniversalGoszakupClient:
 
         except Exception as e:
             logger.error(f"Search failed with {api_to_use}: {e}")
+            record_goszakup_error(SERVICE_NAME, api_to_use, type(e).__name__)
             # Fallback
             if api_to_use == "graphql_v2":
                 logger.info("Falling back to REST v3")
@@ -252,6 +260,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+add_prometheus_middleware(app, SERVICE_NAME)
 
 
 # Эндпоинты
@@ -259,6 +268,11 @@ app.add_middleware(
 async def health_check():
     """Проверка здоровья сервиса"""
     return {"status": "healthy", "service": "goszakup-api"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/search", response_model=SearchResponse)

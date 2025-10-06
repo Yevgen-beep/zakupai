@@ -6,21 +6,22 @@ import asyncio
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 
 import httpx
+import requests
 import structlog
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 logger = structlog.get_logger()
 
@@ -29,30 +30,47 @@ logger = structlog.get_logger()
 class ComplaintRequest(BaseModel):
     """Request model for complaint generation with enhanced validation"""
 
-    reason: str = Field(
-        ..., description="Complaint reason", max_length=200, min_length=5
-    )
+    reason: str = Field(..., description="Complaint reason")
     date: str | None = Field(None, description="Complaint date (ISO format YYYY-MM-DD)")
 
-    @validator("reason")
-    def validate_reason(cls, v):
-        if not v.strip():
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
             raise ValueError("Reason cannot be empty")
-        if len(v.strip()) > 200:
-            raise ValueError("Reason too long (max 200 characters)")
-        return v.strip()
+        if len(trimmed) > 200:
+            raise ValueError("Reason too long")
+        if len(trimmed) < 5:
+            raise ValueError("Reason must be at least 5 characters")
+        return trimmed
 
-    @validator("date")
-    def validate_date(cls, v):
-        if v is None:
-            return datetime.now().date().isoformat()
-        try:
-            complaint_date = datetime.fromisoformat(v).date()
-            if complaint_date > datetime.now().date():
-                raise ValueError("Date cannot be in the future")
-            return complaint_date.isoformat()
-        except ValueError as e:
-            raise ValueError(f"Invalid date format: {e}") from e
+    @field_validator("date", mode="before")
+    @classmethod
+    def validate_date(cls, value: str | None) -> str:
+        """Ensure complaint date is set and valid"""
+        if value in (None, ""):
+            return date.today().isoformat()
+
+        if isinstance(value, datetime):
+            complaint_date = value.date()
+        else:
+            try:
+                complaint_date = datetime.fromisoformat(str(value)).date()
+            except ValueError as exc:
+                raise ValueError("Invalid date format") from exc
+
+        today = date.today()
+        if complaint_date > today:
+            raise ValueError("Date cannot be in the future")
+
+        return complaint_date.isoformat()
+
+    @model_validator(mode="after")
+    def ensure_date(cls, model: "ComplaintRequest") -> "ComplaintRequest":
+        if model.date in (None, ""):
+            model.date = date.today().isoformat()
+        return model
 
 
 class ComplaintResponse(BaseModel):
@@ -102,12 +120,15 @@ class SupplierRequest(BaseModel):
         None, description="Source names: satu, 1688, alibaba"
     )
 
-    @validator("max_budget")
-    def validate_budget_range(cls, v, values):
-        min_budget = values.get("min_budget")
-        if min_budget is not None and v is not None and v < min_budget:
+    @model_validator(mode="after")
+    def validate_budget_range(cls, model: "SupplierRequest") -> "SupplierRequest":
+        if (
+            model.min_budget is not None
+            and model.max_budget is not None
+            and model.max_budget < model.min_budget
+        ):
             raise ValueError("max_budget must be >= min_budget")
-        return v
+        return model
 
 
 class SupplierResponse(BaseModel):
@@ -177,27 +198,33 @@ async def generate_complaint_via_flowise_enhanced(
         if len(prompt) > 500:
             prompt = prompt[:497] + "..."
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
-            response = await client.post(
-                f"{FLOWISE_API_URL}/api/v1/prediction/complaint-generator",
-                json={"question": prompt},
-                headers={"Authorization": f"Bearer {FLOWISE_API_KEY}"},
-            )
+        response = await asyncio.to_thread(
+            requests.post,
+            f"{FLOWISE_API_URL}/api/v1/prediction/complaint-generator",
+            json={"question": prompt},
+            headers={"Authorization": f"Bearer {FLOWISE_API_KEY}"},
+            timeout=5.0,
+        )
 
-            if response.status_code == 200:
-                result = response.json()
-                return {
-                    "text": result.get("text", "Complaint generated via Flowise"),
-                    "source": "flowise",
-                }
-            else:
-                logger.warning(f"Flowise API error: {response.status_code}")
-                return await generate_complaint_fallback(
-                    lot_id, lot_info, reason, complaint_date
-                )
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "text": result.get("text", "Complaint generated via Flowise"),
+                "source": "flowise",
+            }
 
-    except (TimeoutError, httpx.TimeoutException, httpx.ConnectError) as e:
+        logger.warning(f"Flowise API error: {response.status_code}")
+        return await generate_complaint_fallback(
+            lot_id, lot_info, reason, complaint_date
+        )
+
+    except (requests.Timeout, requests.ConnectionError) as e:
         logger.warning(f"Flowise timeout/connection error: {e}")
+        return await generate_complaint_fallback(
+            lot_id, lot_info, reason, complaint_date
+        )
+    except requests.RequestException as e:
+        logger.error(f"Flowise request error: {e}")
         return await generate_complaint_fallback(
             lot_id, lot_info, reason, complaint_date
         )
@@ -221,21 +248,21 @@ async def generate_complaint_fallback(
 
 Дата: {complaint_date}
 
-Лот: {lot_info['name']} (ID: {lot_id})
-Заказчик: {lot_info['customer']}
-Сумма: {lot_info.get('amount', 0):,.2f} тенге
+Лот: {lot_info["name"]} (ID: {lot_id})
+Заказчик: {lot_info["customer"]}
+Сумма: {lot_info.get("amount", 0):,.2f} тенге
 
 Основание жалобы: {reason}
 
 Подробное описание:
-В рамках анализа лота #{lot_id} "{lot_info['name']}" выявлены нарушения: {reason.lower()}.
+В рамках анализа лота #{lot_id} "{lot_info["name"]}" выявлены нарушения: {reason.lower()}.
 Указанные нарушения противоречат требованиям законодательства РК о государственных закупках.
 
 Прошу провести проверку и принять соответствующие меры.
 
 ---
 Сгенерировано системой ZakupAI
-Дата создания: {datetime.now().strftime('%d.%m.%Y %H:%M')}
+Дата создания: {datetime.now().strftime("%d.%m.%Y %H:%M")}
         """
 
         return {"text": complaint_template.strip(), "source": "fallback"}
@@ -432,7 +459,7 @@ def generate_complaint_word(
     # Footer
     doc.add_paragraph()  # Empty line
     footer = doc.add_paragraph(
-        f'Документ создан {datetime.now().strftime("%d.%m.%Y в %H:%M")}\\n'
+        f"Документ создан {datetime.now().strftime('%d.%m.%Y в %H:%M')}\\n"
         "ZakupAI © 2025 - Все права защищены"
     )
     footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -449,16 +476,17 @@ async def get_active_supplier_sources(
 ) -> list[dict]:
     """Get active supplier sources from database"""
     try:
+        params: dict[str, list[str]] = {}
         if requested_sources:
-            # Filter by requested sources
-            placeholders = ",".join([f"'{source}'" for source in requested_sources])
-            query = text(  # nosec B608
-                f"""
+            # Filter by requested sources (safe expanding bind param)
+            query = text(
+                """
                 SELECT * FROM supplier_sources
-                WHERE active = true AND name IN ({placeholders})
+                WHERE active = true AND name IN :source_names
                 ORDER BY name
             """
-            )
+            ).bindparams(bindparam("source_names", expanding=True))
+            params["source_names"] = requested_sources
         else:
             query = text(
                 """
@@ -468,7 +496,7 @@ async def get_active_supplier_sources(
             """
             )
 
-        result = db_session.execute(query).fetchall()
+        result = db_session.execute(query, params).fetchall()
 
         return [
             {

@@ -12,9 +12,12 @@ import chromadb
 import psycopg2
 from chromadb import Settings
 from fastapi import FastAPI, Header, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
 
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
@@ -22,6 +25,8 @@ logging.basicConfig(
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("embedding-api")
+
+SERVICE_NAME = "embedding"
 
 
 def get_request_id(x_request_id: str | None) -> str:
@@ -247,6 +252,7 @@ app = FastAPI(
 
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
 
 
 @app.on_event("startup")
@@ -553,3 +559,8 @@ async def delete_collection(collection_name: str, request: Request):
         raise HTTPException(
             status_code=500, detail=f"ChromaDB operation failed: {e}"
         ) from e
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

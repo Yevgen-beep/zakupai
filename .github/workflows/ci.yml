@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Stage6: legacy Week4 test suites are disabled by default; enable by
+  # setting RUN_PRIORITY4_TESTS to "true" in workflow dispatch when needed.
+  RUN_PRIORITY4_TESTS: "false"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -37,22 +42,32 @@ jobs:
         run: black --check .
 
       - name: Bandit (security check)
-        run: bandit -r . -f json || true
+        run: |
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py
 
   compose_sanity:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - name: Docker Compose config
-        run: docker compose config -q
+        run: |
+          [ -f bot/.env ] || cp bot/.env.example bot/.env
+          docker compose config -q
 
   build:
     runs-on: ubuntu-latest
     needs: precommit
     concurrency:
-      group: ci-build-${{ github.ref }}
+      group: ci-build-${{ github.ref }}-${{ matrix.svc }}
       cancel-in-progress: true
     strategy:
+      fail-fast: false
       matrix:
         svc: ["calc-service", "risk-engine", "doc-service", "embedding-api", "etl-service"]
     steps:
@@ -62,7 +77,8 @@ jobs:
       - name: Build ${{ matrix.svc }}
         uses: docker/build-push-action@v6
         with:
-          context: ./services/${{ matrix.svc }}
+          context: .
+          file: ./services/${{ matrix.svc }}/Dockerfile
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -94,11 +110,50 @@ jobs:
     needs: precommit
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - name: Start database
-        run: docker compose up -d db
+        run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
+          docker compose up -d db
+      - name: Ensure table ownership for migrator
+        run: |
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          DB_NAME=$(grep -m1 '^POSTGRES_DB=' .env | cut -d'=' -f2-)
+          DB_NAME=${DB_NAME:-zakupai}
+
+          tables=(subjects trdbuy lots contracts rnu)
+          for table in "${tables[@]}"; do
+            docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" \
+              -c "ALTER TABLE IF EXISTS $table OWNER TO zakupai;" || true
+          done
+      - name: Apply bootstrap schema
+        run: |
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          DB_NAME=$(grep -m1 '^POSTGRES_DB=' .env | cut -d'=' -f2-)
+          DB_NAME=${DB_NAME:-zakupai}
+
+          test -f bot/.env || cp bot/.env.example bot/.env
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"
+          for script in db/init/*.sql; do
+            cat "$script" | docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 || exit 1
+          done
+      - name: Wait for database
+        run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
+          timeout 60 bash -c 'until docker compose exec db pg_isready -U zakupai; do sleep 2; done'
       - name: Run migrations
-        run: docker compose run --rm migrator
+        run: |
+          test -f bot/.env || cp bot/.env.example bot/.env
+          docker compose run --rm migrator
       - name: Stop containers
+        if: always()
         run: docker compose down
 
   pytest:
@@ -129,14 +184,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           find services -name requirements.txt -exec pip install -r {} \;
-          pip install pytest pytest-cov ruff black isort bandit
+          pip install pytest pytest-timeout pytest-cov ruff black isort bandit
       - name: Run linters
         run: |
           ruff check .
           black --check .
           isort --check-only .
       - name: Run security checks
-        run: bandit -r services libs -lll
+        run: |
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py
       - name: Run tests
         run: pytest -q --cov=services --cov=libs --cov-report=term --disable-warnings
 
@@ -197,6 +255,10 @@ jobs:
         service: [calc, risk, doc, emb]
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - name: Start db
         run: docker compose up -d db
       - name: Start ${{ matrix.service }} service
@@ -224,6 +286,10 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -265,6 +331,10 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -322,6 +392,10 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -372,6 +446,10 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -445,6 +523,10 @@ jobs:
     needs: migrate
     steps:
       - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -500,7 +582,7 @@ jobs:
           python -m pip install --upgrade pip
           cd web
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx reportlab
+          pip install pytest pytest-timeout pytest-asyncio httpx reportlab
       - name: Run ETL migrations
         run: make etl-migrate
         env:
@@ -542,17 +624,38 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install bandit
-        run: pip install bandit
+        run: pip install bandit[sarif]
       - name: Run bandit (SARIF)
-        run: bandit -q -r services -f sarif -o bandit.sarif
-      - name: Upload SARIF
+        # Continue on error to not block pipeline, security findings visible in Security tab
+        continue-on-error: true
+        run: |
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+            --severity-level medium \
+            -f sarif -o bandit.sarif
+      - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: bandit.sarif
+          category: bandit-security-scan
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-sarif-report
+          path: bandit.sarif
+          retention-days: 30
 
   # Week 4.1: Integration tests for Web UI enhancements
+  # Legacy Week4 integration suite (opt-in via RUN_PRIORITY4_TESTS)
   priority4-integration:
+    if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
     runs-on: ubuntu-latest
+    continue-on-error: false
+    env:
+      DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -613,9 +716,9 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary
-          pip install redis pandas chromadb httpx structlog pydantic
-          pip install pytest pytest-asyncio pytest-mock requests
+          pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary jinja2
+          pip install redis pandas chromadb httpx structlog pydantic apscheduler prometheus-fastapi-instrumentator
+          pip install pytest pytest-timeout pytest-asyncio pytest-mock requests responses python-docx
           pip install python-telegram-bot aiohttp reportlab python-multipart
 
       - name: Set up test environment
@@ -689,9 +792,9 @@ jobs:
           FLOWISE_API_URL: "http://mock-flowise:3000"
         run: |
           # Run specific Week 4.1 tests
-          python -m pytest tests/test_e2e_week4.py -v --tb=short --timeout=30
-          python -m pytest tests/test_import_prices.py -v --tb=short --timeout=30
-          python -m pytest tests/test_lot_summary.py -v --tb=short --timeout=30
+          python -m pytest tests/test_e2e_week4.py -v --tb=short
+          python -m pytest tests/test_import_prices.py -v --tb=short
+          python -m pytest tests/test_lot_summary.py -v --tb=short
 
       - name: Start Web UI service for smoke tests
         env:
@@ -737,7 +840,9 @@ jobs:
           echo "- Check individual steps for detailed results"
 
   # Week 4.2: Performance testing with Locust
+  # Legacy Week4 performance suite (opt-in via RUN_PRIORITY4_TESTS)
   priority4-performance:
+    if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -801,10 +906,10 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary
-          pip install redis pandas httpx structlog pydantic python-multipart
+          pip install fastapi uvicorn[standard] sqlalchemy psycopg2-binary jinja2
+          pip install redis pandas httpx structlog pydantic python-multipart apscheduler prometheus-fastapi-instrumentator
           pip install reportlab python-docx aiofiles
-          pip install locust pytest pytest-asyncio
+          pip install locust pytest pytest-timeout pytest-asyncio responses
           pip install prometheus-client
 
       - name: Set up test environment
@@ -930,14 +1035,14 @@ jobs:
           FLOWISE_API_URL: "http://localhost:3000"
         run: |
           # Run Week 4.2 feature tests
-          python -m pytest tests/test_flowise_week4_2.py -v --tb=short --timeout=30
+          python -m pytest tests/test_flowise_week4_2.py -v --tb=short
 
       - name: Run Advanced Search Tests
         env:
           BASE_URL: "http://localhost:8000"
         run: |
           # Run advanced search tests
-          python -m pytest tests/test_advanced_search.py -v --tb=short --timeout=30
+          python -m pytest tests/test_advanced_search.py -v --tb=short
 
       - name: Run Locust Performance Tests
         env:

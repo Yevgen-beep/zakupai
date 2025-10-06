@@ -6,8 +6,12 @@ from datetime import UTC, datetime
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+from zakupai_common.fastapi.metrics import add_prometheus_middleware
 
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
@@ -15,6 +19,8 @@ logging.basicConfig(
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("billing-service")
+
+SERVICE_NAME = "billing"
 
 
 def get_request_id(x_request_id: str | None) -> str:
@@ -404,6 +410,12 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestLoggingMiddleware)
+add_prometheus_middleware(app, SERVICE_NAME)
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.on_event("startup")
@@ -421,9 +433,8 @@ async def startup_event():
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "service": "billing"}
+async def health():
+    return {"status": "ok"}
 
 
 @app.post("/billing/create_key", response_model=CreateKeyResponse)
