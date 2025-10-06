@@ -4,8 +4,8 @@
   "timezone": "browser",
   "schemaVersion": 38,
   "version": 1,
-  "refresh": "30s",
-  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "10s",
+  "time": {"from": "now-1h", "to": "now"},
   "panels": [
     {
       "type": "stat",
@@ -126,18 +126,21 @@
     },
     {
       "type": "timeseries",
-      "title": "Request Rate by Service",
+      "title": "Total Requests by Service",
       "id": 4,
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total[5m]))",
-          "refId": "A"
+          "expr": "sum by (job) (http_requests_total)",
+          "refId": "A",
+          "legendFormat": "{{job}}",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "short",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -159,8 +162,11 @@
       "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total{status_code=~\"5..\"}[5m])) / clamp_min(sum by (service) (rate(http_requests_total[5m])), 1e-6)",
-          "refId": "A"
+          "expr": "sum by (job) (http_requests_total{status_code=~\"5..\"}) / clamp_min(sum by (job) (http_requests_total), 1)",
+          "refId": "A",
+          "legendFormat": "{{job}}",
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
