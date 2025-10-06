@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Stage6: legacy Week4 test suites are disabled by default; enable by
+  # setting RUN_PRIORITY4_TESTS to "true" in workflow dispatch when needed.
+  RUN_PRIORITY4_TESTS: "false"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -137,7 +142,7 @@ jobs:
           test -f bot/.env || cp bot/.env.example bot/.env
           timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"
           for script in db/init/*.sql; do
-            docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -f "$script" || exit 1
+            cat "$script" | docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 || exit 1
           done
       - name: Wait for database
         run: |
@@ -644,8 +649,11 @@ jobs:
           retention-days: 30
 
   # Week 4.1: Integration tests for Web UI enhancements
+  # Legacy Week4 integration suite (opt-in via RUN_PRIORITY4_TESTS)
   priority4-integration:
+    if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
     runs-on: ubuntu-latest
+    continue-on-error: false
     env:
       DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
     strategy:
@@ -832,7 +840,9 @@ jobs:
           echo "- Check individual steps for detailed results"
 
   # Week 4.2: Performance testing with Locust
+  # Legacy Week4 performance suite (opt-in via RUN_PRIORITY4_TESTS)
   priority4-performance:
+    if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

@@ -128,7 +128,7 @@ jobs:
           docker compose up -d db
           timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"
           for script in db/init/*.sql; do
-            docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -f "$script" || exit 1
+            cat "$script" | docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 || exit 1
           done
 
       - name: Cache Docker layers
