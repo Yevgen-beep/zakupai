@@ -35,14 +35,33 @@ CREATE INDEX idx_rnu_subscriptions_user_id ON rnu_subscriptions (user_id, is_act
 CREATE INDEX idx_rnu_subscriptions_bin ON rnu_subscriptions (supplier_bin, is_active);
 CREATE INDEX idx_rnu_subscriptions_telegram ON rnu_subscriptions (telegram_user_id, is_active);
 
--- Constraint: max 100 subscriptions per user
-ALTER TABLE rnu_subscriptions
-ADD CONSTRAINT check_max_subscriptions_per_user
-CHECK (
-    (SELECT COUNT(*)
-     FROM rnu_subscriptions s2
-     WHERE s2.user_id = user_id AND s2.is_active = true) <= 100
-);
+-- Trigger function to enforce max 100 active subscriptions per user
+CREATE OR REPLACE FUNCTION check_max_subscriptions()
+RETURNS TRIGGER AS $$
+DECLARE
+    active_count INTEGER;
+BEGIN
+    SELECT COUNT(*)
+      INTO active_count
+      FROM rnu_subscriptions
+     WHERE user_id = NEW.user_id
+       AND is_active = true
+       AND (TG_OP = 'INSERT' OR id <> NEW.id);
+
+    IF active_count >= 100 THEN
+        RAISE EXCEPTION 'User cannot have more than 100 active subscriptions';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply trigger on insert and update
+CREATE TRIGGER enforce_max_subscriptions
+    BEFORE INSERT OR UPDATE ON rnu_subscriptions
+    FOR EACH ROW
+    WHEN (NEW.is_active = true)
+    EXECUTE FUNCTION check_max_subscriptions();
 
 -- Comments
 COMMENT ON TABLE rnu_alerts IS 'RNU supplier status change notifications';
