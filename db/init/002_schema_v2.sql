@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS prices (
   currency    TEXT DEFAULT 'KZT',
   captured_at TIMESTAMP DEFAULT now()
 );
+ALTER TABLE IF EXISTS prices
+  ADD COLUMN IF NOT EXISTS captured_at TIMESTAMP DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_prices_sku ON prices(sku);
 
 -- 4) lot_prices (связка лота с рыночными ценами/сметой)
