@@ -115,11 +115,11 @@ jobs:
           docker compose up -d db
       - name: Ensure table ownership for migrator
         run: |
-          set -a
-          source .env
-          set +a
-          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
-          DB_NAME="${POSTGRES_DB:-zakupai}"
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          DB_NAME=$(grep -m1 '^POSTGRES_DB=' .env | cut -d'=' -f2-)
+          DB_NAME=${DB_NAME:-zakupai}
 
           tables=(subjects trdbuy lots contracts rnu)
           for table in "${tables[@]}"; do
@@ -128,11 +128,11 @@ jobs:
           done
       - name: Apply bootstrap schema
         run: |
-          set -a
-          source .env
-          set +a
-          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
-          DB_NAME="${POSTGRES_DB:-zakupai}"
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          DB_NAME=$(grep -m1 '^POSTGRES_DB=' .env | cut -d'=' -f2-)
+          DB_NAME=${DB_NAME:-zakupai}
 
           test -f bot/.env || cp bot/.env.example bot/.env
           timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"

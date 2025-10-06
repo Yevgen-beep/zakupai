@@ -118,11 +118,11 @@ jobs:
         run: cp bot/.env.example bot/.env
       - name: Apply bootstrap schema
         run: |
-          set -a
-          source .env
-          set +a
-          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
-          DB_NAME="${POSTGRES_DB:-zakupai}"
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
+          DB_NAME=$(grep -m1 '^POSTGRES_DB=' .env | cut -d'=' -f2-)
+          DB_NAME=${DB_NAME:-zakupai}
 
           [ -f bot/.env ] || cp bot/.env.example bot/.env
           docker compose up -d db
@@ -146,10 +146,9 @@ jobs:
       - name: Wait for database
         run: |
           [ -f bot/.env ] || cp bot/.env.example bot/.env
-          set -a
-          source .env
-          set +a
-          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
           timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
 
       - name: Run migrations
@@ -245,10 +244,9 @@ jobs:
 
       - name: Restore database state
         run: |
-          set -a
-          source .env
-          set +a
-          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
 
           docker compose up -d db
           timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
@@ -367,10 +365,9 @@ jobs:
 
       - name: Start services
         run: |
-          set -a
-          source .env
-          set +a
-          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          [ -f .env ] || cp .env.example .env
+          DB_SUPERUSER=$(grep -m1 '^POSTGRES_USER=' .env | cut -d'=' -f2-)
+          DB_SUPERUSER=${DB_SUPERUSER:-postgres}
 
           docker compose up -d db
           timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
