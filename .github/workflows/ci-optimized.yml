@@ -118,11 +118,17 @@ jobs:
         run: cp bot/.env.example bot/.env
       - name: Apply bootstrap schema
         run: |
+          set -a
+          source .env
+          set +a
+          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          DB_NAME="${POSTGRES_DB:-zakupai}"
+
           [ -f bot/.env ] || cp bot/.env.example bot/.env
           docker compose up -d db
-          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres >/dev/null 2>&1; do sleep 2; done"
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"
           for script in db/init/*.sql; do
-            docker compose exec -T db psql -U postgres -d zakupai -f "$script" || exit 1
+            docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -f "$script" || exit 1
           done
 
       - name: Cache Docker layers
@@ -140,7 +146,11 @@ jobs:
       - name: Wait for database
         run: |
           [ -f bot/.env ] || cp bot/.env.example bot/.env
-          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          set -a
+          source .env
+          set +a
+          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
 
       - name: Run migrations
         run: |
@@ -235,8 +245,13 @@ jobs:
 
       - name: Restore database state
         run: |
+          set -a
+          source .env
+          set +a
+          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+
           docker compose up -d db
-          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
           docker compose exec -T db psql -U zakupai -d zakupai < /tmp/migrated-db.sql || true
 
       - name: Start required services
@@ -352,8 +367,13 @@ jobs:
 
       - name: Start services
         run: |
+          set -a
+          source .env
+          set +a
+          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+
           docker compose up -d db
-          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\"; do sleep 2; done"
           docker compose exec -T db psql -U zakupai -d zakupai < /tmp/migrated-db.sql || true
 
           case "${{ matrix.service }}" in

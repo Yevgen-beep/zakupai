@@ -115,17 +115,29 @@ jobs:
           docker compose up -d db
       - name: Ensure table ownership for migrator
         run: |
+          set -a
+          source .env
+          set +a
+          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          DB_NAME="${POSTGRES_DB:-zakupai}"
+
           tables=(subjects trdbuy lots contracts rnu)
           for table in "${tables[@]}"; do
-            docker compose exec -T db psql -U postgres -d zakupai \
+            docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" \
               -c "ALTER TABLE IF EXISTS $table OWNER TO zakupai;" || true
           done
       - name: Apply bootstrap schema
         run: |
+          set -a
+          source .env
+          set +a
+          DB_SUPERUSER="${POSTGRES_USER:-postgres}"
+          DB_NAME="${POSTGRES_DB:-zakupai}"
+
           test -f bot/.env || cp bot/.env.example bot/.env
-          timeout 60 bash -c 'until docker compose exec db pg_isready -U postgres >/dev/null 2>&1; do sleep 2; done'
+          timeout 60 bash -c "until docker compose exec db pg_isready -U \"${DB_SUPERUSER}\" >/dev/null 2>&1; do sleep 2; done"
           for script in db/init/*.sql; do
-            docker compose exec -T db psql -U postgres -d zakupai -f "$script" || exit 1
+            docker compose exec -T db psql -U "${DB_SUPERUSER}" -d "${DB_NAME}" -f "$script" || exit 1
           done
       - name: Wait for database
         run: |
