@@ -1,0 +1,392 @@
+name: ci-optimized
+
+on:
+  push: {}
+  pull_request: {}
+
+permissions:
+  contents: read
+  security-events: write
+
+# Глобальные переменные для кеширования
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_CACHE_DIR: ~/.cache/pip
+  APT_CACHE_DIR: ~/.cache/apt
+
+jobs:
+  # Быстрые проверки - запускаются параллельно
+  fast-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: ["lint", "compose-config", "security"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python (for lint and security)
+        if: matrix.check != 'compose-config'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip dependencies
+        if: matrix.check != 'compose-config'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-${{ runner.os }}-${{ matrix.check }}-${{ hashFiles('**/requirements.txt', '.pre-commit-config.yaml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.check }}-
+            pip-${{ runner.os }}-
+
+      - name: Run lint checks
+        if: matrix.check == 'lint'
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black bandit pre-commit
+          ruff check . --output-format=github
+          black --check . --diff
+          pre-commit run --all-files
+
+      - name: Run security scan
+        if: matrix.check == 'security'
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+          bandit -q -r services -f sarif -o bandit.sarif
+
+      - name: Upload SARIF
+        if: matrix.check == 'security'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit.sarif
+
+      - name: Validate Docker Compose
+        if: matrix.check == 'compose-config'
+        run: docker compose config -q
+      - name: Start services including Grafana
+        if: matrix.check == 'compose-config'
+        run: docker compose up -d zakupai-grafana
+      - name: Verify Grafana version
+        if: matrix.check == 'compose-config'
+        run: |
+          docker exec zakupai-grafana grafana-cli -v | grep "${GRAFANA_VERSION:-10.4.3}" || (
+            echo "❌ Grafana version mismatch!"
+            docker exec zakupai-grafana grafana-cli -v
+            exit 1
+          )
+      - name: Stop Grafana
+        if: always() && matrix.check == 'compose-config'
+        run: docker compose down
+
+  # Оптимизированная сборка с улучшенным кешированием
+  build-services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ["calc-service", "risk-engine", "doc-service", "embedding-api", "etl-service"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and cache ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/${{ matrix.service }}
+          push: false
+          cache-from: |
+            type=gha,scope=${{ matrix.service }}
+            type=gha,scope=common
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          outputs: type=docker,dest=/tmp/${{ matrix.service }}.tar
+          provenance: false
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-image
+          path: /tmp/${{ matrix.service }}.tar
+          retention-days: 1
+
+  # База данных и миграции - независимо от других проверок
+  setup-database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: docker-db-${{ runner.os }}-${{ github.sha }}
+          restore-keys: docker-db-${{ runner.os }}-
+
+      - name: Start database
+        run: docker compose up -d db
+
+      - name: Wait for database
+        run: timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+
+      - name: Run migrations
+        run: docker compose run --rm migrator
+
+      - name: Export database state
+        run: |
+          docker compose exec -T db pg_dump -U zakupai zakupai > /tmp/migrated-db.sql
+
+      - name: Upload migrated database
+        uses: actions/upload-artifact@v4
+        with:
+          name: migrated-database
+          path: /tmp/migrated-db.sql
+          retention-days: 1
+
+  # Матричные тесты с оптимизированным кешированием
+  test-matrix:
+    runs-on: ubuntu-latest
+    needs: [fast-checks, setup-database]
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite:
+          - name: "unit-tests"
+            cache-key: "unit"
+            services: "db"
+            install-tesseract: false
+          - name: "etl-smoke"
+            cache-key: "etl"
+            services: "db"
+            install-tesseract: false
+          - name: "etl-upload"
+            cache-key: "etl-full"
+            services: "db"
+            install-tesseract: true
+          - name: "priority3-e2e"
+            cache-key: "priority3"
+            services: "db chromadb embedding-api etl-service goszakup-api n8n"
+            install-tesseract: true
+          - name: "web-ui-integration"
+            cache-key: "webui"
+            services: "db etl-service"
+            install-tesseract: false
+          - name: "webui-e2e"
+            cache-key: "webui-full"
+            services: "db goszakup-api etl-service chromadb web-ui"
+            install-tesseract: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Оптимизированное кеширование для каждого типа тестов
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: pip-${{ runner.os }}-${{ matrix.test-suite.cache-key }}-${{ hashFiles('services/**/requirements.txt', 'web/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.test-suite.cache-key }}-
+            pip-${{ runner.os }}-
+
+      # Кеширование системных пакетов
+      - name: Cache apt packages
+        if: matrix.test-suite.install-tesseract
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: apt-${{ runner.os }}-tesseract-${{ hashFiles('.github/workflows/ci-optimized.yml') }}
+          restore-keys: apt-${{ runner.os }}-tesseract-
+
+      - name: Install system dependencies
+        if: matrix.test-suite.install-tesseract
+        run: |
+          sudo mkdir -p ${{ env.APT_CACHE_DIR }}
+          sudo apt-get update
+          sudo apt-get install -y \
+            -o Dir::Cache::Archives=${{ env.APT_CACHE_DIR }} \
+            tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng jq
+
+      - name: Download migrated database
+        uses: actions/download-artifact@v4
+        with:
+          name: migrated-database
+          path: /tmp/
+
+      - name: Restore database state
+        run: |
+          docker compose up -d db
+          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          docker compose exec -T db psql -U zakupai -d zakupai < /tmp/migrated-db.sql || true
+
+      - name: Start required services
+        run: docker compose up -d ${{ matrix.test-suite.services }}
+
+      - name: Wait for services readiness
+        run: |
+          # Универсальный скрипт ожидания сервисов
+          services="${{ matrix.test-suite.services }}"
+          for service in $services; do
+            case $service in
+              db) timeout 60 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 2; done" ;;
+              chromadb) timeout 90 bash -c "until curl -fsS http://localhost:8010/api/v2/heartbeat 2>/dev/null; do sleep 2; done" ;;
+              embedding-api) timeout 90 bash -c "until curl -fsS http://localhost:7010/health 2>/dev/null; do sleep 2; done" ;;
+              etl-service) timeout 90 bash -c "until curl -fsS http://localhost:7011/health 2>/dev/null; do sleep 2; done" ;;
+              goszakup-api) timeout 90 bash -c "until curl -fsS http://localhost:7005/health 2>/dev/null; do sleep 2; done" ;;
+              web-ui) timeout 90 bash -c "until curl -fsS http://localhost:8082/health 2>/dev/null; do sleep 2; done" ;;
+              n8n) timeout 90 bash -c "until curl -fsS http://localhost:5678 2>/dev/null; do sleep 2; done" ;;
+            esac
+          done
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          case "${{ matrix.test-suite.name }}" in
+            unit-tests)
+              find services -name requirements.txt -exec pip install -r {} \;
+              pip install pytest
+              ;;
+            etl-*)
+              cd services/etl-service && pip install -r requirements.txt
+              pip install psycopg2-binary python-dotenv
+              ;;
+            priority3-e2e)
+              cd services/etl-service && pip install -r requirements.txt
+              cd ../../services/embedding-api && pip install -r requirements.txt
+              ;;
+            web*)
+              cd web && pip install -r requirements.txt
+              pip install pytest pytest-asyncio httpx reportlab
+              ;;
+          esac
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://zakupai:zakupai@localhost:5432/zakupai
+          GOSZAKUP_TOKEN: ${{ secrets.GOSZAKUP_TOKEN || 'test_token_for_ci' }}
+          PGPASSWORD: zakupai
+        run: |
+          case "${{ matrix.test-suite.name }}" in
+            unit-tests) make test ;;
+            etl-smoke) cd services/etl-service && ./smoke_test.sh ;;
+            etl-upload)
+              cd services/etl-service
+              python -m alembic upgrade head
+              python -m pytest test_upload.py -v
+              bash test_etl_upload.sh
+              ;;
+            priority3-e2e) make test-priority3 ;;
+            web-ui-integration)
+              cd web
+              docker build -t zakupai-web-ui .
+              # Упрощенные тесты интеграции
+              ;;
+            webui-e2e) make webui-test ;;
+          esac
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-suite.name }}
+          path: |
+            services/etl-service/test_files/
+            services/etl-service/*.log
+            web/test_fixtures/
+            test_results/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down
+
+  # Smoke tests для сервисов - используют предсобранные образы
+  smoke-tests:
+    runs-on: ubuntu-latest
+    needs: [build-services, setup-database]
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [calc, risk, doc, emb]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download service images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-service-image"
+          path: /tmp/images/
+          merge-multiple: true
+
+      - name: Load Docker images
+        run: |
+          for image in /tmp/images/*.tar; do
+            docker load -i "$image"
+          done
+
+      - name: Download migrated database
+        uses: actions/download-artifact@v4
+        with:
+          name: migrated-database
+          path: /tmp/
+
+      - name: Start services
+        run: |
+          docker compose up -d db
+          timeout 60 bash -c "until docker compose exec db pg_isready -U postgres; do sleep 2; done"
+          docker compose exec -T db psql -U zakupai -d zakupai < /tmp/migrated-db.sql || true
+
+          case "${{ matrix.service }}" in
+            calc) docker compose up -d calc-service ;;
+            risk) docker compose up -d risk-engine ;;
+            doc) docker compose up -d doc-service ;;
+            emb) docker compose up -d embedding-api ;;
+          esac
+
+      - name: Wait for service health
+        run: |
+          case "${{ matrix.service }}" in
+            calc) port=7001 ;;
+            risk) port=7002 ;;
+            doc) port=7003 ;;
+            emb) port=7010 ;;
+          esac
+          timeout 90 bash -c "until curl -fsS http://localhost:$port/health; do sleep 3; done"
+
+      - name: Run smoke test
+        run: make smoke-${{ matrix.service }}
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down
+
+  # Финальная сводка результатов
+  ci-summary:
+    runs-on: ubuntu-latest
+    needs: [fast-checks, build-services, test-matrix, smoke-tests]
+    if: always()
+    steps:
+      - name: Check overall status
+        run: |
+          echo "## CI Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Fast checks: ${{ needs.fast-checks.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Service builds: ${{ needs.build-services.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Integration tests: ${{ needs.test-matrix.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Smoke tests: ${{ needs.smoke-tests.result }}" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.fast-checks.result }}" != "success" ]] || \
+             [[ "${{ needs.build-services.result }}" != "success" ]] || \
+             [[ "${{ needs.test-matrix.result }}" != "success" ]] || \
+             [[ "${{ needs.smoke-tests.result }}" != "success" ]]; then
+            echo "❌ CI Pipeline failed"
+            exit 1
+          else
+            echo "✅ CI Pipeline passed"
+          fi

@@ -1,0 +1,407 @@
+{
+    "name": "Risk Explain",
+    "version": "1.0.0",
+    "description": "Explain risk factors and scores for tender lots with detailed analysis",
+    "icon": "⚠️",
+    "category": "Analysis",
+    "type": "tool",
+    "inputs": [
+        {
+            "name": "lotId",
+            "type": "string",
+            "label": "Lot ID",
+            "description": "ID of the lot to analyze risk for",
+            "required": true,
+            "placeholder": "e.g., 12345"
+        },
+        {
+            "name": "detailLevel",
+            "type": "select",
+            "label": "Detail Level",
+            "description": "Level of detail in risk explanation",
+            "options": [
+                {
+                    "label": "Summary",
+                    "value": "summary"
+                },
+                {
+                    "label": "Detailed",
+                    "value": "detailed"
+                },
+                {
+                    "label": "Full Analysis",
+                    "value": "full"
+                }
+            ],
+            "default": "detailed"
+        },
+        {
+            "name": "language",
+            "type": "select",
+            "label": "Language",
+            "description": "Language for risk explanation",
+            "options": [
+                {
+                    "label": "Russian",
+                    "value": "ru"
+                },
+                {
+                    "label": "Kazakh",
+                    "value": "kz"
+                },
+                {
+                    "label": "English",
+                    "value": "en"
+                }
+            ],
+            "default": "ru"
+        },
+        {
+            "name": "includeRecommendations",
+            "type": "boolean",
+            "label": "Include Recommendations",
+            "description": "Include actionable recommendations to mitigate risks",
+            "default": true
+        },
+        {
+            "name": "includeHistorical",
+            "type": "boolean",
+            "label": "Include Historical Data",
+            "description": "Include historical risk patterns and comparisons",
+            "default": false
+        },
+        {
+            "name": "formatOutput",
+            "type": "select",
+            "label": "Output Format",
+            "description": "Format for the risk explanation",
+            "options": [
+                {
+                    "label": "Plain Text",
+                    "value": "text"
+                },
+                {
+                    "label": "Markdown",
+                    "value": "markdown"
+                },
+                {
+                    "label": "HTML",
+                    "value": "html"
+                },
+                {
+                    "label": "JSON",
+                    "value": "json"
+                }
+            ],
+            "default": "markdown"
+        }
+    ],
+    "outputs": [
+        {
+            "name": "riskExplanation",
+            "type": "string",
+            "description": "Formatted risk explanation"
+        },
+        {
+            "name": "riskScore",
+            "type": "number",
+            "description": "Overall risk score (0-1)"
+        },
+        {
+            "name": "riskFactors",
+            "type": "array",
+            "description": "List of identified risk factors"
+        },
+        {
+            "name": "recommendations",
+            "type": "array",
+            "description": "Risk mitigation recommendations"
+        },
+        {
+            "name": "metadata",
+            "type": "object",
+            "description": "Analysis metadata"
+        }
+    ],
+    "code": `
+const axios = require('axios');
+
+class RiskExplainTool {
+    async execute(inputs) {
+        const {
+            lotId,
+            detailLevel,
+            language,
+            includeRecommendations,
+            includeHistorical,
+            formatOutput
+        } = inputs;
+
+        try {
+            // Get risk assessment from risk-engine
+            const riskData = await this.getRiskAssessment(lotId, language, detailLevel);
+
+            if (includeHistorical) {
+                riskData.historical = await this.getRiskHistory(lotId);
+            }
+
+            // Generate formatted explanation
+            const explanation = this.formatRiskExplanation(
+                riskData,
+                language,
+                detailLevel,
+                formatOutput
+            );
+
+            // Generate recommendations if requested
+            const recommendations = includeRecommendations ?
+                this.generateRecommendations(riskData, language) : [];
+
+            return {
+                riskExplanation: explanation,
+                riskScore: riskData.score || 0,
+                riskFactors: riskData.factors || [],
+                recommendations,
+                metadata: {
+                    lotId,
+                    language,
+                    detailLevel,
+                    format: formatOutput,
+                    analyzedAt: new Date().toISOString()
+                }
+            };
+        } catch (error) {
+            throw new Error(\`Failed to explain risk for lot \${lotId}: \${error.message}\`);
+        }
+    }
+
+    async getRiskAssessment(lotId, language, detailLevel) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        try {
+            const response = await axios.get(\`\${baseUrl}/risk/explain/\${lotId}\`, {
+                params: {
+                    lang: language,
+                    detail: detailLevel
+                },
+                headers: { 'X-API-Key': apiKey }
+            });
+
+            return response.data;
+        } catch (error) {
+            // Fallback: get basic risk score
+            try {
+                const scoreResponse = await axios.post(\`\${baseUrl}/risk/score/\${lotId}\`, {
+                    include_explanation: true
+                }, {
+                    headers: { 'X-API-Key': apiKey }
+                });
+
+                return this.createDefaultExplanation(scoreResponse.data, lotId);
+            } catch (fallbackError) {
+                throw new Error(\`Unable to get risk data: \${error.message}\`);
+            }
+        }
+    }
+
+    async getRiskHistory(lotId) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        try {
+            const response = await axios.get(\`\${baseUrl}/risk/history/\${lotId}\`, {
+                params: { limit: 10 },
+                headers: { 'X-API-Key': apiKey }
+            });
+
+            return response.data;
+        } catch (error) {
+            console.warn(\`Failed to get risk history: \${error.message}\`);
+            return [];
+        }
+    }
+
+    createDefaultExplanation(scoreData, lotId) {
+        return {
+            lotId: lotId,
+            score: scoreData.risk_score || 0,
+            factors: [
+                {
+                    name: "price_competitiveness",
+                    weight: 0.3,
+                    value: 0.5,
+                    description: "Price competitiveness analysis"
+                },
+                {
+                    name: "customer_reliability",
+                    weight: 0.25,
+                    value: 0.7,
+                    description: "Customer payment reliability"
+                },
+                {
+                    name: "timeline_risk",
+                    weight: 0.2,
+                    value: 0.4,
+                    description: "Project timeline feasibility"
+                },
+                {
+                    name: "technical_complexity",
+                    weight: 0.25,
+                    value: 0.6,
+                    description: "Technical requirements complexity"
+                }
+            ]
+        };
+    }
+
+    formatRiskExplanation(riskData, language, detailLevel, format) {
+        const translations = {
+            ru: {
+                riskAnalysis: "Анализ рисков",
+                overallScore: "Общий балл риска",
+                riskFactors: "Факторы риска",
+                lowRisk: "Низкий риск",
+                mediumRisk: "Средний риск",
+                highRisk: "Высокий риск",
+                weight: "Вес",
+                value: "Значение",
+                impact: "Влияние"
+            },
+            kz: {
+                riskAnalysis: "Тәуекел талдауы",
+                overallScore: "Жалпы тәуекел ұпайы",
+                riskFactors: "Тәуекел факторлары",
+                lowRisk: "Төмен тәуекел",
+                mediumRisk: "Орташа тәуекел",
+                highRisk: "Жоғары тәуекел",
+                weight: "Салмақ",
+                value: "Мәні",
+                impact: "Әсер"
+            },
+            en: {
+                riskAnalysis: "Risk Analysis",
+                overallScore: "Overall Risk Score",
+                riskFactors: "Risk Factors",
+                lowRisk: "Low Risk",
+                mediumRisk: "Medium Risk",
+                highRisk: "High Risk",
+                weight: "Weight",
+                value: "Value",
+                impact: "Impact"
+            }
+        };
+
+        const t = translations[language] || translations.ru;
+        const score = riskData.score || 0;
+        const riskLevel = score < 0.3 ? t.lowRisk :
+                         score < 0.7 ? t.mediumRisk : t.highRisk;
+
+        let content = \`# \${t.riskAnalysis} - Lot #\${riskData.lotId}
+
+## \${t.overallScore}: \${(score * 100).toFixed(1)}% (\${riskLevel})
+
+## \${t.riskFactors}:
+\`;
+
+        if (riskData.factors && riskData.factors.length > 0) {
+            riskData.factors.forEach(factor => {
+                const impact = (factor.weight * factor.value * 100).toFixed(1);
+                content += \`
+### \${factor.name}
+- **\${t.weight}**: \${(factor.weight * 100).toFixed(1)}%
+- **\${t.value}**: \${(factor.value * 100).toFixed(1)}%
+- **\${t.impact}**: \${impact}%
+- **Описание**: \${factor.description || 'N/A'}
+\`;
+            });
+        }
+
+        if (detailLevel === 'full' && riskData.historical) {
+            content += \`
+## Историческая динамика:
+\${this.formatHistoricalData(riskData.historical, language)}
+\`;
+        }
+
+        return this.convertFormat(content, format);
+    }
+
+    formatHistoricalData(historical, language) {
+        if (!historical || historical.length === 0) {
+            return language === 'ru' ? 'Нет исторических данных' : 'No historical data';
+        }
+
+        let result = '';
+        historical.slice(0, 5).forEach(entry => {
+            result += \`- \${entry.created_at}: \${(entry.score * 100).toFixed(1)}%\\n\`;
+        });
+
+        return result;
+    }
+
+    generateRecommendations(riskData, language) {
+        const score = riskData.score || 0;
+
+        const recommendations = {
+            ru: {
+                high: [
+                    "Проведите детальный анализ финансовой устойчивости заказчика",
+                    "Рассмотрите возможность страхования проекта",
+                    "Увеличьте авансовый платеж или гарантии",
+                    "Детально проработайте техническое задание"
+                ],
+                medium: [
+                    "Уточните сроки выполнения работ",
+                    "Проверьте репутацию заказчика",
+                    "Подготовьте план управления рисками",
+                    "Рассмотрите возможность партнерства"
+                ],
+                low: [
+                    "Стандартные процедуры контроля качества",
+                    "Регулярный мониторинг выполнения",
+                    "Поддержание связи с заказчиком"
+                ]
+            }
+        };
+
+        const recs = recommendations[language] || recommendations.ru;
+
+        if (score >= 0.7) return recs.high;
+        if (score >= 0.3) return recs.medium;
+        return recs.low;
+    }
+
+    convertFormat(content, format) {
+        switch (format) {
+            case 'html':
+                return content
+                    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                    .replace(/^- (.*$)/gim, '<li>$1</li>')
+                    .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
+
+            case 'text':
+                return content
+                    .replace(/^#+\\s*/gm, '')
+                    .replace(/\\*\\*(.*?)\\*\\*/g, '$1')
+                    .replace(/^- /gm, '• ');
+
+            case 'json':
+                return JSON.stringify({
+                    content: content,
+                    format: 'markdown'
+                }, null, 2);
+
+            case 'markdown':
+            default:
+                return content;
+        }
+    }
+}
+
+// Export for Flowise
+module.exports = { nodeClass: RiskExplainTool };
+`
+}

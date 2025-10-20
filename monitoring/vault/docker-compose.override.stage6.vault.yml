@@ -1,0 +1,28 @@
+services:
+  vault:
+    image: hashicorp/vault:1.15.4
+    hostname: vault
+    container_name: zakupai-vault
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    command: ["vault", "server", "-config=/vault/config/vault.json"]
+    volumes:
+      - ./monitoring/vault/data:/vault/data
+      - ./monitoring/vault/config:/vault/config:ro
+      - ./monitoring/vault/tls:/vault/tls:ro
+    environment:
+      VAULT_ADDR: https://vault:8200
+      VAULT_API_ADDR: https://vault:8200
+      VAULT_CLUSTER_ADDR: https://vault:8201
+      VAULT_CACERT: /vault/tls/ca.pem
+      VAULT_TELEMETRY_UNAUTHENTICATED_METRICS_ACCESS: "true"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-format=json"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - zakupai-network

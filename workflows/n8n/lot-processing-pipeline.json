@@ -1,0 +1,232 @@
+{
+  "name": "ZakupAI - Lot Processing Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "When called by webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "zakupai-lot-process"
+    },
+    {
+      "parameters": {
+        "resource": "lots",
+        "operation": "getById",
+        "lotId": "={{$json.lot_id}}"
+      },
+      "name": "Fetch Lot Data",
+      "type": "n8n-nodes-goszakup-rk.goszakup",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "goszakupApi": "goszakup-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/calc/margin",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lot_id\": {{$json.id}},\n  \"title\": \"{{$json.title}}\",\n  \"price\": {{$json.price}},\n  \"quantity\": {{$json.quantity || 1}}\n}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "Calculate Margin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 220]
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/risk/score",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lot_id\": {{$json.id}},\n  \"customer_bin\": \"{{$json.customer_bin}}\",\n  \"deadline\": \"{{$json.deadline}}\",\n  \"title\": \"{{$json.title}}\",\n  \"description\": \"{{$json.description}}\"\n}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "Assess Risk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 380]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.risk_score}}",
+              "operation": "larger",
+              "value2": 0.7
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{$json.margin_percentage > 15}}"
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "name": "Check if Hot Lot",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/doc/tldr",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lot_id\": {{$json.id}},\n  \"include_risk\": true,\n  \"include_financials\": true\n}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "Generate TL;DR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_HOT_LOTS_CHANNEL}}",
+        "text": "=🔥 **ГОРЯЧИЙ ЛОТ** 🔥\n\n📋 **{{$json.title}}**\n💰 Цена: {{$json.price}} тенге\n📈 Маржа: {{$json.margin_percentage}}%\n⚠️ Риск: {{Math.round($json.risk_score * 100)}}%\n📅 Дедлайн: {{$json.deadline}}\n\n📝 **Краткое описание:**\n{{$json.tldr_summary}}\n\n🔗 [Подробности]({{$json.goszakup_url}})",
+        "parseMode": "Markdown"
+      },
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1340, 220],
+      "credentials": {
+        "telegramApi": "telegram-bot-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/lots/{{$json.id}}/status",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"processed\",\n  \"hot_lot\": {{$json.is_hot_lot}},\n  \"processed_at\": \"{{new Date().toISOString()}}\"\n}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      "name": "Update Lot Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 380]
+    }
+  ],
+  "connections": {
+    "When called by webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch Lot Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Lot Data": {
+      "main": [
+        [
+          {
+            "node": "Calculate Margin",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Assess Risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Margin": {
+      "main": [
+        [
+          {
+            "node": "Check if Hot Lot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess Risk": {
+      "main": [
+        [
+          {
+            "node": "Check if Hot Lot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Hot Lot": {
+      "main": [
+        [
+          {
+            "node": "Generate TL;DR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Lot Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TL;DR": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Update Lot Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "Asia/Almaty"
+  },
+  "id": "lot-processing-pipeline"
+}

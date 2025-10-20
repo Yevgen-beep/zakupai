@@ -1,0 +1,15 @@
+fastapi>=0.111
+uvicorn[standard]>=0.30
+pydantic>=2
+psycopg2-binary>=2.9
+python-dotenv>=1.0
+PyYAML>=6.0
+pytest>=7.0
+httpx>=0.24
+apscheduler
+prometheus_client
+redis
+structlog
+sqlalchemy
+tenacity
+hvac>=1.2

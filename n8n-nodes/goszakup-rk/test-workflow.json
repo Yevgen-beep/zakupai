@@ -1,0 +1,83 @@
+{
+  "name": "Goszakup Test Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "lots",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 10,
+        "additionalFields": {
+          "status": "active"
+        }
+      },
+      "name": "Get Active Lots",
+      "type": "n8n-nodes-goszakup-rk.goszakup",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "goszakupApi": {
+          "id": "1",
+          "name": "Goszakup API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "tenders",
+        "operation": "search",
+        "query": "строительство",
+        "returnAll": false,
+        "limit": 5,
+        "additionalFields": {
+          "dateFrom": "2024-01-01T00:00:00.000Z",
+          "status": "published"
+        }
+      },
+      "name": "Search Construction Tenders",
+      "type": "n8n-nodes-goszakup-rk.goszakup",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "goszakupApi": {
+          "id": "1",
+          "name": "Goszakup API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Get Active Lots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Lots": {
+      "main": [
+        [
+          {
+            "node": "Search Construction Tenders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "1"
+}

@@ -1,0 +1,97 @@
+# Enhanced recording rules for richer dashboard queries
+# To use: merge with or replace monitoring/prometheus/rules.yml
+
+groups:
+  - name: slo
+    interval: 15s
+    rules:
+      # Global error ratio
+      - record: api_error_ratio
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+              /
+            clamp_min(sum(rate(http_requests_total[5m])), 1e-6)
+          )
+          or on() vector(0)
+
+      # Per-service error ratio
+      - record: api_error_ratio_by_service
+        expr: |
+          label_replace(
+            (
+              sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job)
+                /
+              clamp_min(sum(rate(http_requests_total[5m])) by (job), 1e-6)
+            )
+            or (
+              up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"} * 0
+            ),
+            "service", "$1", "job", "(.*)"
+          )
+
+      # P95 latency (requires histogram buckets from prometheus_fastapi_instrumentator)
+      - record: api_p95_latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          )
+          or (
+            label_replace(
+              up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"},
+              "service", "$1", "job", "(.*)"
+            ) * 0
+          )
+
+      # NEW: Per-endpoint latency (for detailed analysis)
+      - record: api_p95_latency_by_handler
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service, handler)
+          )
+
+      # NEW: Request rate by service (pre-aggregated)
+      - record: api_request_rate_by_service
+        expr: |
+          label_replace(
+            sum(rate(http_requests_total[5m])) by (job),
+            "service", "$1", "job", "(.*)"
+          )
+
+      # NEW: 5xx rate by service (absolute qps, not ratio)
+      - record: api_5xx_rate_by_service
+        expr: |
+          label_replace(
+            sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (job),
+            "service", "$1", "job", "(.*)"
+          ) or (
+            label_replace(
+              up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"},
+              "service", "$1", "job", "(.*)"
+            ) * 0
+          )
+
+      # NEW: Availability (inverse of error ratio)
+      - record: api_availability
+        expr: |
+          1 - api_error_ratio
+
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # CPU usage per container
+      - record: container_cpu_usage_percent
+        expr: |
+          rate(container_cpu_usage_seconds_total{image!=""}[2m]) * 100
+
+      # Memory usage per container
+      - record: container_memory_usage_mb
+        expr: |
+          container_memory_usage_bytes{image!=""} / 1024 / 1024
+
+      # Disk I/O rate
+      - record: container_disk_io_mb_per_sec
+        expr: |
+          (rate(container_fs_reads_bytes_total[2m]) + rate(container_fs_writes_bytes_total[2m])) / 1024 / 1024

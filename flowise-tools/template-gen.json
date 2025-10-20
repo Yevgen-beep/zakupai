@@ -1,0 +1,548 @@
+{
+    "name": "Template Generator",
+    "version": "1.0.0",
+    "description": "Generate documents from templates with dynamic data substitution and multi-format output",
+    "icon": "📄",
+    "category": "Document Generation",
+    "type": "tool",
+    "inputs": [
+        {
+            "name": "templateType",
+            "type": "select",
+            "label": "Template Type",
+            "description": "Type of document template to generate",
+            "required": true,
+            "options": [
+                {
+                    "label": "TL;DR Summary",
+                    "value": "tldr"
+                },
+                {
+                    "label": "Guarantee Letter",
+                    "value": "guarantee_letter"
+                },
+                {
+                    "label": "Business Proposal",
+                    "value": "business_proposal"
+                },
+                {
+                    "label": "Risk Report",
+                    "value": "risk_report"
+                },
+                {
+                    "label": "Financial Analysis",
+                    "value": "financial_analysis"
+                },
+                {
+                    "label": "Custom Template",
+                    "value": "custom"
+                }
+            ],
+            "default": "tldr"
+        },
+        {
+            "name": "lotId",
+            "type": "string",
+            "label": "Lot ID",
+            "description": "ID of the lot for template generation",
+            "required": false,
+            "placeholder": "e.g., 12345"
+        },
+        {
+            "name": "templateData",
+            "type": "json",
+            "label": "Template Data",
+            "description": "Data to populate template variables (JSON format)",
+            "placeholder": "{\"company\": \"Acme Corp\", \"amount\": 1000000}",
+            "default": "{}"
+        },
+        {
+            "name": "customTemplate",
+            "type": "string",
+            "label": "Custom Template",
+            "description": "Custom template content (use {{variable}} for substitution)",
+            "multiline": true,
+            "rows": 8,
+            "placeholder": "Dear {{customer}},\\n\\nRegarding lot {{lotId}}...",
+            "displayOptions": {
+                "show": {
+                    "templateType": ["custom"]
+                }
+            }
+        },
+        {
+            "name": "outputFormat",
+            "type": "select",
+            "label": "Output Format",
+            "description": "Format for generated document",
+            "options": [
+                {
+                    "label": "HTML",
+                    "value": "html"
+                },
+                {
+                    "label": "Markdown",
+                    "value": "markdown"
+                },
+                {
+                    "label": "Plain Text",
+                    "value": "text"
+                },
+                {
+                    "label": "PDF",
+                    "value": "pdf"
+                }
+            ],
+            "default": "html"
+        },
+        {
+            "name": "language",
+            "type": "select",
+            "label": "Language",
+            "description": "Language for document generation",
+            "options": [
+                {
+                    "label": "Russian",
+                    "value": "ru"
+                },
+                {
+                    "label": "Kazakh",
+                    "value": "kz"
+                },
+                {
+                    "label": "English",
+                    "value": "en"
+                }
+            ],
+            "default": "ru"
+        },
+        {
+            "name": "includeMetadata",
+            "type": "boolean",
+            "label": "Include Metadata",
+            "description": "Include generation metadata in output",
+            "default": true
+        },
+        {
+            "name": "autoFetch",
+            "type": "boolean",
+            "label": "Auto-fetch Data",
+            "description": "Automatically fetch lot data if Lot ID is provided",
+            "default": true
+        },
+        {
+            "name": "includeRiskData",
+            "type": "boolean",
+            "label": "Include Risk Data",
+            "description": "Include risk assessment data in template",
+            "default": false
+        },
+        {
+            "name": "includeFinancialData",
+            "type": "boolean",
+            "label": "Include Financial Data",
+            "description": "Include financial calculations in template",
+            "default": false
+        },
+        {
+            "name": "pdfOptions",
+            "type": "json",
+            "label": "PDF Options",
+            "description": "PDF generation options (margins, orientation, etc.)",
+            "placeholder": "{\"pageSize\": \"A4\", \"orientation\": \"portrait\"}",
+            "default": "{}",
+            "displayOptions": {
+                "show": {
+                    "outputFormat": ["pdf"]
+                }
+            }
+        }
+    ],
+    "outputs": [
+        {
+            "name": "document",
+            "type": "string",
+            "description": "Generated document content"
+        },
+        {
+            "name": "metadata",
+            "type": "object",
+            "description": "Document generation metadata"
+        },
+        {
+            "name": "downloadUrl",
+            "type": "string",
+            "description": "Download URL for PDF documents"
+        }
+    ],
+    "code": `
+const axios = require('axios');
+
+class TemplateGeneratorTool {
+    async execute(inputs) {
+        const {
+            templateType,
+            lotId,
+            templateData,
+            customTemplate,
+            outputFormat,
+            language,
+            includeMetadata,
+            autoFetch,
+            includeRiskData,
+            includeFinancialData,
+            pdfOptions
+        } = inputs;
+
+        try {
+            // Parse template data
+            let data = {};
+            if (templateData && templateData !== '{}') {
+                try {
+                    data = JSON.parse(templateData);
+                } catch (error) {
+                    console.warn('Failed to parse template data:', error.message);
+                }
+            }
+
+            // Auto-fetch lot data if requested
+            if (autoFetch && lotId) {
+                const lotData = await this.fetchLotData(lotId, includeRiskData, includeFinancialData);
+                data = { ...lotData, ...data }; // User data overrides fetched data
+            }
+
+            // Get or create template content
+            let templateContent;
+            if (templateType === 'custom' && customTemplate) {
+                templateContent = customTemplate;
+            } else {
+                templateContent = await this.getTemplate(templateType, language);
+            }
+
+            // Process template with data
+            const processedContent = this.processTemplate(templateContent, data, language);
+
+            // Convert to requested format
+            const document = await this.convertToFormat(processedContent, outputFormat, pdfOptions);
+
+            const metadata = {
+                templateType,
+                outputFormat,
+                language,
+                generatedAt: new Date().toISOString(),
+                dataSourceCount: Object.keys(data).length
+            };
+
+            if (lotId) metadata.lotId = lotId;
+
+            let result = { document, metadata };
+
+            // Handle PDF output
+            if (outputFormat === 'pdf' && document.downloadUrl) {
+                result.downloadUrl = document.downloadUrl;
+                result.document = document.content || 'PDF generated successfully';
+            }
+
+            return result;
+
+        } catch (error) {
+            throw new Error(\`Template generation failed: \${error.message}\`);
+        }
+    }
+
+    async fetchLotData(lotId, includeRisk, includeFinancial) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        let lotData = {};
+
+        try {
+            // Fetch basic lot data
+            const lotResponse = await axios.get(\`\${baseUrl}/lots/\${lotId}\`, {
+                headers: { 'X-API-Key': apiKey }
+            });
+            lotData = lotResponse.data;
+
+            // Fetch risk data if requested
+            if (includeRisk) {
+                try {
+                    const riskResponse = await axios.get(\`\${baseUrl}/risk/explain/\${lotId}\`, {
+                        headers: { 'X-API-Key': apiKey }
+                    });
+                    lotData.risk = riskResponse.data;
+                } catch (error) {
+                    console.warn(\`Failed to fetch risk data: \${error.message}\`);
+                }
+            }
+
+            // Fetch financial data if requested
+            if (includeFinancial) {
+                try {
+                    const financialResponse = await axios.get(\`\${baseUrl}/calc/lot-total/\${lotId}\`, {
+                        headers: { 'X-API-Key': apiKey }
+                    });
+                    lotData.financial = financialResponse.data;
+                } catch (error) {
+                    console.warn(\`Failed to fetch financial data: \${error.message}\`);
+                }
+            }
+
+            return lotData;
+
+        } catch (error) {
+            console.warn(\`Failed to fetch lot data: \${error.message}\`);
+            return { lotId: lotId, title: 'Lot data unavailable' };
+        }
+    }
+
+    async getTemplate(templateType, language) {
+        const templates = {
+            tldr: {
+                ru: \`# Краткое описание лота {{lotId}}
+
+**Название:** {{title}}
+**Заказчик:** {{customer}}
+**Цена:** {{price}} тенге
+**Срок:** {{deadline}}
+**Статус:** {{status}}
+
+{{#if risk}}
+**Оценка риска:** {{risk.score}}% ({{risk.level}})
+{{/if}}
+
+{{#if financial}}
+**Финансовая оценка:**
+- Общая стоимость: {{financial.total}}
+- Рентабельность: {{financial.profitability}}%
+{{/if}}\`,
+                en: \`# Lot Summary {{lotId}}
+
+**Title:** {{title}}
+**Customer:** {{customer}}
+**Price:** {{price}} tenge
+**Deadline:** {{deadline}}
+**Status:** {{status}}
+
+{{#if risk}}
+**Risk Assessment:** {{risk.score}}% ({{risk.level}})
+{{/if}}
+
+{{#if financial}}
+**Financial Assessment:**
+- Total Cost: {{financial.total}}
+- Profitability: {{financial.profitability}}%
+{{/if}}\`
+            },
+            guarantee_letter: {
+                ru: \`# Гарантийное письмо
+
+Дата: {{currentDate}}
+
+Уважаемые коллеги!
+
+Настоящим письмом подтверждаем готовность компании "{{companyName}}" принять участие в тендере по лоту {{lotId}} "{{title}}".
+
+**Предмет тендера:** {{title}}
+**Сумма контракта:** {{price}} тенге
+**Срок выполнения:** {{deadline}}
+
+Мы гарантируем:
+- Качественное выполнение работ/поставку товаров
+- Соблюдение сроков контракта
+- Соответствие всем техническим требованиям
+
+{{#if risk}}
+С учетом проведенной оценки рисков ({{risk.score}}%), мы готовы предоставить дополнительные гарантии по запросу.
+{{/if}}
+
+С уважением,
+{{contactPerson}}
+Директор {{companyName}}\`,
+                en: \`# Guarantee Letter
+
+Date: {{currentDate}}
+
+Dear Colleagues,
+
+This letter confirms the readiness of "{{companyName}}" to participate in the tender for lot {{lotId}} "{{title}}".
+
+**Tender Subject:** {{title}}
+**Contract Amount:** {{price}} tenge
+**Delivery Period:** {{deadline}}
+
+We guarantee:
+- Quality execution of work/delivery of goods
+- Compliance with contract deadlines
+- Compliance with all technical requirements
+
+{{#if risk}}
+Taking into account the risk assessment ({{risk.score}}%), we are ready to provide additional guarantees upon request.
+{{/if}}
+
+Sincerely,
+{{contactPerson}}
+Director of {{companyName}}\`
+            },
+            risk_report: {
+                ru: \`# Отчет по оценке рисков - Лот {{lotId}}
+
+**Дата анализа:** {{currentDate}}
+**Лот:** {{title}}
+**Общий балл риска:** {{risk.score}}% ({{risk.level}})
+
+## Анализ факторов риска:
+
+{{#each risk.factors}}
+### {{this.name}}
+- Вес: {{this.weight}}%
+- Значение: {{this.value}}%
+- Влияние: {{this.impact}}%
+- Описание: {{this.description}}
+{{/each}}
+
+## Рекомендации:
+
+{{#each recommendations}}
+- {{this}}
+{{/each}}
+
+## Финансовые последствия:
+
+{{#if financial}}
+- Возможные штрафы: {{financial.penalties}} тенге
+- Рекомендуемая страховка: {{financial.insurance}} тенге
+{{/if}}\`
+            }
+        };
+
+        return templates[templateType]?.[language] || templates[templateType]?.ru ||
+               \`Template \${templateType} not found\`;
+    }
+
+    processTemplate(template, data, language) {
+        // Add current date and language-specific formatting
+        const processedData = {
+            ...data,
+            currentDate: new Date().toLocaleDateString(language === 'en' ? 'en-US' : 'ru-RU'),
+            currentDateTime: new Date().toLocaleString(language === 'en' ? 'en-US' : 'ru-RU')
+        };
+
+        // Simple template processing (replace {{variable}} with values)
+        let result = template;
+
+        Object.keys(processedData).forEach(key => {
+            const value = processedData[key];
+            const regex = new RegExp(\`{{\\s*\${key}\\s*}}\`, 'g');
+
+            if (typeof value === 'object' && value !== null) {
+                // Handle nested objects
+                Object.keys(value).forEach(nestedKey => {
+                    const nestedRegex = new RegExp(\`{{\\s*\${key}\\.\${nestedKey}\\s*}}\`, 'g');
+                    result = result.replace(nestedRegex, value[nestedKey] || '');
+                });
+            } else {
+                result = result.replace(regex, value || '');
+            }
+        });
+
+        // Handle conditional blocks (simplified)
+        result = result.replace(/{{#if\\s+(\\w+)}}([\\s\\S]*?){{\/if}}/g, (match, condition, content) => {
+            const value = processedData[condition];
+            return value ? content : '';
+        });
+
+        // Handle loops (simplified)
+        result = result.replace(/{{#each\\s+(\\w+)}}([\\s\\S]*?){{\/each}}/g, (match, arrayName, content) => {
+            const array = processedData[arrayName];
+            if (!Array.isArray(array)) return '';
+
+            return array.map(item => {
+                let itemContent = content;
+                if (typeof item === 'object') {
+                    Object.keys(item).forEach(key => {
+                        const itemRegex = new RegExp(\`{{\\s*this\\.\${key}\\s*}}\`, 'g');
+                        itemContent = itemContent.replace(itemRegex, item[key] || '');
+                    });
+                } else {
+                    itemContent = itemContent.replace(/{{\\s*this\\s*}}/g, item);
+                }
+                return itemContent;
+            }).join('');
+        });
+
+        return result;
+    }
+
+    async convertToFormat(content, format, options = {}) {
+        switch (format) {
+            case 'html':
+                return this.convertToHtml(content);
+
+            case 'markdown':
+                return content; // Already in markdown format
+
+            case 'text':
+                return this.convertToText(content);
+
+            case 'pdf':
+                return await this.convertToPdf(content, options);
+
+            default:
+                return content;
+        }
+    }
+
+    convertToHtml(markdown) {
+        return markdown
+            .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+            .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+            .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+            .replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>')
+            .replace(/\\*(.*?)\\*/g, '<em>$1</em>')
+            .replace(/^- (.*$)/gim, '<li>$1</li>')
+            .replace(/<li>/g, '<ul><li>')
+            .replace(/<\\/li>\\n/g, '</li></ul>\\n')
+            .replace(/\\n/g, '<br>\\n')
+            .replace(/<\\/h[1-3]><br>/g, '</h1>')
+            .replace(/<\\/h[1-3]><br>/g, '</h2>')
+            .replace(/<\\/h[1-3]><br>/g, '</h3>');
+    }
+
+    convertToText(markdown) {
+        return markdown
+            .replace(/^#+\\s*/gm, '')
+            .replace(/\\*\\*(.*?)\\*\\*/g, '$1')
+            .replace(/\\*(.*?)\\*/g, '$1')
+            .replace(/^- /gm, '• ');
+    }
+
+    async convertToPdf(content, options) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        try {
+            const response = await axios.post(\`\${baseUrl}/render/pdf\`, {
+                template: 'custom',
+                content: content,
+                ...options
+            }, {
+                headers: { 'X-API-Key': apiKey }
+            });
+
+            return {
+                content: 'PDF generated successfully',
+                downloadUrl: response.data.download_url || null,
+                size: response.data.size || 0
+            };
+
+        } catch (error) {
+            console.warn('PDF generation failed, falling back to HTML');
+            return this.convertToHtml(content);
+        }
+    }
+}
+
+// Export for Flowise
+module.exports = { nodeClass: TemplateGeneratorTool };
+`
+}

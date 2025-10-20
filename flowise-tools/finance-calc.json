@@ -1,0 +1,495 @@
+{
+    "name": "Finance Calculator",
+    "version": "1.0.0",
+    "description": "Calculate financial metrics for tender lots including VAT, margins, penalties, and profitability analysis",
+    "icon": "💰",
+    "category": "Financial",
+    "type": "tool",
+    "inputs": [
+        {
+            "name": "lotId",
+            "type": "string",
+            "label": "Lot ID",
+            "description": "ID of the lot for financial calculations",
+            "required": false,
+            "placeholder": "e.g., 12345"
+        },
+        {
+            "name": "calculationType",
+            "type": "select",
+            "label": "Calculation Type",
+            "description": "Type of financial calculation to perform",
+            "required": true,
+            "options": [
+                {
+                    "label": "VAT Calculation",
+                    "value": "vat"
+                },
+                {
+                    "label": "Margin Analysis",
+                    "value": "margin"
+                },
+                {
+                    "label": "Penalty Assessment",
+                    "value": "penalty"
+                },
+                {
+                    "label": "Lot Total Cost",
+                    "value": "total"
+                },
+                {
+                    "label": "Profitability Analysis",
+                    "value": "profitability"
+                },
+                {
+                    "label": "Full Financial Report",
+                    "value": "full_report"
+                }
+            ],
+            "default": "margin"
+        },
+        {
+            "name": "baseAmount",
+            "type": "number",
+            "label": "Base Amount",
+            "description": "Base amount in tenge for calculations",
+            "required": false,
+            "placeholder": "1000000"
+        },
+        {
+            "name": "vatRate",
+            "type": "number",
+            "label": "VAT Rate (%)",
+            "description": "VAT rate percentage (default: 12% for Kazakhstan)",
+            "default": 12,
+            "min": 0,
+            "max": 25
+        },
+        {
+            "name": "marginTarget",
+            "type": "number",
+            "label": "Target Margin (%)",
+            "description": "Desired profit margin percentage",
+            "default": 20,
+            "min": 0,
+            "max": 100
+        },
+        {
+            "name": "costData",
+            "type": "json",
+            "label": "Cost Data",
+            "description": "Detailed cost breakdown (JSON format)",
+            "placeholder": "{\"materials\": 500000, \"labor\": 300000, \"overhead\": 100000}",
+            "default": "{}"
+        },
+        {
+            "name": "penaltyRate",
+            "type": "number",
+            "label": "Penalty Rate (%/day)",
+            "description": "Daily penalty rate for late delivery",
+            "default": 0.1,
+            "min": 0,
+            "max": 1
+        },
+        {
+            "name": "deliveryDays",
+            "type": "number",
+            "label": "Delivery Period (days)",
+            "description": "Expected delivery period in days",
+            "default": 30,
+            "min": 1
+        },
+        {
+            "name": "currency",
+            "type": "select",
+            "label": "Currency",
+            "description": "Currency for calculations and display",
+            "options": [
+                {
+                    "label": "KZT (Tenge)",
+                    "value": "KZT"
+                },
+                {
+                    "label": "USD (Dollar)",
+                    "value": "USD"
+                },
+                {
+                    "label": "EUR (Euro)",
+                    "value": "EUR"
+                }
+            ],
+            "default": "KZT"
+        },
+        {
+            "name": "language",
+            "type": "select",
+            "label": "Language",
+            "description": "Language for output formatting",
+            "options": [
+                {
+                    "label": "Russian",
+                    "value": "ru"
+                },
+                {
+                    "label": "Kazakh",
+                    "value": "kz"
+                },
+                {
+                    "label": "English",
+                    "value": "en"
+                }
+            ],
+            "default": "ru"
+        }
+    ],
+    "outputs": [
+        {
+            "name": "result",
+            "type": "object",
+            "description": "Financial calculation results"
+        },
+        {
+            "name": "summary",
+            "type": "string",
+            "description": "Human-readable summary"
+        },
+        {
+            "name": "recommendations",
+            "type": "array",
+            "description": "Financial recommendations"
+        },
+        {
+            "name": "metadata",
+            "type": "object",
+            "description": "Calculation metadata"
+        }
+    ],
+    "code": `
+const axios = require('axios');
+
+class FinanceCalculatorTool {
+    async execute(inputs) {
+        const {
+            lotId,
+            calculationType,
+            baseAmount,
+            vatRate,
+            marginTarget,
+            costData,
+            penaltyRate,
+            deliveryDays,
+            currency,
+            language
+        } = inputs;
+
+        try {
+            let result = {};
+            const metadata = {
+                calculationType,
+                currency,
+                language,
+                calculatedAt: new Date().toISOString()
+            };
+
+            // Parse cost data if provided
+            let costs = {};
+            if (costData && costData !== '{}') {
+                try {
+                    costs = JSON.parse(costData);
+                } catch (error) {
+                    console.warn('Failed to parse cost data:', error.message);
+                }
+            }
+
+            // Perform calculations based on type
+            switch (calculationType) {
+                case 'vat':
+                    result = await this.calculateVAT(baseAmount, vatRate, currency);
+                    break;
+                case 'margin':
+                    result = await this.calculateMargin(baseAmount, costs, marginTarget, currency);
+                    break;
+                case 'penalty':
+                    result = await this.calculatePenalty(baseAmount, penaltyRate, deliveryDays, currency);
+                    break;
+                case 'total':
+                    result = lotId ?
+                        await this.calculateLotTotal(lotId, currency) :
+                        await this.calculateTotal(baseAmount, costs, vatRate, currency);
+                    break;
+                case 'profitability':
+                    result = await this.analyzeProfitability(baseAmount, costs, marginTarget, vatRate, currency);
+                    break;
+                case 'full_report':
+                    result = await this.generateFullReport(lotId, baseAmount, costs, vatRate, marginTarget, penaltyRate, deliveryDays, currency);
+                    break;
+                default:
+                    throw new Error(\`Unsupported calculation type: \${calculationType}\`);
+            }
+
+            // Generate summary and recommendations
+            const summary = this.generateSummary(result, language, calculationType);
+            const recommendations = this.generateRecommendations(result, language);
+
+            if (lotId) {
+                metadata.lotId = lotId;
+                await this.saveCalculationResult(lotId, calculationType, result);
+            }
+
+            return {
+                result,
+                summary,
+                recommendations,
+                metadata
+            };
+
+        } catch (error) {
+            throw new Error(\`Financial calculation failed: \${error.message}\`);
+        }
+    }
+
+    async calculateVAT(amount, vatRate, currency) {
+        const vatAmount = amount * (vatRate / 100);
+        const totalWithVAT = amount + vatAmount;
+
+        return {
+            baseAmount: amount,
+            vatRate: vatRate,
+            vatAmount: vatAmount,
+            totalWithVAT: totalWithVAT,
+            currency: currency
+        };
+    }
+
+    async calculateMargin(amount, costs, targetMargin, currency) {
+        const totalCosts = Object.values(costs).reduce((sum, cost) => sum + (cost || 0), 0) || amount * 0.7;
+        const currentMargin = amount > 0 ? ((amount - totalCosts) / amount) * 100 : 0;
+        const recommendedPrice = totalCosts * (1 + targetMargin / 100);
+
+        return {
+            revenue: amount,
+            totalCosts: totalCosts,
+            profit: amount - totalCosts,
+            currentMargin: currentMargin,
+            targetMargin: targetMargin,
+            recommendedPrice: recommendedPrice,
+            marginGap: currentMargin - targetMargin,
+            currency: currency,
+            costBreakdown: costs
+        };
+    }
+
+    async calculatePenalty(amount, penaltyRate, deliveryDays, currency) {
+        const dailyPenalty = amount * (penaltyRate / 100);
+        const totalPenaltyRisk = dailyPenalty * deliveryDays;
+        const penaltyThreshold = amount * 0.1; // 10% threshold
+
+        return {
+            contractAmount: amount,
+            penaltyRate: penaltyRate,
+            deliveryDays: deliveryDays,
+            dailyPenalty: dailyPenalty,
+            totalPenaltyRisk: totalPenaltyRisk,
+            penaltyThreshold: penaltyThreshold,
+            riskLevel: totalPenaltyRisk > penaltyThreshold ? 'high' : 'normal',
+            currency: currency
+        };
+    }
+
+    async calculateLotTotal(lotId, currency) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        try {
+            const response = await axios.get(\`\${baseUrl}/calc/lot-total/\${lotId}\`, {
+                headers: { 'X-API-Key': apiKey }
+            });
+
+            return {
+                ...response.data,
+                currency: currency,
+                source: 'api'
+            };
+        } catch (error) {
+            throw new Error(\`Failed to get lot total: \${error.message}\`);
+        }
+    }
+
+    async calculateTotal(baseAmount, costs, vatRate, currency) {
+        const totalCosts = Object.values(costs).reduce((sum, cost) => sum + (cost || 0), 0);
+        const subtotal = baseAmount || totalCosts * 1.3; // Add 30% markup if no base amount
+        const vatAmount = subtotal * (vatRate / 100);
+        const grandTotal = subtotal + vatAmount;
+
+        return {
+            costs: costs,
+            totalCosts: totalCosts,
+            subtotal: subtotal,
+            vatRate: vatRate,
+            vatAmount: vatAmount,
+            grandTotal: grandTotal,
+            currency: currency
+        };
+    }
+
+    async analyzeProfitability(revenue, costs, targetMargin, vatRate, currency) {
+        const totalCosts = Object.values(costs).reduce((sum, cost) => sum + (cost || 0), 0) || revenue * 0.7;
+        const grossProfit = revenue - totalCosts;
+        const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+        const vatAmount = revenue * (vatRate / 100);
+        const netRevenue = revenue - vatAmount;
+        const netMargin = netRevenue > 0 ? ((netRevenue - totalCosts) / netRevenue) * 100 : 0;
+
+        const breakEvenPoint = totalCosts / (1 - vatRate / 100);
+        const profitabilityScore = this.calculateProfitabilityScore(grossMargin, targetMargin);
+
+        return {
+            revenue: revenue,
+            totalCosts: totalCosts,
+            grossProfit: grossProfit,
+            grossMargin: grossMargin,
+            netRevenue: netRevenue,
+            netMargin: netMargin,
+            targetMargin: targetMargin,
+            breakEvenPoint: breakEvenPoint,
+            profitabilityScore: profitabilityScore,
+            isViable: grossMargin >= targetMargin * 0.8,
+            currency: currency
+        };
+    }
+
+    async generateFullReport(lotId, baseAmount, costs, vatRate, marginTarget, penaltyRate, deliveryDays, currency) {
+        const vatCalc = await this.calculateVAT(baseAmount, vatRate, currency);
+        const marginCalc = await this.calculateMargin(baseAmount, costs, marginTarget, currency);
+        const penaltyCalc = await this.calculatePenalty(baseAmount, penaltyRate, deliveryDays, currency);
+        const profitabilityCalc = await this.analyzeProfitability(baseAmount, costs, marginTarget, vatRate, currency);
+
+        return {
+            vat: vatCalc,
+            margin: marginCalc,
+            penalty: penaltyCalc,
+            profitability: profitabilityCalc,
+            overallRating: this.calculateOverallRating(marginCalc, penaltyCalc, profitabilityCalc),
+            currency: currency
+        };
+    }
+
+    calculateProfitabilityScore(actualMargin, targetMargin) {
+        if (actualMargin >= targetMargin) return 100;
+        return Math.max(0, (actualMargin / targetMargin) * 100);
+    }
+
+    calculateOverallRating(marginCalc, penaltyCalc, profitabilityCalc) {
+        let score = 0;
+
+        // Margin score (40%)
+        if (marginCalc.currentMargin >= marginCalc.targetMargin) score += 40;
+        else score += (marginCalc.currentMargin / marginCalc.targetMargin) * 40;
+
+        // Risk score (30%)
+        if (penaltyCalc.riskLevel === 'normal') score += 30;
+        else score += 15;
+
+        // Profitability score (30%)
+        score += (profitabilityCalc.profitabilityScore / 100) * 30;
+
+        return {
+            score: Math.round(score),
+            rating: score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'fair' : 'poor'
+        };
+    }
+
+    generateSummary(result, language, calculationType) {
+        const translations = {
+            ru: {
+                vatCalculation: "Расчет НДС",
+                marginAnalysis: "Анализ маржи",
+                penaltyAssessment: "Оценка штрафов",
+                profitabilityAnalysis: "Анализ рентабельности",
+                amount: "Сумма",
+                margin: "Маржа",
+                profit: "Прибыль",
+                risk: "Риск",
+                total: "Итого"
+            },
+            en: {
+                vatCalculation: "VAT Calculation",
+                marginAnalysis: "Margin Analysis",
+                penaltyAssessment: "Penalty Assessment",
+                profitabilityAnalysis: "Profitability Analysis",
+                amount: "Amount",
+                margin: "Margin",
+                profit: "Profit",
+                risk: "Risk",
+                total: "Total"
+            }
+        };
+
+        const t = translations[language] || translations.ru;
+        let summary = '';
+
+        switch (calculationType) {
+            case 'vat':
+                summary = \`\${t.vatCalculation}: \${result.totalWithVAT?.toLocaleString()} \${result.currency}\`;
+                break;
+            case 'margin':
+                summary = \`\${t.marginAnalysis}: \${result.currentMargin?.toFixed(1)}% (\${result.profit?.toLocaleString()} \${result.currency})\`;
+                break;
+            case 'penalty':
+                summary = \`\${t.penaltyAssessment}: \${result.riskLevel} (\${result.totalPenaltyRisk?.toLocaleString()} \${result.currency})\`;
+                break;
+            default:
+                summary = \`Financial calculation completed for \${result.currency}\`;
+        }
+
+        return summary;
+    }
+
+    generateRecommendations(result, language) {
+        const recommendations = [];
+
+        if (result.margin && result.margin.currentMargin < result.margin.targetMargin) {
+            recommendations.push(language === 'ru' ?
+                "Рассмотрите возможность снижения затрат или увеличения цены" :
+                "Consider reducing costs or increasing price");
+        }
+
+        if (result.penalty && result.penalty.riskLevel === 'high') {
+            recommendations.push(language === 'ru' ?
+                "Высокий риск штрафов - пересмотрите сроки поставки" :
+                "High penalty risk - review delivery timeline");
+        }
+
+        if (result.profitability && !result.profitability.isViable) {
+            recommendations.push(language === 'ru' ?
+                "Проект нерентабелен при текущих параметрах" :
+                "Project is not viable with current parameters");
+        }
+
+        return recommendations;
+    }
+
+    async saveCalculationResult(lotId, calculationType, result) {
+        const baseUrl = process.env.ZAKUPAI_BASE_URL || 'http://localhost:8000';
+        const apiKey = process.env.ZAKUPAI_API_KEY || 'changeme';
+
+        try {
+            await axios.post(\`\${baseUrl}/calc/save\`, {
+                lot_id: lotId,
+                calculation_type: calculationType,
+                result: result,
+                calculated_at: new Date().toISOString()
+            }, {
+                headers: { 'X-API-Key': apiKey }
+            });
+        } catch (error) {
+            console.warn(\`Failed to save calculation result: \${error.message}\`);
+        }
+    }
+}
+
+// Export for Flowise
+module.exports = { nodeClass: FinanceCalculatorTool };
+`
+}

@@ -1,0 +1,230 @@
+{
+  "name": "ZakupAI - Daily Lot Scanner",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,14,18 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Every day at 9:00, 14:00, 18:00",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "lots",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 100,
+        "additionalFields": {
+          "status": "published",
+          "dateFrom": "={{new Date(Date.now() - 24*60*60*1000).toISOString().split('T')[0]}}",
+          "dateTo": "={{new Date().toISOString().split('T')[0]}}"
+        }
+      },
+      "name": "Get New Lots",
+      "type": "n8n-nodes-goszakup-rk.goszakup",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "goszakupApi": "goszakup-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "name": "Process in Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/lots/batch-process",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lots\": {{JSON.stringify($json)}}\n}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          },
+          "timeout": 30000
+        }
+      },
+      "name": "Batch Process Lots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const processedLots = $input.all();\nconst hotLots = processedLots\n  .flatMap(batch => batch.json.hot_lots || [])\n  .filter(lot => lot.is_hot);\n\nconst stats = {\n  total_processed: processedLots.reduce((sum, batch) => sum + (batch.json.processed_count || 0), 0),\n  hot_lots_found: hotLots.length,\n  processing_time: new Date().toISOString(),\n  hot_lots: hotLots.slice(0, 10) // Top 10 hot lots\n};\n\nreturn { json: stats };"
+      },
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.hot_lots_found}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "name": "Check if Hot Lots Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_ADMIN_CHANNEL}}",
+        "text": "=📊 **Ежедневный сканер лотов**\n\n✅ Обработано лотов: {{$json.total_processed}}\n🔥 Найдено горячих лотов: {{$json.hot_lots_found}}\n⏰ Время обработки: {{$json.processing_time}}\n\n{{$json.hot_lots_found > 0 ? '🎯 Топ горячих лотов отправлены в канал' : '😴 Горячих лотов не найдено'}}",
+        "parseMode": "Markdown"
+      },
+      "name": "Send Summary to Admin",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1560, 200],
+      "credentials": {
+        "telegramApi": "telegram-bot-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const hotLots = $json.hot_lots || [];\nconst messages = [];\n\nfor (const lot of hotLots.slice(0, 5)) {\n  const message = {\n    chatId: $env.TELEGRAM_HOT_LOTS_CHANNEL,\n    text: `🔥 **ГОРЯЧИЙ ЛОТ** 🔥\\n\\n📋 **${lot.title}**\\n💰 Цена: ${lot.price} тенге\\n📈 Маржа: ${lot.margin_percentage}%\\n⚠️ Риск: ${Math.round(lot.risk_score * 100)}%\\n📅 Дедлайн: ${lot.deadline}\\n\\n🔗 [Подробности](${lot.goszakup_url})`,\n    parseMode: 'Markdown'\n  };\n  messages.push({ json: message });\n}\n\nreturn messages;"
+      },
+      "name": "Prepare Hot Lot Alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1560, 380]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chatId}}",
+        "text": "={{$json.text}}",
+        "parseMode": "={{$json.parseMode}}"
+      },
+      "name": "Send Hot Lot Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1780, 380],
+      "credentials": {
+        "telegramApi": "telegram-bot-credentials"
+      }
+    }
+  ],
+  "connections": {
+    "Every day at 9:00, 14:00, 18:00": {
+      "main": [
+        [
+          {
+            "node": "Get New Lots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Lots": {
+      "main": [
+        [
+          {
+            "node": "Process in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process in Batches": {
+      "main": [
+        [
+          {
+            "node": "Batch Process Lots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Process Lots": {
+      "main": [
+        null,
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Check if Hot Lots Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Hot Lots Found": {
+      "main": [
+        [
+          {
+            "node": "Send Summary to Admin",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Hot Lot Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Summary to Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Hot Lot Alerts": {
+      "main": [
+        [
+          {
+            "node": "Send Hot Lot Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "Asia/Almaty"
+  },
+  "id": "daily-lot-scanner"
+}

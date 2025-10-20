@@ -1,0 +1,78 @@
+services:
+  db:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: zakupai_dev
+      POSTGRES_DB: zakupai_dev
+    profiles: ["dev"]
+
+  gateway:
+    ports:
+      - "8080:80"
+    volumes:
+      - ./gateway/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    profiles: ["dev", "default"]
+
+  calc-service:
+    ports:
+      - "7001:8000"
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    profiles: ["dev", "default"]
+
+  risk-engine:
+    ports:
+      - "7002:8000"
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    profiles: ["dev", "default"]
+
+  doc-service:
+    ports:
+      - "7003:8000"
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    profiles: ["dev", "default"]
+
+  embedding-api:
+    ports:
+      - "7010:8000"
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    profiles: ["dev", "default"]
+
+  web:
+    ports:
+      - "8081:8000"
+    environment:
+      - DEBUG=true
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8080,http://localhost:8081,http://127.0.0.1:3000,http://127.0.0.1:8080,http://127.0.0.1:8081
+      - CSRF_ENABLED=false
+      - SECURE_COOKIES=false
+    profiles: ["dev", "default"]
+
+  bot:
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=debug
+    profiles: ["dev", "default"]
+
+  # Development tools
+  adminer:
+    image: adminer:4.8.1
+    container_name: zakupai-adminer
+    ports:
+      - "8082:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      - db
+    networks:
+      - zakupai-network
+    profiles: ["dev"]
+    restart: unless-stopped

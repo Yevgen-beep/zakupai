@@ -1,0 +1,237 @@
+{
+  "name": "ZakupAI - Price Monitor & Update",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6,12,20 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Every day at 6:00, 12:00, 20:00",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "prices",
+        "operation": "aggregate",
+        "aggregateBy": "source",
+        "additionalFields": {
+          "dateFrom": "={{new Date(Date.now() - 24*60*60*1000).toISOString().split('T')[0]}}",
+          "include_stats": true
+        }
+      },
+      "name": "Get Price Sources",
+      "type": "n8n-nodes-price-aggregator.priceAggregator",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "credentials": {
+        "priceAggregatorApi": "price-aggregator-credentials"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sources = $json.sources || [];\nconst staleThreshold = 6 * 60 * 60 * 1000; // 6 hours\nconst now = Date.now();\n\nconst staleSources = sources.filter(source => {\n  const lastUpdate = new Date(source.last_updated).getTime();\n  return (now - lastUpdate) > staleThreshold;\n});\n\nconst activeSources = sources.filter(source => {\n  const lastUpdate = new Date(source.last_updated).getTime();\n  return (now - lastUpdate) <= staleThreshold;\n});\n\nreturn {\n  json: {\n    stale_sources: staleSources,\n    active_sources: activeSources,\n    total_sources: sources.length,\n    stale_count: staleSources.length,\n    update_needed: staleSources.length > 0\n  }\n};"
+      },
+      "name": "Check Source Freshness",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.update_needed}}"
+            }
+          ]
+        }
+      },
+      "name": "Need Price Updates?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staleSources = $json.stale_sources || [];\nconst requests = [];\n\nfor (const source of staleSources) {\n  requests.push({\n    json: {\n      source_id: source.id,\n      source_name: source.name,\n      source_url: source.url,\n      last_updated: source.last_updated\n    }\n  });\n}\n\nreturn requests;"
+      },
+      "name": "Prepare Update Requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/prices/refresh/{{$json.source_id}}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          },
+          "timeout": 60000
+        }
+      },
+      "name": "Refresh Price Source",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "url": "http://gateway:8080/calc/recalculate-margins",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"updated_sources\": {{JSON.stringify($input.all().map(item => item.json.source_id))}},\n  \"batch_size\": 50\n}",
+        "options": {
+          "headers": {
+            "X-API-Key": "={{$env.ZAKUPAI_API_KEY}}",
+            "Content-Type": "application/json"
+          },
+          "timeout": 120000
+        }
+      },
+      "name": "Recalculate Margins",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1560, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const updateResults = $input.all();\nconst successfulUpdates = updateResults.filter(r => r.json.status === 'success');\nconst failedUpdates = updateResults.filter(r => r.json.status === 'error');\n\nconst report = {\n  timestamp: new Date().toISOString(),\n  total_sources_checked: $('Check Source Freshness').item.json.total_sources,\n  stale_sources_found: $('Check Source Freshness').item.json.stale_count,\n  successful_updates: successfulUpdates.length,\n  failed_updates: failedUpdates.length,\n  recalculation_status: $('Recalculate Margins').item.json.status || 'not_run',\n  lots_recalculated: $('Recalculate Margins').item.json.lots_updated || 0\n};\n\nreturn { json: report };"
+      },
+      "name": "Generate Update Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1120, 380]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_ADMIN_CHANNEL}}",
+        "text": "=📊 **Мониторинг цен - отчет**\n\n🔄 Всего источников: {{$json.total_sources_checked}}\n⏰ Устаревших: {{$json.stale_sources_found}}\n✅ Обновлено успешно: {{$json.successful_updates}}\n❌ Ошибки обновления: {{$json.failed_updates}}\n🧮 Пересчитано лотов: {{$json.lots_recalculated}}\n\n⏰ {{$json.timestamp}}",
+        "parseMode": "Markdown"
+      },
+      "name": "Send Report to Admin",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1340, 380],
+      "credentials": {
+        "telegramApi": "telegram-bot-credentials"
+      }
+    }
+  ],
+  "connections": {
+    "Every day at 6:00, 12:00, 20:00": {
+      "main": [
+        [
+          {
+            "node": "Get Price Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Price Sources": {
+      "main": [
+        [
+          {
+            "node": "Check Source Freshness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Source Freshness": {
+      "main": [
+        [
+          {
+            "node": "Need Price Updates?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Update Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need Price Updates?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update Requests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Update Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update Requests": {
+      "main": [
+        [
+          {
+            "node": "Refresh Price Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh Price Source": {
+      "main": [
+        [
+          {
+            "node": "Recalculate Margins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recalculate Margins": {
+      "main": [
+        [
+          {
+            "node": "Generate Update Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Update Report": {
+      "main": [
+        [
+          {
+            "node": "Send Report to Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "timezone": "Asia/Almaty"
+  },
+  "id": "price-monitor"
+}

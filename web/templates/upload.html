@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+
+{% block title %}Загрузка прайс-листов - ZakupAI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="mb-4">
+            <h2>
+                <i class="bi bi-upload"></i>
+                Загрузка прайс-листов
+            </h2>
+            <p class="text-muted">Загрузите CSV или Excel файл с ценами для анализа маржинальности</p>
+        </div>
+
+        <!-- Upload Form -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <!-- Source Name -->
+                    <div class="mb-4">
+                        <label for="sourceName" class="form-label">Название источника цен</label>
+                        <input type="text" class="form-control" id="sourceName" name="source_name"
+                               placeholder="Например: Kaspi.kz, Sulpak, Собственный прайс" required>
+                        <div class="form-text">Укажите откуда получены эти цены</div>
+                    </div>
+
+                    <!-- File Upload Area -->
+                    <div class="mb-4">
+                        <label class="form-label">Файл прайс-листа</label>
+                        <div class="upload-area" id="uploadArea">
+                            <input type="file" class="form-control" id="priceFile" name="file"
+                                   accept=".csv,.xlsx,.xls" required style="display: none;">
+                            <div id="uploadPrompt">
+                                <i class="bi bi-cloud-upload display-4 text-muted mb-3"></i>
+                                <h5>Перетащите файл сюда или нажмите для выбора</h5>
+                                <p class="text-muted">Поддерживаются форматы: CSV, Excel (.xlsx, .xls)</p>
+                                <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('priceFile').click()">
+                                    <i class="bi bi-folder2-open"></i> Выбрать файл
+                                </button>
+                            </div>
+                            <div id="fileInfo" class="d-none">
+                                <i class="bi bi-file-earmark-text display-4 text-success mb-3"></i>
+                                <h6 id="fileName"></h6>
+                                <p class="text-muted" id="fileSize"></p>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFile()">
+                                    <i class="bi bi-trash"></i> Удалить
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Format Requirements -->
+                    <div class="alert alert-info">
+                        <h6><i class="bi bi-info-circle"></i> Требования к формату файла:</h6>
+                        <ul class="mb-0">
+                            <li><strong>Обязательные колонки:</strong> <code>sku</code>, <code>price</code></li>
+                            <li><strong>Дополнительные колонки:</strong> <code>name</code>, <code>category</code>, <code>unit</code></li>
+                            <li><strong>Размер файла:</strong> до 10 МБ</li>
+                            <li><strong>Кодировка:</strong> UTF-8 (для CSV)</li>
+                        </ul>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                            <i class="bi bi-upload"></i>
+                            Загрузить прайс-лист
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Results Area -->
+        <div id="resultsArea" class="d-none">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-check-circle text-success"></i>
+                        Результаты загрузки
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center" id="statsRow">
+                        <div class="col-md-3">
+                            <div class="border rounded p-3">
+                                <div class="h4 text-primary mb-1" id="totalRows">0</div>
+                                <small class="text-muted">Всего строк</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-3">
+                                <div class="h4 text-success mb-1" id="addedRows">0</div>
+                                <small class="text-muted">Добавлено</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-3">
+                                <div class="h4 text-warning mb-1" id="updatedRows">0</div>
+                                <small class="text-muted">Обновлено</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="border rounded p-3">
+                                <div class="h4 text-secondary mb-1" id="skippedRows">0</div>
+                                <small class="text-muted">Пропущено</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <h6>Детали:</h6>
+                        <ul id="resultDetails" class="list-unstyled">
+                        </ul>
+                    </div>
+
+                    <div class="mt-4">
+                        <button class="btn btn-primary" onclick="window.location.reload()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                            Загрузить еще один файл
+                        </button>
+                        <a href="/" class="btn btn-outline-secondary">
+                            <i class="bi bi-house"></i>
+                            На главную
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Example Data Format -->
+        <div class="mt-5">
+            <h4>Пример формата данных</h4>
+            <div class="card">
+                <div class="card-body">
+                    <h6>CSV формат:</h6>
+                    <pre class="bg-light p-3 rounded"><code>sku,price,name,category
+LAPTOP001,450000,Ноутбук Dell Inspiron,Компьютеры
+MOUSE001,5500,Мышь Logitech,Периферия
+KB001,12000,Клавиатура механическая,Периферия</code></pre>
+
+                    <div class="mt-3">
+                        <a href="#" class="btn btn-sm btn-outline-primary" onclick="downloadExample()">
+                            <i class="bi bi-download"></i>
+                            Скачать пример CSV
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress Modal -->
+<div class="modal fade" id="progressModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Обработка файла</h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Загрузка...</span>
+                </div>
+                <p>Загружаем и обрабатываем ваш файл...</p>
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar" style="width: 100%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// File upload handling
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('priceFile');
+const uploadPrompt = document.getElementById('uploadPrompt');
+const fileInfo = document.getElementById('fileInfo');
+const fileName = document.getElementById('fileName');
+const fileSize = document.getElementById('fileSize');
+
+// Drag and drop
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        showFileInfo(files[0]);
+    }
+});
+
+uploadArea.addEventListener('click', () => {
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        showFileInfo(e.target.files[0]);
+    }
+});
+
+function showFileInfo(file) {
+    fileName.textContent = file.name;
+    fileSize.textContent = formatFileSize(file.size);
+    uploadPrompt.classList.add('d-none');
+    fileInfo.classList.remove('d-none');
+}
+
+function clearFile() {
+    fileInput.value = '';
+    uploadPrompt.classList.remove('d-none');
+    fileInfo.classList.add('d-none');
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Form submission
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('source_name', document.getElementById('sourceName').value);
+
+    // Show progress modal
+    const progressModal = new bootstrap.Modal(document.getElementById('progressModal'));
+    progressModal.show();
+
+    try {
+        const response = await fetch('/upload-prices', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        progressModal.hide();
+
+        if (response.ok) {
+            showResults(result);
+        } else {
+            showError(result.detail || 'Произошла ошибка при загрузке');
+        }
+
+    } catch (error) {
+        progressModal.hide();
+        showError('Ошибка сети: ' + error.message);
+    }
+});
+
+function showResults(result) {
+    // Hide form
+    document.getElementById('uploadForm').parentElement.classList.add('d-none');
+
+    // Show results
+    document.getElementById('resultsArea').classList.remove('d-none');
+
+    // Update stats
+    document.getElementById('totalRows').textContent = result.total_rows;
+    document.getElementById('addedRows').textContent = result.added;
+    document.getElementById('updatedRows').textContent = result.updated;
+    document.getElementById('skippedRows').textContent = result.skipped;
+
+    // Update details
+    const details = document.getElementById('resultDetails');
+    details.innerHTML = `
+        <li><i class="bi bi-file-text text-primary"></i> <strong>Файл:</strong> ${result.filename}</li>
+        <li><i class="bi bi-tag text-info"></i> <strong>Источник:</strong> ${result.source}</li>
+        <li><i class="bi bi-clock text-secondary"></i> <strong>Время обработки:</strong> ${new Date().toLocaleString()}</li>
+    `;
+}
+
+function showError(message) {
+    const alertHtml = `
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Ошибка:</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+
+    document.querySelector('.col-lg-8').insertAdjacentHTML('afterbegin', alertHtml);
+}
+
+function downloadExample() {
+    const csvContent = `sku,price,name,category
+LAPTOP001,450000,Ноутбук Dell Inspiron,Компьютеры
+MOUSE001,5500,Мышь Logitech,Периферия
+KB001,12000,Клавиатура механическая,Периферия
+MONITOR001,85000,Монитор Samsung 24",Мониторы
+PRINTER001,35000,Принтер HP LaserJet,Принтеры`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'example_prices.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+</script>
+{% endblock %}

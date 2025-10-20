@@ -1,0 +1,178 @@
+name: Stage6 Monitoring Stack Test
+
+on:
+  push:
+    branches: [main, stage6-monitoring]
+    paths:
+      - 'docker-compose*.yml'
+      - 'monitoring/**'
+      - 'services/*/Dockerfile'
+      - 'services/*/requirements.txt'
+      - '.github/workflows/stage6-monitoring-test.yml'
+  pull_request:
+    paths:
+      - 'docker-compose*.yml'
+      - 'monitoring/**'
+      - 'services/*/Dockerfile'
+      - '.github/workflows/stage6-monitoring-test.yml'
+  workflow_dispatch:
+
+env:
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+jobs:
+  monitoring-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create test .env file
+        run: |
+          cat > .env <<EOF
+          # CI test environment
+          POSTGRES_USER=testuser
+          POSTGRES_PASSWORD=testpass123
+          POSTGRES_DB=zakupai_test
+          DATABASE_URL=postgresql://testuser:testpass123@db:5432/zakupai_test
+          API_KEY=test-api-key-ci-only
+          VAULT_ADDR=https://vault:8200
+          VAULT_SKIP_VERIFY=true
+          LOG_LEVEL=INFO
+          TELEGRAM_BOT_TOKEN=dummy
+          TELEGRAM_ADMIN_ID=12345
+          EOF
+
+      - name: Build Stage6 services
+        run: |
+          docker compose --profile stage6 \
+            -f docker-compose.yml \
+            -f docker-compose.override.stage6.yml \
+            -f docker-compose.override.stage6.monitoring.yml \
+            build --parallel
+
+      - name: Start Stage6 stack
+        run: |
+          docker compose --profile stage6 \
+            -f docker-compose.yml \
+            -f docker-compose.override.stage6.yml \
+            -f docker-compose.override.stage6.monitoring.yml \
+            up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting 45s for services to initialize..."
+          sleep 45
+
+          echo "Checking critical services..."
+          for service in prometheus grafana calc-service risk-engine gateway; do
+            if ! docker compose --profile stage6 \
+                 -f docker-compose.yml \
+                 -f docker-compose.override.stage6.yml \
+                 -f docker-compose.override.stage6.monitoring.yml \
+                 ps | grep -q "$service.*Up"; then
+              echo "❌ Service $service not running"
+              docker compose --profile stage6 \
+                -f docker-compose.yml \
+                -f docker-compose.override.stage6.yml \
+                -f docker-compose.override.stage6.monitoring.yml \
+                logs "$service" | tail -100
+              exit 1
+            fi
+          done
+          echo "✅ All critical services running"
+
+      - name: Run network diagnostics
+        run: |
+          chmod +x ./stage6-network-diagnostics.sh
+          ./stage6-network-diagnostics.sh
+
+      - name: Generate synthetic traffic
+        run: |
+          chmod +x ./stage6-traffic-warmup.sh
+          ./stage6-traffic-warmup.sh
+
+      - name: Validate Prometheus targets
+        run: |
+          echo "Checking Prometheus targets..."
+          targets_json=$(curl -s http://localhost:9095/api/v1/targets)
+
+          # Check all FastAPI services are UP
+          for service in calc-service risk-engine doc-service embedding-api etl-service billing-service goszakup-api; do
+            if ! echo "$targets_json" | jq -e ".data.activeTargets[] | select(.labels.job==\"$service\" and .health==\"up\")" > /dev/null; then
+              echo "❌ Prometheus target $service not UP"
+              echo "$targets_json" | jq '.data.activeTargets[] | select(.labels.job=="'$service'")'
+              exit 1
+            fi
+          done
+          echo "✅ All FastAPI targets UP in Prometheus"
+
+      - name: Validate metrics presence
+        run: |
+          echo "Checking for http_requests_total metrics..."
+          metrics=$(curl -s 'http://localhost:9095/api/v1/query?query=http_requests_total')
+
+          if [ "$(echo "$metrics" | jq '.data.result | length')" -eq 0 ]; then
+            echo "❌ No http_requests_total metrics found after warmup"
+            exit 1
+          fi
+          echo "✅ http_requests_total metrics present"
+
+          echo "Checking recording rules..."
+          api_error_ratio=$(curl -s 'http://localhost:9095/api/v1/query?query=api_error_ratio' | jq -r '.data.result[0].value[1]')
+          if [ -z "$api_error_ratio" ]; then
+            echo "❌ api_error_ratio recording rule not evaluated"
+            exit 1
+          fi
+          echo "✅ Recording rule api_error_ratio = $api_error_ratio"
+
+      - name: Test Grafana datasource
+        run: |
+          echo "Testing Grafana API..."
+          datasources=$(curl -s -u admin:admin http://localhost:3030/api/datasources)
+
+          if ! echo "$datasources" | jq -e '.[] | select(.name=="Prometheus" and .url=="http://prometheus:9095")' > /dev/null; then
+            echo "❌ Grafana Prometheus datasource not configured correctly"
+            echo "$datasources" | jq
+            exit 1
+          fi
+          echo "✅ Grafana Prometheus datasource OK"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          echo "=== Prometheus logs ==="
+          docker compose --profile stage6 \
+            -f docker-compose.yml \
+            -f docker-compose.override.stage6.yml \
+            -f docker-compose.override.stage6.monitoring.yml \
+            logs prometheus | tail -200
+
+          echo "=== Grafana logs ==="
+          docker compose --profile stage6 \
+            -f docker-compose.yml \
+            -f docker-compose.override.stage6.yml \
+            -f docker-compose.override.stage6.monitoring.yml \
+            logs grafana | tail -200
+
+          echo "=== calc-service logs ==="
+          docker compose --profile stage6 \
+            -f docker-compose.yml \
+            -f docker-compose.override.stage6.yml \
+            -f docker-compose.override.stage6.monitoring.yml \
+            logs calc-service | tail -100
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose --profile stage6 \
+            -f docker-compose.yml \
+            -f docker-compose.override.stage6.yml \
+            -f docker-compose.override.stage6.monitoring.yml \
+            down -v

@@ -1,0 +1,26 @@
+diff --git a/docker-compose.override.stage6.monitoring.yml b/docker-compose.override.stage6.monitoring.yml
+--- a/docker-compose.override.stage6.monitoring.yml
++++ b/docker-compose.override.stage6.monitoring.yml
+@@ -26,12 +26,23 @@
+   loki:
+     ports:
+       - "3100:3100"
++    restart: always
+     networks:
+-      - zakupai-network
++      zakupai-network:
++        aliases:
++          - loki
++
++  promtail:
++    networks:
++      zakupai-network:
++        aliases:
++          - loki
+ 
+   alertmanager:
+     networks:
+-      - zakupai-network
++      zakupai-network:
++        aliases:
++          - prometheus

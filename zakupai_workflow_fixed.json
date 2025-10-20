@@ -1,0 +1,84 @@
+{
+  "name": "ZakupAI Search (GraphQL v2)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "goszakup-search",
+        "responseMode": "responseNode"
+      },
+      "id": "1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "webhookId": "goszakup-search"
+    },
+    {
+      "parameters": {
+        "url": "https://ows.goszakup.gov.kz/v2/graphql",
+        "options": {},
+        "authentication": "none",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer <ТВОЙ_ТОКЕН>"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ \"query\": \"query SearchLots($filter: LotsFiltersInput) { Lots(filter: $filter) { id lotNumber nameRu descriptionRu amount count customerNameRu customerBin trdBuyNumberAnno TrdBuy { id nameRu numberAnno orgNameRu orgBin RefTradeMethods { nameRu } } RefLotsStatus { nameRu } } }\", \"variables\": { \"filter\": { \"nameRu\": $json.query, \"nameDescriptionRu\": $json.query } } }) }}"
+      },
+      "id": "2",
+      "name": "Goszakup GraphQL v2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [300, 0]
+    },
+    {
+      "parameters": {
+        "functionCode": "const lots = $json.data?.Lots || [];\nif (!lots.length) {\n  return [{ json: { ok: false, text: \"🔍 Ничего не найдено по вашему запросу.\" } }];\n}\n\nlet out = [`📋 Найдено лотов: ${lots.length}\\n\\n`];\nlots.forEach((lot, i) => {\n  out.push(`🔹 **Лот ${i+1}**\\n`);\n  out.push(`📝 № лота: ${lot.lotNumber || 'Не указан'}\\n`);\n  \n  if (lot.trdBuyNumberAnno || lot.TrdBuy?.numberAnno) {\n    out.push(`📋 Объявление: ${lot.trdBuyNumberAnno || lot.TrdBuy?.numberAnno}\\n`);\n  }\n  \n  if (lot.TrdBuy?.nameRu) {\n    out.push(`📄 Название: ${lot.TrdBuy.nameRu}\\n`);\n  }\n  \n  out.push(`📦 Наименование: ${lot.nameRu || 'Не указано'}\\n`);\n  \n  if (lot.descriptionRu) {\n    const description = lot.descriptionRu.length > 200 ? \n      lot.descriptionRu.substring(0, 200) + '...' : lot.descriptionRu;\n    out.push(`📋 Описание: ${description}\\n`);\n  }\n  \n  if (lot.count > 0) {\n    out.push(`🔢 Количество: ${lot.count}\\n`);\n  }\n  \n  if (lot.amount > 0) {\n    out.push(`💰 Сумма: ${Number(lot.amount).toLocaleString('ru')} тг\\n`);\n  }\n  \n  out.push(`🏢 Заказчик: ${lot.customerNameRu || lot.TrdBuy?.orgNameRu || 'Не указан'}\\n`);\n  \n  if (lot.customerBin || lot.TrdBuy?.orgBin) {\n    out.push(`🏛️ БИН: ${lot.customerBin || lot.TrdBuy?.orgBin}\\n`);\n  }\n  \n  const tradeMethod = lot.TrdBuy?.RefTradeMethods?.nameRu || 'Не указан';\n  out.push(`🛒 Способ закупки: ${tradeMethod}\\n`);\n  \n  const status = lot.RefLotsStatus?.nameRu || 'Не указан';\n  out.push(`📌 Статус: ${status}\\n`);\n  \n  out.push('\\n' + '─'.repeat(50) + '\\n\\n');\n});\n\nreturn [{ json: { ok: true, text: out.join('') } }];"
+      },
+      "id": "3",
+      "name": "Format Lots Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [600, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "id": "4",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Goszakup GraphQL v2", "type": "main", "index": 0 }]]
+    },
+    "Goszakup GraphQL v2": {
+      "main": [[{ "node": "Format Lots Data", "type": "main", "index": 0 }]]
+    },
+    "Format Lots Data": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true
+}
