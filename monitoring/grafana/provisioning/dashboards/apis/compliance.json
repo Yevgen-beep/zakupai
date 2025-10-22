@@ -4,14 +4,20 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": {"from": "now-6h", "to": "now"},
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "type": "query",
         "name": "service",
         "label": "Compliance services",
-        "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "zakupai-prom"
+        },
         "definition": "label_values(http_requests_total{service=~\"etl|risk|doc\"}, service)",
         "multi": true,
         "includeAll": true,
@@ -24,10 +30,13 @@
       "type": "timeseries",
       "title": "Compliance throughput",
       "id": 1,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\"}[5m]))",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\"}[5m])) or vector(0)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -43,19 +52,30 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right"}
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
       }
     },
     {
       "type": "timeseries",
       "title": "Compliance errors",
       "id": 2,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m]))",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m])) or vector(0)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -71,19 +91,30 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right"}
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
       }
     },
     {
       "type": "timeseries",
       "title": "Latency P95",
       "id": 3,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m]))) or vector(0)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -99,9 +130,17 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right"}
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
       }
     }
   ]

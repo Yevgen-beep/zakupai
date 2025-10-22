@@ -4,14 +4,20 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": {"from": "now-6h", "to": "now"},
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "type": "query",
         "name": "service",
         "label": "Service",
-        "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "zakupai-prom"
+        },
         "definition": "label_values(http_requests_total, service)",
         "multi": true,
         "includeAll": true,
@@ -24,10 +30,13 @@
       "type": "timeseries",
       "title": "Audit endpoint throughput",
       "id": 1,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", handler=~\".*audit.*\"}[5m]))",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", handler=~\".*audit.*\"}[5m])) or vector(0)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -43,19 +52,30 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right"}
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
       }
     },
     {
       "type": "timeseries",
       "title": "Audit failures",
       "id": 2,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", handler=~\".*audit.*\", status_code=~\"5..\"}[5m]))",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", handler=~\".*audit.*\", status_code=~\"5..\"}[5m])) or vector(0)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -71,19 +91,30 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right"}
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
       }
     },
     {
       "type": "timeseries",
       "title": "Audit error logs (Loki)",
       "id": 3,
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "datasource": {
+        "type": "loki",
+        "uid": "zakupai-loki"
+      },
       "targets": [
         {
-          "expr": "sum(rate({job=\"audit\", level=\"error\"}[5m]))",
+          "expr": "sum(rate({job=\"audit\", level=\"error\"}[5m])) or vector(0)",
           "refId": "A"
         }
       ],
@@ -98,23 +129,38 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "options": {
-        "legend": {"displayMode": "hidden"}
+        "legend": {
+          "displayMode": "hidden"
+        }
       }
     },
     {
       "type": "logs",
       "title": "Audit trail logs",
       "id": 4,
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "datasource": {
+        "type": "loki",
+        "uid": "zakupai-loki"
+      },
       "targets": [
         {
           "expr": "{container=~\"calc-service|risk-engine|etl-service\"} |= \"audit\"",
           "refId": "A"
         }
       ],
-      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 24}
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      }
     }
   ]
 }
