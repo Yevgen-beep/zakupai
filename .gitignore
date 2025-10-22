@@ -3,14 +3,19 @@
 # ============================================
 
 # --- Environment variables and secrets ---
+# Игнорировать все файлы окружения (.env, .env.local, .env.prod и т.д.)
 .env
 .env.*
 *.env
+
+# Но разрешить коммитить только шаблон (.env.example)
 !.env.example
 
-# --- Virtual environments ---
-.venv/
-venv/
+# Также сохраняем резервную копию окружения (не коммитится)
+.env.backup
+backups/env/
+
+
 
 # --- API keys and secrets ---
 *.key
