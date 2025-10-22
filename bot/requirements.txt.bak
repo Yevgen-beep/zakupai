@@ -1,8 +1,0 @@
-aiogram==3.13.1
-httpx==0.27.0
-python-dotenv==1.0.1
-asyncpg==0.29.0
-pydantic==2.5.0
-pymorphy3==1.2.1
-pymorphy3-dicts-ru==2.4.417150.4580142
-aiohttp

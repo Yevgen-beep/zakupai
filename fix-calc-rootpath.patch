@@ -1,0 +1,17 @@
+diff --git a/services/calc-service/main.py b/services/calc-service/main.py
+index 1111111..2222222 100644
+--- a/services/calc-service/main.py
++++ b/services/calc-service/main.py
+@@ -210,10 +210,11 @@
+ # ---------- FastAPI ----------
+ app = FastAPI(
+     title="ZakupAI calc-service",
+     version="0.1.1",
+     docs_url="/docs",
+     openapi_url="/openapi.json",
+-)
++    root_path="/calc",  # ✅ добавлено для корректного префикса маршрутов
++)
+ 
+ if os.getenv("ENV") != "test":
+     app.add_middleware(AuditMiddleware)

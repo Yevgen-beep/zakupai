@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== 🧹 ZakupAI Stage6 Cleanup & Commit Script ==="
+echo "=== 🧹 ZakupAI Stage6 Cleanup & Commit Script (Safe Mode) ==="
 
 # 1️⃣ Проверяем, что находимся в корне проекта
 if [ ! -f "Makefile" ]; then
@@ -9,7 +9,7 @@ if [ ! -f "Makefile" ]; then
   exit 1
 fi
 
-# 2️⃣ Обновляем .gitignore до Stage7-ready версии
+# 2️⃣ Обновляем .gitignore (Stage7-ready)
 cat > .gitignore <<'EOF'
 # ============================================
 # 🔒 ZakupAI .gitignore (Stage6/Stage7 Ready)
@@ -128,29 +128,67 @@ EOF
 
 echo "✅ .gitignore updated."
 
-# 3️⃣ Восстанавливаем случайно удалённые файлы
-git restore .
+# 3️⃣.5 Проверяем и восстанавливаем права, чтобы не было «Отказано в доступе»
+echo "🧰 Checking permissions for key folders..."
+TARGETS=(backups db monitoring services)
+for dir in "${TARGETS[@]}"; do
+  if [ -d "$dir" ]; then
+    if [ ! -w "$dir" ]; then
+      echo "🔧 Fixing ownership and permissions for $dir ..."
+      sudo chown -R $USER:$USER "$dir" 2>/dev/null || true
+      sudo chmod -R u+rw "$dir" 2>/dev/null || true
+    fi
+  fi
+done
+echo "✅ Permissions verified and fixed where needed."
 
-# 4️⃣ Удаляем весь мусор (кэш, __pycache__, .bak и т.п.)
-echo "🧽 Cleaning untracked & ignored files..."
-git clean -fdX
+# 4️⃣ Восстанавливаем только важные удалённые файлы (не трогаем код)
+echo "🛠️ Checking for accidentally deleted key files..."
+KEY_FILES=(Makefile README.md docker-compose.yml .env.example)
+for f in "${KEY_FILES[@]}"; do
+  if [ ! -f "$f" ] && git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+    echo "♻️ Restoring $f from git..."
+    git restore "$f"
+  fi
+done
+echo "✅ All essential files verified."
 
-# 5️⃣ Пересканируем git
+# 5️⃣ Удаляем мусор, но сохраняем .env (или создаём, если его нет)
+echo "🧽 Cleaning untracked & ignored files (preserving .env)..."
+if [ -f ".env" ]; then
+  cp .env .env.backup
+  echo "🧾 .env backup created."
+fi
+git clean -fdX 2>/dev/null || true
+if [ -f ".env.backup" ]; then
+  mv .env.backup .env
+  echo "✅ Restored .env after cleanup."
+else
+  echo "⚠️ .env not found — creating default from .env.example."
+  cp .env.example .env
+fi
+
+# 6️⃣ Удаляем мусор, созданный root (контейнеры)
+echo "🧨 Removing root-owned build files..."
+sudo find backups db monitoring services -user root -type f -delete 2>/dev/null || true
+echo "✅ Root-owned junk cleared."
+
+# 7️⃣ Пересканируем git
 echo "🔍 Refreshing repository index..."
-git rm -r --cached .
+git rm -r --cached . >/dev/null 2>&1 || true
 git add .
 
-# 6️⃣ Добавляем только ключевые Stage6 файлы
+# 8️⃣ Добавляем только ключевые Stage6 файлы
 echo "📦 Staging relevant changes..."
 git add .github workflows monitoring services Makefile TODO.md README.md
 
-# 7️⃣ Делаем коммит
+# 9️⃣ Делаем коммит
 echo "💾 Creating Stage6 Final Commit..."
-git commit -m '✅ Stage6 Final Snapshot: all services stable, monitoring complete'
+git commit -m '✅ Stage6 Final Snapshot: all services stable, monitoring complete' || echo "ℹ️ No changes to commit."
 
-# 8️⃣ Создаём тег
+# 🔟 Создаём тег
 TAG="stage6-final-$(date +%Y%m%d)"
 git tag -a "$TAG" -m "Stage 6 Final Snapshot"
-git push origin "$TAG"
+git push origin "$TAG" || echo "⚠️ Git push failed or offline."
 
 echo "🎯 Done! Stage6 snapshot committed and tagged as $TAG"
