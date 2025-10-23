@@ -1,0 +1,25 @@
+--- /tmp/platform-ops.json.backup	2025-10-23 12:06:41.754068525 +0500
++++ monitoring/grafana/provisioning/dashboards/ops/platform-ops.json	2025-10-23 12:19:01.547105770 +0500
+@@ -597,7 +597,7 @@
+       },
+       "targets": [
+         {
+-          "expr": "probe_success{target=\"https://ows.goszakup.gov.kz/v3/ru/ping\"}",
++          "expr": "max(probe_success{job=\"external-api-goszakup\"}) or vector(0)",
+           "refId": "A",
+           "instant": true,
+           "range": false
+@@ -660,11 +660,11 @@
+       },
+       "targets": [
+         {
+-          "expr": "probe_duration_seconds{target=\"https://ows.goszakup.gov.kz/v3/ru/ping\"}",
++          "expr": "max(probe_duration_seconds{job=\"external-api-goszakup\"}) by (target)",
+           "refId": "A",
+           "instant": false,
+           "range": true,
+-          "legendFormat": "Response Time"
++          "legendFormat": "{{target}}"
+         }
+       ],
+       "fieldConfig": {

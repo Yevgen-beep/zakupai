@@ -597,7 +597,7 @@
       },
       "targets": [
         {
-          "expr": "probe_success{target=\"https://ows.goszakup.gov.kz/v3/ru/ping\"}",
+          "expr": "max(probe_success{job=\"external-api-goszakup\"}) or vector(0)",
           "refId": "A",
           "instant": true,
           "range": false
@@ -660,11 +660,11 @@
       },
       "targets": [
         {
-          "expr": "probe_duration_seconds{target=\"https://ows.goszakup.gov.kz/v3/ru/ping\"}",
+          "expr": "max(probe_duration_seconds{job=\"external-api-goszakup\"}) by (target)",
           "refId": "A",
           "instant": false,
           "range": true,
-          "legendFormat": "Response Time"
+          "legendFormat": "{{target}}"
         }
       ],
       "fieldConfig": {
@@ -722,7 +722,7 @@
       },
       "targets": [
         {
-          "expr": "avg_over_time(probe_success{target=\"https://ows.goszakup.gov.kz/v3/ru/ping\"}[5m]) * 100",
+"expr": "avg_over_time(max(probe_success{job=\\\"external-api-goszakup\\\"}) or vector(0))",
           "refId": "A",
           "instant": true,
           "range": false

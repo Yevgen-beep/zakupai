@@ -44,6 +44,25 @@ services:
       - "9113:9113"
     restart: unless-stopped
 
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: zakupai-blackbox-exporter
+    networks:
+      - zakupai-network
+    ports:
+      - "9115:9115"
+    environment:
+      - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
+    volumes:
+      - ./monitoring/blackbox/config.tpl:/etc/blackbox_exporter/config.tpl:ro
+    entrypoint: ["/bin/sh","-c"]
+    command:
+      - |
+        sed "s|\$${GOSZAKUP_TOKEN}|$${GOSZAKUP_TOKEN}|g" /etc/blackbox_exporter/config.tpl > /tmp/config.yml
+        exec /bin/blackbox_exporter --config.file=/tmp/config.yml
+    restart: unless-stopped
+
 networks:
   zakupai-network:
-    external: false
+    external: true
+    name: zakupai_zakupai-network

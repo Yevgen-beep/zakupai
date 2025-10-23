@@ -139,3 +139,41 @@ scrape_configs:
     authorization:
       type: Bearer
       credentials_file: /etc/prometheus/vault-metrics.token
+
+  - job_name: 'zakupai-bot-health'
+    metrics_path: /probe
+    static_configs:
+      - targets:
+          - http://zakupai-bot:8081/health
+    params:
+      module: ['http_2xx']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: target
+      - replacement: blackbox-exporter:9115
+        target_label: __address__
+      - target_label: env
+        replacement: stage6
+      - target_label: type
+        replacement: external
+
+  - job_name: 'external-api-goszakup'
+    metrics_path: /probe
+    static_configs:
+      - targets:
+          - https://ows.goszakup.gov.kz/v3/graphql
+    params:
+      module: ['http_2xx_auth']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: target
+      - replacement: blackbox-exporter:9115
+        target_label: __address__
+      - target_label: env
+        replacement: stage6
+      - target_label: type
+        replacement: external

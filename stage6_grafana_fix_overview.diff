@@ -1,0 +1,40 @@
+--- /tmp/zakupai-overview.json.backup	2025-10-23 12:06:17.588266355 +0500
++++ monitoring/grafana/provisioning/dashboards/overview/zakupai-overview.json	2025-10-23 12:06:30.399311173 +0500
+@@ -400,7 +400,7 @@
+       },
+       "targets": [
+         {
+-          "expr": "max(zakupai_bot_up) or vector(0)",
++          "expr": "probe_success{job=\"zakupai-bot-health\"} or vector(0)",
+           "refId": "A"
+         }
+       ],
+@@ -426,7 +426,20 @@
+               }
+             ]
+           },
+-          "unit": "short"
++          "unit": "short",
++          "noValue": "🔴 OFFLINE",
++          "mappings": [
++            {
++              "type": "value",
++              "value": "1",
++              "text": "🟢 ONLINE"
++            },
++            {
++              "type": "value",
++              "value": "0",
++              "text": "🔴 OFFLINE"
++            }
++          ]
+         },
+         "overrides": []
+       },
+@@ -538,4 +551,4 @@
+   "templating": {
+     "list": []
+   }
+-}
+\ В конце файла нет новой строки
++}

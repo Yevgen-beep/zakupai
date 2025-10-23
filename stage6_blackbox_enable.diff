@@ -1,0 +1,77 @@
+diff --git a/docker-compose.override.stage6.monitoring.yml b/docker-compose.override.stage6.monitoring.yml
+index 0eb52f5..8548deb 100644
+--- a/docker-compose.override.stage6.monitoring.yml
++++ b/docker-compose.override.stage6.monitoring.yml
+@@ -44,6 +44,25 @@ services:
+       - "9113:9113"
+     restart: unless-stopped
+ 
++  blackbox-exporter:
++    image: prom/blackbox-exporter:latest
++    container_name: zakupai-blackbox-exporter
++    networks:
++      - zakupai-network
++    ports:
++      - "9115:9115"
++    environment:
++      - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
++    volumes:
++      - ./monitoring/blackbox/config.tpl:/etc/blackbox_exporter/config.tpl:ro
++    entrypoint: ["/bin/sh","-c"]
++    command:
++      - |
++        sed "s|\$${GOSZAKUP_TOKEN}|$${GOSZAKUP_TOKEN}|g" /etc/blackbox_exporter/config.tpl > /tmp/config.yml
++        exec /bin/blackbox_exporter --config.file=/tmp/config.yml
++    restart: unless-stopped
++
+ networks:
+   zakupai-network:
+-    external: false
++    external: true
++    name: zakupai_zakupai-network
+diff --git a/monitoring/prometheus/prometheus.yml b/monitoring/prometheus/prometheus.yml
+index 7ed363b..c2a28e9 100644
+--- a/monitoring/prometheus/prometheus.yml
++++ b/monitoring/prometheus/prometheus.yml
+@@ -139,3 +139,41 @@ scrape_configs:
+     authorization:
+       type: Bearer
+       credentials_file: /etc/prometheus/vault-metrics.token
++
++  - job_name: 'zakupai-bot-health'
++    metrics_path: /probe
++    static_configs:
++      - targets:
++          - http://zakupai-bot:8081/health
++    params:
++      module: ['http_2xx']
++    relabel_configs:
++      - source_labels: [__address__]
++        target_label: __param_target
++      - source_labels: [__param_target]
++        target_label: target
++      - replacement: blackbox-exporter:9115
++        target_label: __address__
++      - target_label: env
++        replacement: stage6
++      - target_label: type
++        replacement: external
++
++  - job_name: 'external-api-goszakup'
++    metrics_path: /probe
++    static_configs:
++      - targets:
++          - https://ows.goszakup.gov.kz/v3/graphql
++    params:
++      module: ['http_2xx_auth']
++    relabel_configs:
++      - source_labels: [__address__]
++        target_label: __param_target
++      - source_labels: [__param_target]
++        target_label: target
++      - replacement: blackbox-exporter:9115
++        target_label: __address__
++      - target_label: env
++        replacement: stage6
++      - target_label: type
++        replacement: external

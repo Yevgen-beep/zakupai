@@ -400,7 +400,7 @@
       },
       "targets": [
         {
-          "expr": "max(zakupai_bot_up) or vector(0)",
+          "expr": "max(probe_success{job=\"zakupai-bot-health\"}) or vector(0)",
           "refId": "A"
         }
       ],
@@ -426,7 +426,20 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "short",
+          "noValue": "🔴 OFFLINE",
+          "mappings": [
+            {
+              "type": "value",
+              "value": "1",
+              "text": "🟢 ONLINE"
+            },
+            {
+              "type": "value",
+              "value": "0",
+              "text": "🔴 OFFLINE"
+            }
+          ]
         },
         "overrides": []
       },
