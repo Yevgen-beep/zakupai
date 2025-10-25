@@ -19,13 +19,12 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
 # Copy application code
 COPY . .
 # Копируем общую библиотеку из дополнительного контекста libs
 COPY --from=libs /zakupai_common /app/libs/zakupai_common
-COPY --from=common / /app/services/common
 RUN pip install /app/libs/zakupai_common
 
 # Setup PYTHONPATH to include libs and shared services

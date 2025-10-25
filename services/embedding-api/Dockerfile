@@ -6,7 +6,7 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONUNBUFFERED=1
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
 COPY . .
 # Копируем общую библиотеку из дополнительного контекста libs

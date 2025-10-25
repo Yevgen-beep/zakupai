@@ -7,14 +7,13 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONUNBUFFERED=1
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
 COPY . .
 # Копируем общую библиотеку из дополнительного контекста libs
 COPY --from=libs /zakupai_common /app/libs/zakupai_common
 RUN pip install /app/libs/zakupai_common
 # Общие сервисные утилиты
-COPY --from=common / /app/services/common
 ENV PYTHONPATH=/app:/app/services:/app/libs:${PYTHONPATH}
 # Стандартный порт внутри контейнера
 ENV PORT=8000
