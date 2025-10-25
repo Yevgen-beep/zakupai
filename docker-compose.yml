@@ -1,11 +1,20 @@
 services:
+  # 🔹 Общий слой с библиотекой zakupai_common
+  libs:
+    image: libs:latest
+    build:
+      context: ./libs
+    command: ["sleep", "infinity"]
+    restart: "no"
+
+  # 🔹 Основная база данных PostgreSQL
   db:
     image: postgres:16
     container_name: zakupai-db
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -20,14 +29,13 @@ services:
       - zakupai-network
     restart: unless-stopped
 
+  # =======================================================
+  # === Микросервисы ZakupAI ===
+  # =======================================================
+
   embedding-api:
     build:
       context: ./services/embedding-api
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
     image: zakupai/embedding-api:${TAG:-stage5}
     container_name: zakupai-embedding-api
     ports:
@@ -35,7 +43,7 @@ services:
     env_file:
       - .env
     environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
     networks:
       - zakupai-network
       - ai-network
@@ -46,11 +54,6 @@ services:
   calc-service:
     build:
       context: ./services/calc-service
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
     image: zakupai/calc-service:${TAG:-stage5}
     container_name: zakupai-calc-service
     ports:
@@ -67,11 +70,6 @@ services:
   risk-engine:
     build:
       context: ./services/risk-engine
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
     image: zakupai/risk-engine:${TAG:-stage5}
     container_name: zakupai-risk-engine
     ports:
@@ -93,8 +91,6 @@ services:
   doc-service:
     build:
       context: ./services/doc-service
-      additional_contexts:
-        - libs=./libs
     container_name: zakupai-doc-service
     ports:
       - "7003:8000"
@@ -110,25 +106,9 @@ services:
       - ai-network
     restart: unless-stopped
 
-  chromadb:
-    image: chromadb/chroma:latest
-    container_name: zakupai-chromadb
-    ports:
-      - "8010:8000"
-    volumes:
-      - chromadb_data:/chroma/chroma
-    environment:
-      - CHROMA_SERVER_HOST=0.0.0.0
-      - CHROMA_SERVER_HTTP_PORT=8000
-    networks:
-      - zakupai-network
-    restart: unless-stopped
-
   goszakup-api:
     build:
       context: ./services/goszakup-api
-      additional_contexts:
-        - libs=./libs
     container_name: zakupai-goszakup-api
     ports:
       - "7005:8001"
@@ -139,7 +119,8 @@ services:
     restart: unless-stopped
 
   billing-service:
-    build: ./services/billing-service
+    build:
+      context: ./services/billing-service
     container_name: zakupai-billing-service
     ports:
       - "7004:8000"
@@ -155,11 +136,6 @@ services:
   etl-service:
     build:
       context: ./services/etl-service
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
     image: zakupai/etl-service:${TAG:-stage5}
     container_name: zakupai-etl-service
     ports:
@@ -167,8 +143,8 @@ services:
     env_file:
       - .env
     environment:
-      - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
-      - DATABASE_URL=postgresql://zakupai:zakupai@db:5432/zakupai
+      GOSZAKUP_TOKEN: ${GOSZAKUP_TOKEN}
+      DATABASE_URL: postgresql://zakupai:zakupai@db:5432/zakupai
     networks:
       - zakupai-network
     depends_on:
@@ -179,20 +155,15 @@ services:
   gateway:
     build:
       context: ./services/gateway
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
     image: zakupai/gateway:${TAG:-stage5}
     container_name: zakupai-gateway
     ports:
-      - "8080:80"  # Основной порт доступа к ZakupAI
+      - "8080:80"
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       web-ui:
-        condition: service_healthy  # Дожидаемся готовности веб-приложения
+        condition: service_healthy
       calc-service:
         condition: service_started
       risk-engine:
@@ -215,111 +186,20 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-
-  flowise:
-    image: flowiseai/flowise
-    container_name: zakupai-flowise
-    ports:
-      - "3000:3000"
-    volumes:
-      - flowise_data:/root/.flowise
-      - ./flowise-tools:/opt/flowise_tools:ro
-    environment:
-      - FLOWISE_USERNAME=admin
-      - FLOWISE_PASSWORD=admin123
-      - DATABASE_PATH=/root/.flowise/flowise.sqlite
-      - SECRETKEY_PATH=/root/.flowise
-      - LOG_LEVEL=info
-      - LOG_PATH=/root/.flowise/logs
-      - BLOB_STORAGE_PATH=/root/.flowise/storage
-    env_file:
-      - .env
-    networks:
-      - ai-network
-      - zakupai-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - chromadb
-    restart: unless-stopped
-
-  n8n:
-    image: n8nio/n8n:1.105.4
-    container_name: zakupai-n8n
-    ports:
-      - "5678:5678"
-    volumes:
-      - n8n_data:/home/node/.n8n
-    environment:
-      - GENERIC_TIMEZONE=Asia/Almaty
-      - N8N_BASIC_AUTH_ACTIVE=false
-      - N8N_HOST=0.0.0.0
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=https
-      - N8N_EDITOR_BASE_URL=https://n8n.exomind.site
-      - WEBHOOK_URL=https://n8n.exomind.site
-      - N8N_ENCRYPTION_KEY=mySecretEncryptionKey123456
-      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
-      - DB_SQLITE_POOL_SIZE=10
-      - N8N_RUNNERS_ENABLED=true
-      - N8N_SECURE_COOKIE=false
-    env_file:
-      - .env
-    networks:
-      - ai-network
-      - zakupai-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
-
-  zakupai-bot:
-    build:
-      context: ./bot
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
-    image: zakupai/bot:${TAG:-stage5}
-    container_name: zakupai-bot
-    env_file:
-      - ./bot/.env
-    environment:
-      - GATEWAY_URL=http://zakupai-gateway
-      - DATABASE_URL=postgresql+asyncpg://zakupai:zakupai@db:5432/zakupai
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=zakupai
-      - POSTGRES_USER=zakupai
-      - POSTGRES_PASSWORD=zakupai
-    depends_on:
-      db:
-        condition: service_healthy
-      gateway:
-        condition: service_started
-    networks:
-      - zakupai-network
-    restart: unless-stopped
-
   web-ui:
     build:
       context: ./web
-      additional_contexts:
-        - libs=./libs
-        - common=./services/common
-      args:
-        - TAG=${TAG:-stage5}
     image: zakupai/web-ui:${TAG:-stage5}
     container_name: zakupai-web-ui
     ports:
-      - "8082:8000"  # пробрасываем FastAPI наружу
+      - "8082:8000"
     env_file:
       - .env
     environment:
-      - GATEWAY_URL=http://gateway
-      - ZAKUPAI_API_KEY=changeme
-      - GOSZAKUP_TOKEN=${GOSZAKUP_TOKEN}
-      - GOSZAKUP_API_URL=http://goszakup-api:8001
+      GATEWAY_URL: http://gateway
+      ZAKUPAI_API_KEY: changeme
+      GOSZAKUP_TOKEN: ${GOSZAKUP_TOKEN}
+      GOSZAKUP_API_URL: http://goszakup-api:8001
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     depends_on:
       db:
@@ -346,25 +226,102 @@ services:
       start_period: 40s
     restart: unless-stopped
 
-  db-backup:
-    build: ./backup
-    container_name: zakupai-db-backup
+  zakupai-bot:
+    build:
+      context: ./bot
+    image: zakupai/bot:${TAG:-stage5}
+    container_name: zakupai-bot
     env_file:
-      - .env
+      - ./bot/.env
     environment:
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=zakupai
-      - POSTGRES_USER=zakupai
-      - POSTGRES_PASSWORD=zakupai
-      - BACKUP_RETENTION_DAYS=14
-    volumes:
-      - backup_data:/backups
+      GATEWAY_URL: http://zakupai-gateway
+      DATABASE_URL: postgresql+asyncpg://zakupai:zakupai@db:5432/zakupai
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: zakupai
+      POSTGRES_USER: zakupai
+      POSTGRES_PASSWORD: zakupai
     depends_on:
       db:
         condition: service_healthy
+      gateway:
+        condition: service_started
     networks:
       - zakupai-network
+    restart: unless-stopped
+
+  # =======================================================
+  # === Infrastructure & Monitoring ===
+  # =======================================================
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: zakupai-chromadb
+    ports:
+      - "8010:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      CHROMA_SERVER_HOST: 0.0.0.0
+      CHROMA_SERVER_HTTP_PORT: 8000
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  flowise:
+    image: flowiseai/flowise
+    container_name: zakupai-flowise
+    ports:
+      - "3000:3000"
+    volumes:
+      - flowise_data:/root/.flowise
+      - ./flowise-tools:/opt/flowise_tools:ro
+    environment:
+      FLOWISE_USERNAME: admin
+      FLOWISE_PASSWORD: admin123
+      DATABASE_PATH: /root/.flowise/flowise.sqlite
+      SECRETKEY_PATH: /root/.flowise
+      LOG_LEVEL: info
+      LOG_PATH: /root/.flowise/logs
+      BLOB_STORAGE_PATH: /root/.flowise/storage
+    env_file:
+      - .env
+    networks:
+      - ai-network
+      - zakupai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - chromadb
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:1.105.4
+    container_name: zakupai-n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      GENERIC_TIMEZONE: Asia/Almaty
+      N8N_BASIC_AUTH_ACTIVE: false
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://n8n.exomind.site
+      WEBHOOK_URL: https://n8n.exomind.site
+      N8N_ENCRYPTION_KEY: mySecretEncryptionKey123456
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: false
+      DB_SQLITE_POOL_SIZE: 10
+      N8N_RUNNERS_ENABLED: true
+      N8N_SECURE_COOKIE: false
+    env_file:
+      - .env
+    networks:
+      - ai-network
+      - zakupai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   prometheus:
@@ -378,8 +335,6 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
     networks:
       - zakupai-network
     restart: unless-stopped
@@ -388,15 +343,15 @@ services:
     image: grafana/grafana:10.0.0
     container_name: zakupai-grafana
     ports:
-      - "3001:3000"
+      - "3030:3000"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_SECURITY_COOKIE_SECURE=false
-      - GF_SECURITY_COOKIE_SAMESITE=lax
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_COOKIE_SECURE: false
+      GF_SECURITY_COOKIE_SAMESITE: lax
     networks:
       - zakupai-network
     restart: unless-stopped
@@ -442,10 +397,33 @@ services:
       - zakupai-network
     restart: unless-stopped
 
+  db-backup:
+    build: ./backup
+    container_name: zakupai-db-backup
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: zakupai
+      POSTGRES_USER: zakupai
+      POSTGRES_PASSWORD: zakupai
+      BACKUP_RETENTION_DAYS: 14
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+# =======================================================
+# === Volumes & Networks ===
+# =======================================================
 
 volumes:
   postgres_data:
-  ollama_data:
   chromadb_data:
   flowise_data:
   n8n_data:
