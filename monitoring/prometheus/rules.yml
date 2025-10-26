@@ -26,11 +26,8 @@ groups:
         expr: |
           histogram_quantile(
             0.95,
-            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)
           )
           or (
-            label_replace(
-              up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"},
-              "service", "$1", "job", "(.*)"
-            ) * 0
+            up{job=~"calc-service|risk-engine|doc-service|embedding-api|etl-service|goszakup-api|billing-service|web-ui"} * 0
           )

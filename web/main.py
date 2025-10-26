@@ -153,6 +153,10 @@ instrumentator = Instrumentator(
 )
 instrumentator.instrument(app).expose(app)
 
+@app.get("/health", status_code=200)
+async def health():
+    return {"status": "ok"}
+
 # CORS configuration - secure for production
 app.add_middleware(
     CORSMiddleware,

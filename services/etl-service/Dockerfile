@@ -18,15 +18,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-COPY services/etl-service/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy shared libraries
-COPY libs/zakupai_common /app/libs/zakupai_common
-RUN pip install --no-cache-dir /app/libs/zakupai_common
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
 # Copy application code
-COPY services/etl-service/ .
+COPY . .
+# Копируем общую библиотеку из дополнительного контекста libs
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
+RUN pip install /app/libs/zakupai_common
 
 # Setup PYTHONPATH to include libs and shared services
 ENV PYTHONPATH="/app:/app/services:/app/libs:${PYTHONPATH}"

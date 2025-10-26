@@ -6,15 +6,13 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY services/risk-engine/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
-# Copy shared libraries
-COPY libs/zakupai_common /app/libs/zakupai_common
-RUN pip install --no-cache-dir /app/libs/zakupai_common
-
-# Copy application code
-COPY services/risk-engine/ .
+COPY . .
+# Общие библиотеки
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
+RUN pip install /app/libs/zakupai_common
 
 # Настраиваем PYTHONPATH
 ENV PYTHONPATH="/app:/app/services:/app/libs:${PYTHONPATH}"

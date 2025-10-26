@@ -10,15 +10,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY services/billing-service/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy shared libraries
-COPY libs/zakupai_common /app/libs/zakupai_common
-RUN pip install --no-cache-dir /app/libs/zakupai_common
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
 # Copy application code
-COPY services/billing-service/ .
+COPY . .
+
+# Copy shared common library
+COPY --from=libs /zakupai_common /app/libs/zakupai_common
+RUN pip install /app/libs/zakupai_common
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

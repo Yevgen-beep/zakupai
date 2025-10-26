@@ -4,14 +4,20 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "15s",
-  "time": {"from": "now-1h", "to": "now"},
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "type": "query",
         "name": "service",
         "label": "Service",
-        "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "zakupai-prom"
+        },
         "definition": "label_values(http_requests_total{status_code=~\"5..\"}, service)",
         "multi": true,
         "includeAll": true,
@@ -24,10 +30,13 @@
       "type": "timeseries",
       "title": "5xx error rate",
       "id": 1,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m]))",
+          "expr": "sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m])) or vector(0)",
           "legendFormat": "{{service}}",
           "refId": "A"
         }
@@ -44,18 +53,29 @@
         "overrides": []
       },
       "options": {
-        "legend": {"displayMode": "table", "placement": "right"}
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
       },
-      "gridPos": {"h": 10, "w": 16, "x": 0, "y": 0}
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 0
+      }
     },
     {
       "type": "stat",
       "title": "Current worst service",
       "id": 2,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "topk(1, sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m])))",
+          "expr": "topk(1, sum by (service) (rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m]))) or vector(0)",
           "format": "table",
           "refId": "A"
         }
@@ -68,34 +88,51 @@
       },
       "options": {
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "value",
           "values": false
         },
         "orientation": "horizontal",
         "colorMode": "value"
       },
-      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 0}
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      }
     },
     {
       "type": "table",
       "title": "Top failing endpoints",
       "id": 3,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "topk(10, rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m]))",
+          "expr": "topk(10, rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m])) or vector(0)",
           "format": "table",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": {"displayMode": "auto"}
+          "custom": {
+            "displayMode": "auto"
+          }
         },
         "overrides": []
       },
-      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 10}
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      }
     }
   ]
 }

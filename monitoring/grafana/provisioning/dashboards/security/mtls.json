@@ -4,13 +4,19 @@
   "schemaVersion": 38,
   "version": 1,
   "refresh": "30s",
-  "time": {"from": "now-1h", "to": "now"},
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "type": "stat",
       "title": "Handshake errors (logs)",
       "id": 1,
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "datasource": {
+        "type": "loki",
+        "uid": "zakupai-loki"
+      },
       "targets": [
         {
           "expr": "count_over_time({container=\"gateway\"} |= \"handshake\" |= \"error\"[5m])",
@@ -22,8 +28,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": 0},
-              {"color": "red", "value": 1}
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         },
@@ -31,7 +43,9 @@
       },
       "options": {
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -39,16 +53,24 @@
         "colorMode": "value",
         "graphMode": "none"
       },
-      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0}
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      }
     },
     {
       "type": "timeseries",
       "title": "TLS requests proxied",
       "id": 2,
-      "datasource": {"type": "prometheus", "uid": "zakupai-prom"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
       "targets": [
         {
-          "expr": "rate(nginx_http_requests_total[5m])",
+          "expr": "rate(nginx_http_requests_total[5m]) or vector(0)",
           "refId": "A"
         }
       ],
@@ -63,24 +85,41 @@
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 6,
+        "y": 0
+      },
       "options": {
-        "legend": {"displayMode": "hidden"}
+        "legend": {
+          "displayMode": "hidden"
+        }
       }
     },
     {
       "type": "logs",
       "title": "Recent TLS-related logs",
       "id": 3,
-      "datasource": {"type": "loki", "uid": "zakupai-loki"},
+      "datasource": {
+        "type": "loki",
+        "uid": "zakupai-loki"
+      },
       "targets": [
         {
           "expr": "{container=\"gateway\"} |= \"TLS\"",
           "refId": "A"
         }
       ],
-      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 8}
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      }
     }
   ],
-  "templating": {"list": []}
+  "templating": {
+    "list": []
+  }
 }
