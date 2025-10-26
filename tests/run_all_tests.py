@@ -13,12 +13,6 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 sys.path.append(str(project_root / "bot"))
 
-# Импортируем тестовые модули
-from test_fallback import run_fallback_tests
-from test_rest_search import run_rest_tests
-
-from test_graphql_search import run_graphql_tests
-
 
 def print_environment_info():
     """Вывод информации об окружении тестирования"""
@@ -72,6 +66,12 @@ def run_tests_with_timing(test_name: str, test_function):
 def main():
     """Основная функция запуска всех тестов"""
     print_environment_info()
+
+    # Импортируем тестовые модули после настройки путей, чтобы избежать E402
+    from test_fallback import run_fallback_tests
+    from test_rest_search import run_rest_tests
+
+    from test_graphql_search import run_graphql_tests
 
     # Результаты тестирования
     results = {}

@@ -65,6 +65,7 @@ async def track_stub_status(request: Request, call_next):
         await stub_tracker.request_finished()
     return response
 
+
 # Health proxy router
 health_proxy_router = APIRouter()
 

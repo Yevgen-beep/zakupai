@@ -203,7 +203,13 @@ class OCRLoader:
                                         if ocr_text.strip():
                                             text_content.append(ocr_text)
 
-                                    except Exception:
+                                    except Exception as ocr_error:
+                                        logger.warning(
+                                            "OCR fallback failed for %s page %s: %s",
+                                            file_info.filename,
+                                            page_num + 1,
+                                            ocr_error,
+                                        )
                                         continue
 
                             doc.close()

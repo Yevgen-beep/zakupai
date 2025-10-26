@@ -4,6 +4,7 @@ Tests cover API endpoints, validation, performance, and integration
 """
 
 import json
+import logging
 import sys
 import time
 import uuid
@@ -25,6 +26,8 @@ try:
     from web.main import Base, SessionLocal
 except ImportError as e:
     pytest.skip(f"Web components not available: {e}", allow_module_level=True)
+
+logger = logging.getLogger(__name__)
 
 # Test database configuration
 TEST_DATABASE_URL = "sqlite:///./test_advanced_search.db"
@@ -68,9 +71,9 @@ class TestAdvancedSearchAPI:
             db.execute(text("DELETE FROM trdbuy"))
             db.execute(text("DELETE FROM subjects"))
             db.commit()
-        except Exception:
+        except Exception as exc:
             # Tables might not exist yet
-            pass
+            logger.debug("Failed to clean test data: %s", exc)
         finally:
             db.close()
 

@@ -3,6 +3,7 @@ Comprehensive test suite for Week 4.2 Flowise features
 Tests complaint-generator, supplier-finder, and modular functionality
 """
 
+import logging
 import os
 import sys
 import time
@@ -33,6 +34,8 @@ try:
     from web.main import app, redis_client
 except ImportError:
     pytest.skip("Week 4.2 Flowise modules not available", allow_module_level=True)
+
+logger = logging.getLogger(__name__)
 
 
 class TestComplaintGeneration:
@@ -239,8 +242,8 @@ class TestComplaintGeneration:
         try:
             cache_key = f"complaint:{lot_id}:{hash(reason) % 1000000}"
             redis_client.delete(cache_key)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to clear complaint cache for lot %s: %s", lot_id, exc)
 
         # First request should generate complaint
         response1 = test_client.post(

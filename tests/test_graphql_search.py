@@ -14,13 +14,17 @@ sys.path.append(str(Path(__file__).parent.parent / "bot"))
 
 from search.graphql_v2_client import GraphQLV2Client, LotResult
 
+TEST_GRAPHQL_TOKEN = os.getenv(
+    "GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token"
+)  # nosec B105
+
 
 class TestGraphQLV2Client(unittest.IsolatedAsyncioTestCase):
     """Тесты для GraphQL v2 клиента"""
 
     def setUp(self):
         """Настройка тестов"""
-        self.test_token = "test_token_12345"
+        self.test_token = TEST_GRAPHQL_TOKEN
         self.client = GraphQLV2Client(self.test_token, timeout=10)
 
     async def test_client_initialization(self):
@@ -29,7 +33,7 @@ class TestGraphQLV2Client(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.client.graphql_url, "https://ows.goszakup.gov.kz/v2/graphql"
         )
-        self.assertIn("Bearer test_token_12345", self.client.headers["Authorization"])
+        self.assertIn(f"Bearer {self.test_token}", self.client.headers["Authorization"])
 
     @patch("aiohttp.ClientSession.post")
     async def test_search_lots_success(self, mock_post):

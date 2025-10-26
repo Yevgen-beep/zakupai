@@ -3,6 +3,7 @@
 Тесты для fallback логики поиска лотов
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -20,6 +21,13 @@ from search.search_service import (
     search_lots_for_telegram,
 )
 
+TEST_GRAPHQL_V2_TOKEN = os.getenv(
+    "GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token"
+)  # nosec B105
+TEST_REST_V3_TOKEN = os.getenv(
+    "GOSZAKUP_V3_TEST_TOKEN", "dummy-rest-token"
+)  # nosec B105
+
 
 class TestFallbackLogic(unittest.IsolatedAsyncioTestCase):
     """Тесты fallback логики поискового сервиса"""
@@ -27,8 +35,8 @@ class TestFallbackLogic(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         """Настройка тестов"""
         self.service = GoszakupSearchService(
-            graphql_v2_token="test_v2_token",
-            rest_v3_token="test_v3_token",
+            graphql_v2_token=TEST_GRAPHQL_V2_TOKEN,
+            rest_v3_token=TEST_REST_V3_TOKEN,
             default_strategy=SearchStrategy.AUTO,
         )
 
@@ -141,7 +149,8 @@ class TestFallbackLogic(unittest.IsolatedAsyncioTestCase):
 
         # Создаем сервис
         service = GoszakupSearchService(
-            graphql_v2_token="test_token", default_strategy=SearchStrategy.GRAPHQL_V2
+            graphql_v2_token=TEST_GRAPHQL_V2_TOKEN,
+            default_strategy=SearchStrategy.GRAPHQL_V2,
         )
 
         # Мокаем проверку доступности
@@ -186,8 +195,8 @@ class TestFallbackLogic(unittest.IsolatedAsyncioTestCase):
 
         # Создаем сервис
         service = GoszakupSearchService(
-            graphql_v2_token="test_token",
-            rest_v3_token="test_token_v3",
+            graphql_v2_token=TEST_GRAPHQL_V2_TOKEN,
+            rest_v3_token=TEST_REST_V3_TOKEN,
             default_strategy=SearchStrategy.GRAPHQL_V2,
         )
 
@@ -215,8 +224,8 @@ class TestFallbackLogic(unittest.IsolatedAsyncioTestCase):
 
         # Создаем сервис
         service = GoszakupSearchService(
-            graphql_v2_token="test_token",
-            rest_v3_token="test_token_v3",
+            graphql_v2_token=TEST_GRAPHQL_V2_TOKEN,
+            rest_v3_token=TEST_REST_V3_TOKEN,
             default_strategy=SearchStrategy.GRAPHQL_V2,
         )
 

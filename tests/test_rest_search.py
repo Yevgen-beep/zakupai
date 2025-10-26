@@ -3,6 +3,7 @@
 Тесты для REST v3 поиска лотов
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -14,13 +15,15 @@ sys.path.append(str(Path(__file__).parent.parent / "bot"))
 from search.graphql_v2_client import LotResult
 from search.rest_v3_client import RestV3Client
 
+TEST_REST_TOKEN = os.getenv("GOSZAKUP_V3_TEST_TOKEN", "dummy-rest-token")  # nosec B105
+
 
 class TestRestV3Client(unittest.IsolatedAsyncioTestCase):
     """Тесты для REST v3 клиента"""
 
     def setUp(self):
         """Настройка тестов"""
-        self.test_token = "test_token_v3_12345"
+        self.test_token = TEST_REST_TOKEN
         self.client = RestV3Client(self.test_token, timeout=10)
 
     async def test_client_initialization(self):
@@ -30,9 +33,7 @@ class TestRestV3Client(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             self.client.graphql_url, "https://ows.goszakup.gov.kz/v3/graphql"
         )
-        self.assertIn(
-            "Bearer test_token_v3_12345", self.client.headers["Authorization"]
-        )
+        self.assertIn(f"Bearer {self.test_token}", self.client.headers["Authorization"])
 
     async def test_client_initialization_without_token(self):
         """Тест инициализации без токена"""

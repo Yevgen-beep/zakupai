@@ -33,18 +33,22 @@ from goszakup_client_v3 import (
     with_retry,
 )
 
+TEST_API_TOKEN = os.getenv(
+    "GOSZAKUP_V3_TEST_TOKEN", "dummy-token-for-tests"
+)  # nosec B105
+
 
 @pytest.fixture
 async def client():
     """Фикстура для создания клиента"""
-    async with GoszakupClient(token="test_token") as client:
+    async with GoszakupClient(token=TEST_API_TOKEN) as client:
         yield client
 
 
 @pytest.fixture
 async def client_full():
     """Фикстура для полного клиента"""
-    async with GoszakupClientFull(token="test_token") as client:
+    async with GoszakupClientFull(token=TEST_API_TOKEN) as client:
         yield client
 
 
@@ -108,9 +112,9 @@ class TestGoszakupClient:
     @pytest.mark.asyncio
     async def test_client_initialization(self):
         """Тест инициализации клиента"""
-        client = GoszakupClient(token="test_token")
+        client = GoszakupClient(token=TEST_API_TOKEN)
 
-        assert client.token == "test_token"
+        assert client.token == TEST_API_TOKEN
         assert client.graphql_url == "https://ows.goszakup.gov.kz/v3/graphql"
         assert client.cache_enabled is True
         assert client.retry_config.max_retries == 3
@@ -120,7 +124,7 @@ class TestGoszakupClient:
     @pytest.mark.asyncio
     async def test_context_manager(self):
         """Тест контекстного менеджера"""
-        async with GoszakupClient(token="test_token") as client:
+        async with GoszakupClient(token=TEST_API_TOKEN) as client:
             assert client._session is not None
 
         assert client._session.closed

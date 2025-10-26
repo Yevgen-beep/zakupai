@@ -115,7 +115,10 @@ class MorphologyAnalyzer:
                         inflected = parse.inflect({case})
                         if inflected:
                             forms.add(inflected.word)
-                    except Exception:
+                    except Exception as exc:
+                        logger.debug(
+                            "Failed to inflect %s for case %s: %s", word, case, exc
+                        )
                         continue
 
                 # Множественное число
@@ -123,8 +126,8 @@ class MorphologyAnalyzer:
                     plural = parse.inflect({"plur"})
                     if plural:
                         forms.add(plural.word)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to generate plural form for %s: %s", word, exc)
 
                 # Прилагательные: мужской, женский, средний род
                 if "ADJF" in parse.tag or "ADJS" in parse.tag:
@@ -133,7 +136,13 @@ class MorphologyAnalyzer:
                             gendered = parse.inflect({gender})
                             if gendered:
                                 forms.add(gendered.word)
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug(
+                                "Failed to inflect %s for gender %s: %s",
+                                word,
+                                gender,
+                                exc,
+                            )
                             continue
 
             # Ограничиваем количество форм

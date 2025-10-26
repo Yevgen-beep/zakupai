@@ -26,7 +26,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -52,6 +52,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import sessionmaker
 from starlette.middleware.base import BaseHTTPMiddleware
+
+from .flowise_endpoints import create_flowise_endpoints
 
 # Load environment variables from .env
 load_dotenv()
@@ -97,6 +99,9 @@ trdbuy_table = table(
     column("customerNameRu"),
     column("nameRu"),
 )
+
+# Legacy handle for tests that patch chroma client directly
+chroma_client = None
 
 
 # Redis setup for caching
@@ -709,7 +714,7 @@ class AdvancedSearchRequest(BaseModel):
             allowed_statuses = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
             if str(v) not in allowed_statuses:
                 raise ValueError(
-                    f'Status must be one of: {", ".join(allowed_statuses)}'
+                    f"Status must be one of: {', '.join(allowed_statuses)}"
                 )
             return str(v)
         return v
@@ -929,40 +934,16 @@ async def get_sql_autocomplete_fallback(query: str) -> list[str]:
         return []
 
 
-# ---------- Flowise MVP Models ----------
-class ComplaintRequest(BaseModel):
-    lot_id: int = Field(..., description="Lot ID for complaint")
-    reason: str = Field(..., description="Complaint reason", max_length=500)
-    date: str | None = Field(None, description="Complaint date (ISO format)")
-
-    @validator("reason")
-    def validate_reason(cls, v):
-        if not v.strip():
-            raise ValueError("Reason cannot be empty")
-        return v.strip()
+# ---------- Flowise Enhanced Endpoints ----------
+create_flowise_endpoints(app, SessionLocal, redis_client)
 
 
-class ComplaintResponse(BaseModel):
-    lot_id: int
-    complaint_text: str
-    reason: str
-    date: str
-    pdf_available: bool = True
-
-
-class SupplierRequest(BaseModel):
-    lot_name: str = Field(
-        ..., description="Product/service name to search suppliers for"
-    )
-
-    @validator("lot_name")
-    def validate_lot_name(cls, v):
-        if len(v.strip()) < 3:
-            raise ValueError("Lot name must be at least 3 characters")
-        return v.strip()
+# ---------- Flowise Helper Functions ----------
 
 
 class Supplier(BaseModel):
+    """Legacy supplier model used by existing helper functions."""
+
     name: str
     rating: float
     contacts: str
@@ -970,137 +951,6 @@ class Supplier(BaseModel):
     location: str | None = None
 
 
-class SupplierResponse(BaseModel):
-    lot_name: str
-    suppliers: list[Supplier]
-    total_found: int
-
-
-# ---------- Flowise MVP Endpoints ----------
-@app.post("/api/complaint/{lot_id}", response_model=ComplaintResponse)
-async def generate_complaint(lot_id: int, request: ComplaintRequest):
-    """
-    Generate complaint document using Flowise agent
-
-    Uses Flowise to generate complaint text and provides PDF export
-    """
-    start_time = time.time()
-    request_id = str(uuid.uuid4())
-
-    logger.info(
-        "Complaint generation request",
-        request_id=request_id,
-        lot_id=lot_id,
-        reason=request.reason,
-    )
-
-    try:
-        # Get lot information first
-        lot_info = await get_lot_info(lot_id)
-
-        # Prepare complaint date
-        complaint_date = request.date or datetime.now().isoformat()
-
-        # Generate complaint via Flowise (or mock)
-        complaint_text = await generate_complaint_via_flowise(
-            lot_id, lot_info, request.reason, complaint_date
-        )
-
-        latency_ms = int((time.time() - start_time) * 1000)
-
-        logger.info(
-            "Complaint generated",
-            request_id=request_id,
-            lot_id=lot_id,
-            latency_ms=latency_ms,
-        )
-
-        return ComplaintResponse(
-            lot_id=lot_id,
-            complaint_text=complaint_text,
-            reason=request.reason,
-            date=complaint_date,
-        )
-
-    except Exception as e:
-        logger.error(
-            "Complaint generation error",
-            request_id=request_id,
-            lot_id=lot_id,
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=500, detail="Failed to generate complaint"
-        ) from e
-
-
-@app.get("/api/complaint/{lot_id}/pdf")
-async def download_complaint_pdf(lot_id: int, reason: str, date: str):
-    """Download complaint as PDF"""
-    try:
-        # Get complaint text
-        lot_info = await get_lot_info(lot_id)
-        complaint_text = await generate_complaint_via_flowise(
-            lot_id, lot_info, reason, date
-        )
-
-        # Generate PDF
-        pdf_buffer = generate_complaint_pdf(complaint_text, lot_id, reason, date)
-
-        return Response(
-            content=pdf_buffer.getvalue(),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=complaint_lot_{lot_id}.pdf"
-            },
-        )
-
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate PDF") from e
-
-
-@app.get("/api/supplier/{lot_name}", response_model=SupplierResponse)
-async def find_suppliers(lot_name: str):
-    """
-    Find suppliers for a given product/service
-
-    Searches suppliers from Satu.kz API
-    """
-    start_time = time.time()
-    request_id = str(uuid.uuid4())
-
-    logger.info("Supplier search request", request_id=request_id, lot_name=lot_name)
-
-    try:
-        # Search suppliers via API and embeddings
-        suppliers = await search_suppliers_combined(lot_name)
-
-        latency_ms = int((time.time() - start_time) * 1000)
-
-        logger.info(
-            "Supplier search completed",
-            request_id=request_id,
-            lot_name=lot_name,
-            suppliers_found=len(suppliers),
-            latency_ms=latency_ms,
-        )
-
-        return SupplierResponse(
-            lot_name=lot_name, suppliers=suppliers, total_found=len(suppliers)
-        )
-
-    except Exception as e:
-        logger.error(
-            "Supplier search error",
-            request_id=request_id,
-            lot_name=lot_name,
-            error=str(e),
-        )
-        raise HTTPException(status_code=500, detail="Failed to search suppliers") from e
-
-
-# ---------- Flowise Helper Functions ----------
 async def get_lot_info(lot_id: int) -> dict:
     """Get basic lot information"""
     try:
@@ -1152,9 +1002,9 @@ async def generate_complaint_via_flowise(
 
 Дата: {date}
 
-По лоту: {lot_info['name']} (ID: {lot_id})
-Заказчик: {lot_info['customer']}
-Сумма: {lot_info.get('amount', 0):,.2f} тенге
+По лоту: {lot_info["name"]} (ID: {lot_id})
+Заказчик: {lot_info["customer"]}
+Сумма: {lot_info.get("amount", 0):,.2f} тенге
 
 Основание жалобы: {reason}
 

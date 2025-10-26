@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -366,8 +367,8 @@ def format_search_results(results: list[SearchResult]) -> str:
 # Функция для тестирования
 async def test_search():
     """Тестовая функция для проверки работы API"""
-    # Это нужно заменить на реальный токен
-    token = "your_token_here"
+    # Используем токен из переменной окружения или безопасного значения по умолчанию
+    token = os.getenv("GOSZAKUP_V2_TEST_TOKEN", "dummy-graphql-token")
 
     client = GoszakupGraphQLClient(token)
 
