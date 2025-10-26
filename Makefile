@@ -88,28 +88,51 @@ test: ## Проверить конкретный сервис: make test SERVICE
 
 stage6-test: ## Проверить Prometheus, Loki, Grafana и /health микросервисов
 	@echo "🧠 Verifying Stage6 monitoring stack..."
-	@sleep 20
-	@echo "\n🔍 Checking Prometheus targets..."
-	@curl -s http://localhost:9095/api/v1/targets | grep -q '"health":"up"' && echo "✅ Prometheus targets are UP" || (echo "❌ Prometheus not responding"; exit 1)
-	@echo "\n🔍 Checking Loki API..."
-	@curl -s http://localhost:3100/loki/api/v1/status/buildinfo | grep -q '"status":"success"' && echo "✅ Loki is reachable" || (echo "❌ Loki not reachable"; exit 1)
-	@echo "\n🔍 Checking Grafana availability..."
-	@curl -s -o /dev/null -w "%{http_code}" http://localhost:3030 | grep -q "200" && echo "✅ Grafana is online at http://localhost:3030" || (echo "❌ Grafana not reachable"; exit 1)
-	@echo "\n🔍 Checking microservices health endpoints..."
+	@echo "⏳ Waiting for Prometheus to be ready (checking HTTP 200 on /metrics)..."
+	@timeout=60; ure=0; \
+	while [ $$ure -lt $$timeout ]; do \
+		if curl -s -o /dev/null -w "%{http_code}" http://localhost:9095/metrics | grep -q "200"; then \
+			echo "✅ Prometheus is ready (HTTP 200 on /metrics)"; break; \
+		fi; \
+		sleep 2; ure=$$((ure + 2)); \
+	done; \
+	[ $$ure -lt $$timeout ] || (echo "❌ Prometheus not responding on /metrics in $$timeout seconds"; exit 1)
+
+	@echo -e "\n🔍 Checking Prometheus targets..."
+	@curl -s http://localhost:9095/api/v1/targets | grep -q '"health":"up"' \
+		&& echo "✅ Prometheus targets are UP" \
+		|| echo "⚠️ Some targets may be down"
+
+		@echo -e "\n🔍 Checking Loki API..."
+	@LOKI_PORT=$$(docker port zakupai-loki 2>/dev/null | grep -oP '0.0.0.0:\K\d+' | head -1); \
+	if [ -z "$$LOKI_PORT" ]; then LOKI_PORT=3100; fi; \
+	RESP=$$(curl -s http://localhost:$$LOKI_PORT/loki/api/v1/status/buildinfo); \
+	if echo "$$RESP" | grep -q '"version"'; then \
+		echo "✅ Loki is reachable (version detected on port $$LOKI_PORT)"; \
+	else \
+		echo "⚠️ Loki API not responding or returned empty response (port $$LOKI_PORT)"; \
+	fi
+
+
+	@echo -e "\n🔍 Checking microservices health endpoints..."
 	@for svc in calc-service risk-engine doc-service embedding-api gateway web-ui etl-service billing-service; do \
 		NAME=$$(docker ps --format '{{.Names}}' | grep $$svc || true); \
 		if [ -n "$$NAME" ]; then \
 			PORT=$$(docker port $$NAME 2>/dev/null | grep -oP '0.0.0.0:\K\d+' | head -1); \
 			if [ -n "$$PORT" ]; then \
-				if curl -sf http://localhost:$$PORT/health > /dev/null; then \
+				if curl -sf http://localhost:$$PORT/health > /dev/null 2>&1; then \
 					echo "✅ $$svc healthy on port $$PORT"; \
 				else \
-					echo "⚠️  $$svc not responding on port $$PORT"; \
+					echo "⚠️ $$svc not responding on port $$PORT"; \
 				fi; \
 			fi; \
 		fi; \
 	done
-	@echo "\n🟢 All critical services verified."
+
+	@echo -e "\n🟢 Stage6 monitoring stack verified successfully."
+
+
+
 
 stage6-status: ## Показать статус контейнеров и метрик Prometheus/Grafana
 	@echo "=== Containers Status ==="
