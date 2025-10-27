@@ -19,7 +19,7 @@ from rnu_client import RNUClient, RNUValidationError, get_rnu_client
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from services.common.vault_client import VaultClientError, load_kv_to_env
+from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -27,6 +27,12 @@ from zakupai_common.fastapi.health import health_router
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.logging import setup_logging
 from zakupai_common.metrics import set_anti_dumping
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.exceptions import RequestValidationError
+from starlette.responses import JSONResponse
+from exceptions import validation_exception_handler, payload_too_large_handler, rate_limit_handler
 
 try:
     from typing import Annotated  # py>=3.9
@@ -470,6 +476,28 @@ async def send_telegram_notification(
         return False
 
 
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to limit request payload size to 2MB.
+    Returns HTTP 413 if payload exceeds the limit.
+    Stage 7 Phase 1: Security Quick Wins
+    """
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json"]:
+            return await call_next(request)
+
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Payload Too Large"}
+            )
+
+        return await call_next(request)
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path == "/health":
@@ -547,7 +575,16 @@ app = FastAPI(
 # Setup logging
 setup_logging("risk-engine")
 
-# Add middleware
+# Initialize rate limiter (Stage 7 Phase 1)
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register exception handlers (Stage 7 Phase 1)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Add middlewares (order matters: payload check -> error handler -> audit -> prometheus)
+app.add_middleware(PayloadSizeLimitMiddleware)
 app.add_middleware(ErrorHandlerMiddleware)
 app.add_middleware(AuditMiddleware)
 add_prometheus_middleware(app, SERVICE_NAME)
@@ -605,6 +642,7 @@ class ScoreRequest(BaseModel):
 
 
 @app.post("/risk/score")
+@limiter.limit("30/minute")
 def risk_score(req: ScoreRequest, request: Request):
     import time
 

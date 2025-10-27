@@ -29,7 +29,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.responses import Response
 
-from services.common.vault_client import VaultClientError, load_kv_to_env
+from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -37,6 +37,12 @@ from zakupai_common.fastapi.health import health_router
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.logging import setup_logging
 from zakupai_common.metrics import record_goszakup_error
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.exceptions import RequestValidationError
+from starlette.responses import JSONResponse as SlowAPIJSONResponse
+from exceptions import validation_exception_handler, payload_too_large_handler, rate_limit_handler
 
 load_dotenv()
 

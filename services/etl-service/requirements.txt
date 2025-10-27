@@ -35,3 +35,4 @@ structlog
 aiohttp
 requests
 hvac>=1.2
+slowapi>=0.1.9

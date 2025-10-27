@@ -6,3 +6,4 @@ python-dotenv>=1.0
 pytest>=7.0
 httpx>=0.24
 prometheus_client
+slowapi>=0.1.9

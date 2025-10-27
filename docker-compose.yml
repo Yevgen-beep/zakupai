@@ -35,7 +35,8 @@ services:
 
   embedding-api:
     build:
-      context: ./services/embedding-api
+      context: .
+      dockerfile: ./services/embedding-api/Dockerfile
     image: zakupai/embedding-api:${TAG:-stage5}
     container_name: zakupai-embedding-api
     ports:
@@ -70,7 +71,8 @@ services:
 
   risk-engine:
     build:
-      context: ./services/risk-engine
+      context: .
+      dockerfile: ./services/risk-engine/Dockerfile
     image: zakupai/risk-engine:${TAG:-stage5}
     container_name: zakupai-risk-engine
     ports:
@@ -91,7 +93,8 @@ services:
 
   doc-service:
     build:
-      context: ./services/doc-service
+      context: .
+      dockerfile: ./services/doc-service/Dockerfile
     container_name: zakupai-doc-service
     ports:
       - "7003:8000"
@@ -121,7 +124,8 @@ services:
 
   billing-service:
     build:
-      context: ./services/billing-service
+      context: .
+      dockerfile: ./services/billing-service/Dockerfile
     container_name: zakupai-billing-service
     ports:
       - "7004:8000"
@@ -136,7 +140,8 @@ services:
 
   etl-service:
     build:
-      context: ./services/etl-service
+      context: .
+      dockerfile: ./services/etl-service/Dockerfile
     image: zakupai/etl-service:${TAG:-stage5}
     container_name: zakupai-etl-service
     ports:
@@ -155,7 +160,8 @@ services:
 
   gateway:
     build:
-      context: ./services/gateway
+      context: .
+      dockerfile: ./services/gateway/Dockerfile
     image: zakupai/gateway:${TAG:-stage5}
     container_name: zakupai-gateway
     ports:
