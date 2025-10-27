@@ -19,7 +19,8 @@ import requests
 import structlog
 from dotenv import load_dotenv
 from etl import ETLService
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, Request
+from fastapi.exceptions import RequestValidationError
 from middleware import FileSizeMiddleware
 from models import BatchUploadError, BatchUploadResponse, BatchUploadRow, ETLBatchUpload
 from PIL import Image
@@ -27,7 +28,8 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.audit_logger import get_audit_logger
@@ -40,8 +42,6 @@ from zakupai_common.metrics import record_goszakup_error
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from fastapi.exceptions import RequestValidationError
-from starlette.responses import JSONResponse as SlowAPIJSONResponse
 from exceptions import validation_exception_handler, payload_too_large_handler, rate_limit_handler
 
 load_dotenv()
@@ -115,6 +115,27 @@ app = FastAPI(
     description="ETL service for ZakupAI platform - loads data from Kazakhstan Government Procurement GraphQL API to PostgreSQL",
     version="1.0.0",
 )
+
+# Stage 7 Phase 1 — Rate Limiter Initialization
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register centralized exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Stage 7 Phase 1 — Payload size limiter
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    async def dispatch(self, request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json"]:
+          return await call_next(request)
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+          return JSONResponse(status_code=413, content={"detail": "Payload Too Large"})
+        return await call_next(request)
+
+app.add_middleware(PayloadSizeLimitMiddleware)
 
 # Setup logging
 setup_logging("etl-service")
@@ -549,7 +570,8 @@ async def ocr_health():
 
 
 @app.post("/etl/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...), lot_id: str | None = None):
+@limiter.limit("30/minute")
+async def upload_file(request: Request, file: UploadFile = File(...), lot_id: str | None = None):
     """
     Upload and process PDF or ZIP files with OCR
 
@@ -717,7 +739,8 @@ async def upload_file(file: UploadFile = File(...), lot_id: str | None = None):
 
 
 @app.post("/etl/upload-url", response_model=UploadResponse)
-async def upload_file_from_url(request: URLUploadRequest):
+@limiter.limit("30/minute")
+async def upload_file_from_url(request: Request, upload_request: URLUploadRequest):
     """
     Download and process PDF or ZIP files from URL with OCR
 
@@ -738,7 +761,7 @@ async def upload_file_from_url(request: URLUploadRequest):
         # Download file from URL
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                request.file_url, timeout=aiohttp.ClientTimeout(total=60)
+                upload_request.file_url, timeout=aiohttp.ClientTimeout(total=60)
             ) as response:
                 if response.status != 200:
                     raise HTTPException(
@@ -764,11 +787,11 @@ async def upload_file_from_url(request: URLUploadRequest):
                     )
 
         # Determine file name
-        if request.file_name:
-            file_name = request.file_name
+        if upload_request.file_name:
+            file_name = upload_request.file_name
         else:
             # Extract from URL
-            parsed_url = urlparse(request.file_url)
+            parsed_url = urlparse(upload_request.file_url)
             file_name = Path(parsed_url.path).name or "downloaded_file.pdf"
 
         # Validate file extension
@@ -782,7 +805,7 @@ async def upload_file_from_url(request: URLUploadRequest):
             )
 
         logger.info(
-            f"Processing URL download: {file_name} from {request.file_url} ({len(file_content) / 1024 / 1024:.1f}MB)"
+            f"Processing URL download: {file_name} from {upload_request.file_url} ({len(file_content) / 1024 / 1024:.1f}MB)"
         )
 
         processed_files = []
@@ -824,7 +847,7 @@ async def upload_file_from_url(request: URLUploadRequest):
                                         zip_file_path.name,
                                         "pdf",
                                         content,
-                                        request.lot_id,
+                                        upload_request.lot_id,
                                     )
 
                                     # Index in ChromaDB
@@ -832,7 +855,7 @@ async def upload_file_from_url(request: URLUploadRequest):
                                         doc_id,
                                         zip_file_path.name,
                                         content,
-                                        request.lot_id,
+                                        upload_request.lot_id,
                                     )
 
                                     # Add to results
@@ -882,11 +905,11 @@ async def upload_file_from_url(request: URLUploadRequest):
 
                 # Save to PostgreSQL
                 doc_id = await save_to_postgres(
-                    file_name, "pdf", content, request.lot_id
+                    file_name, "pdf", content, upload_request.lot_id
                 )
 
                 # Index in ChromaDB
-                await index_in_chromadb(doc_id, file_name, content, request.lot_id)
+                await index_in_chromadb(doc_id, file_name, content, upload_request.lot_id)
 
                 # Add to results
                 processed_files.append(
@@ -908,7 +931,7 @@ async def upload_file_from_url(request: URLUploadRequest):
         return UploadResponse(status="ok", files=processed_files)
 
     except aiohttp.ClientError as e:
-        logger.error(f"Failed to download from URL {request.file_url}: {e}")
+        logger.error(f"Failed to download from URL {upload_request.file_url}: {e}")
         raise HTTPException(
             status_code=400, detail=f"Failed to download file: {str(e)}"
         ) from e
@@ -916,14 +939,15 @@ async def upload_file_from_url(request: URLUploadRequest):
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"URL upload processing failed for {request.file_url}: {e}")
+        logger.error(f"URL upload processing failed for {upload_request.file_url}: {e}")
         raise HTTPException(
             status_code=500, detail=f"File processing failed: {str(e)}"
         ) from e
 
 
 @app.post("/search", response_model=SearchResponse)
-async def search_documents(request: SearchRequest):
+@limiter.limit("30/minute")
+async def search_documents(request: Request, search_request: SearchRequest):
     """
     Search documents in ChromaDB collection
 
@@ -937,9 +961,9 @@ async def search_documents(request: SearchRequest):
         embedding_api_url = os.getenv("EMBEDDING_API_URL", "http://localhost:7010")
 
         search_payload = {
-            "query": request.query,
-            "top_k": request.top_k,
-            "collection": request.collection,
+            "query": search_request.query,
+            "top_k": search_request.top_k,
+            "collection": search_request.collection,
         }
 
         async with aiohttp.ClientSession() as session:
@@ -978,7 +1002,7 @@ async def search_documents(request: SearchRequest):
                         )
 
                     return SearchResponse(
-                        query=request.query, results=results, total_found=len(results)
+                        query=search_request.query, results=results, total_found=len(results)
                     )
                 else:
                     error_text = await response.text()
@@ -1038,8 +1062,9 @@ async def get_document_preview(doc_id: int, max_length: int = 200) -> str | None
 
 
 @app.post("/run", response_model=ETLResponse)
+@limiter.limit("30/minute")
 async def run_etl(
-    request: ETLRequest = ETLRequest(), _: bool = Depends(check_env_variables)
+    request: Request, etl_request: ETLRequest = ETLRequest(), _: bool = Depends(check_env_variables)
 ):
     """
     Run ETL process to load data from Kazakhstan Government Procurement GraphQL API
@@ -1056,7 +1081,7 @@ async def run_etl(
     """
 
     # For testing, fix days to 7
-    if request.days != 7:
+    if etl_request.days != 7:
         raise HTTPException(
             status_code=400, detail="For testing, days parameter must be 7"
         )
@@ -1064,7 +1089,7 @@ async def run_etl(
     try:
         async with ETLService() as etl_service:
             # Use test_limit=3 for initial testing, change to 200 for production
-            result = await etl_service.run_etl(days=request.days, test_limit=3)
+            result = await etl_service.run_etl(days=etl_request.days, test_limit=3)
 
             return ETLResponse(
                 status=result["status"],
@@ -1311,7 +1336,8 @@ async def process_excel_file(
 
 
 @app.post("/etl/upload-batch", response_model=BatchUploadResponse)
-async def upload_batch(file: UploadFile = File(...), db=Depends(get_db)):
+@limiter.limit("30/minute")
+async def upload_batch(request: Request, file: UploadFile = File(...), db=Depends(get_db)):
     """
     Upload and process CSV/XLSX files for batch data import
 

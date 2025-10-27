@@ -8,13 +8,18 @@ from datetime import UTC, datetime
 
 import psycopg2
 from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, validator
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from exceptions import validation_exception_handler, rate_limit_handler
 
 # ---------- logging ----------
 logging.basicConfig(
@@ -291,6 +296,27 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# Stage 7 Phase 1 — Rate Limiter Initialization
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register centralized exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Stage 7 Phase 1 — Payload size limiter
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    async def dispatch(self, request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json", "/doc/health", "/doc/metrics", "/doc/docs", "/doc/openapi.json"]:
+          return await call_next(request)
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+          return JSONResponse(status_code=413, content={"detail": "Payload Too Large"})
+        return await call_next(request)
+
+app.add_middleware(PayloadSizeLimitMiddleware)
+
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
 add_prometheus_middleware(app, SERVICE_NAME)
@@ -326,7 +352,9 @@ def info(x_api_key: str | None = Header(default=None, alias="X-API-Key")):
 
 
 @app.post("/tldr")
+@limiter.limit("30/minute")
 def tldr_endpoint(
+    request: Request,
     req: TldrRequest,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     lang: str = Query(
@@ -362,7 +390,9 @@ def tldr_endpoint(
 
 
 @app.post("/letters/generate")
+@limiter.limit("30/minute")
 def generate_letter(
+    request: Request,
     req: RenderRequest,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     lang: str = Query(
@@ -415,7 +445,9 @@ def generate_letter(
 
 
 @app.post("/render/html")
+@limiter.limit("30/minute")
 def render_html(
+    request: Request,
     req: RenderRequest,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     lang: str = Query(
@@ -423,7 +455,7 @@ def render_html(
     ),
 ):
     check_api_key(x_api_key)
-    return generate_letter(req, x_api_key, lang)
+    return generate_letter(request, req, x_api_key, lang)
 
 
 @app.get("/languages")

@@ -12,12 +12,17 @@ import chromadb
 import psycopg2
 from chromadb import Settings
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from exceptions import validation_exception_handler, rate_limit_handler
 
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
@@ -250,6 +255,27 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# Stage 7 Phase 1 — Rate Limiter Initialization
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register centralized exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Stage 7 Phase 1 — Payload size limiter
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    async def dispatch(self, request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json", "/emb/health", "/emb/metrics", "/emb/docs", "/emb/openapi.json"]:
+          return await call_next(request)
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+          return JSONResponse(status_code=413, content={"detail": "Payload Too Large"})
+        return await call_next(request)
+
+app.add_middleware(PayloadSizeLimitMiddleware)
+
 # Add audit middleware
 app.add_middleware(AuditMiddleware)
 add_prometheus_middleware(app, SERVICE_NAME)
@@ -313,6 +339,7 @@ class ChromaSearchRequest(BaseModel):
 
 # ---------- эндпоинты ----------
 @app.post("/embed")
+@limiter.limit("30/minute")
 def embed(req: EmbedRequest, request: Request):
     rid = request.state.rid
 
@@ -328,6 +355,7 @@ def embed(req: EmbedRequest, request: Request):
 
 
 @app.post("/index")
+@limiter.limit("30/minute")
 def index(req: IndexRequest, request: Request):
     if len(req.text) > 8000:
         raise HTTPException(status_code=413, detail="Text too large")
@@ -363,6 +391,7 @@ def index(req: IndexRequest, request: Request):
 
 
 @app.post("/search")
+@limiter.limit("30/minute")
 def search(req: SearchRequest, request: Request):
     rid = request.state.rid
 
@@ -414,6 +443,7 @@ def search(req: SearchRequest, request: Request):
 
 # ---------- ChromaDB эндпоинты ----------
 @app.post("/chroma/index")
+@limiter.limit("30/minute")
 async def chroma_index(req: ChromaIndexRequest, request: Request):
     """Индексация документа в ChromaDB"""
     rid = request.state.rid
@@ -455,6 +485,7 @@ async def chroma_index(req: ChromaIndexRequest, request: Request):
 
 
 @app.post("/chroma/search")
+@limiter.limit("30/minute")
 async def chroma_search(req: ChromaSearchRequest, request: Request):
     """Семантический поиск в ChromaDB"""
     rid = request.state.rid

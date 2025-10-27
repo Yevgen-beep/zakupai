@@ -2,19 +2,46 @@ import asyncio
 
 import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from starlette.responses import PlainTextResponse, Response
+from starlette.responses import PlainTextResponse, Response, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
 from zakupai_common.fastapi.health import health_router
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.logging import setup_logging
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from exceptions import validation_exception_handler, rate_limit_handler
 
 SERVICE_NAME = "gateway"
 
 
 app = FastAPI(title="Gateway Service", version="0.1.0")
+
+# Stage 7 Phase 1 — Rate Limiter Initialization
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register centralized exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Stage 7 Phase 1 — Payload size limiter
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    async def dispatch(self, request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json", "/stub_status"]:
+          return await call_next(request)
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+          return JSONResponse(status_code=413, content={"detail": "Payload Too Large"})
+        return await call_next(request)
+
+app.add_middleware(PayloadSizeLimitMiddleware)
 
 # Setup logging
 setup_logging("gateway")

@@ -6,12 +6,17 @@ from datetime import UTC, datetime
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from exceptions import validation_exception_handler, rate_limit_handler
 
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
@@ -409,6 +414,27 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Stage 7 Phase 1 — Rate Limiter Initialization
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register centralized exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Stage 7 Phase 1 — Payload size limiter
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    async def dispatch(self, request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json"]:
+          return await call_next(request)
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+          return JSONResponse(status_code=413, content={"detail": "Payload Too Large"})
+        return await call_next(request)
+
+app.add_middleware(PayloadSizeLimitMiddleware)
+
 app.add_middleware(RequestLoggingMiddleware)
 add_prometheus_middleware(app, SERVICE_NAME)
 
@@ -438,16 +464,17 @@ async def health():
 
 
 @app.post("/billing/create_key", response_model=CreateKeyResponse)
-async def create_key(request: CreateKeyRequest):
+@limiter.limit("30/minute")
+async def create_key(request: Request, create_key_request: CreateKeyRequest):
     """Create API key for user"""
     try:
         # Create or get user
-        user = create_or_get_user(request.tg_id, request.email)
+        user = create_or_get_user(create_key_request.tg_id, create_key_request.email)
 
         # Create API key
         api_key = create_api_key(user["id"])
 
-        log.info(f"Created API key for tg_id={request.tg_id}, plan={user['plan']}")
+        log.info(f"Created API key for tg_id={create_key_request.tg_id}, plan={user['plan']}")
 
         return CreateKeyResponse(api_key=api_key, plan=user["plan"], expires_at=None)
 
@@ -457,16 +484,17 @@ async def create_key(request: CreateKeyRequest):
 
 
 @app.post("/billing/validate_key", response_model=ValidateKeyResponse)
-async def validate_key(request: ValidateKeyRequest):
+@limiter.limit("30/minute")
+async def validate_key(request: Request, validate_key_request: ValidateKeyRequest):
     """Validate API key and check limits"""
     try:
-        result = validate_api_key(request.api_key, request.endpoint)
+        result = validate_api_key(validate_key_request.api_key, validate_key_request.endpoint)
 
         if result["valid"]:
-            log.info(f"Valid API key for {request.endpoint}, plan={result['plan']}")
+            log.info(f"Valid API key for {validate_key_request.endpoint}, plan={result['plan']}")
         else:
             log.warning(
-                f"Invalid/limited API key for {request.endpoint}: {result.get('message')}"
+                f"Invalid/limited API key for {validate_key_request.endpoint}: {result.get('message')}"
             )
 
         return ValidateKeyResponse(**result)
@@ -477,13 +505,14 @@ async def validate_key(request: ValidateKeyRequest):
 
 
 @app.post("/billing/usage", response_model=UsageResponse)
-async def usage(request: UsageRequest):
+@limiter.limit("30/minute")
+async def usage(request: Request, usage_request: UsageRequest):
     """Log API usage"""
     try:
-        logged = log_usage(request.api_key, request.endpoint, request.requests)
+        logged = log_usage(usage_request.api_key, usage_request.endpoint, usage_request.requests)
 
         if logged:
-            log.info(f"Logged {request.requests} requests for {request.endpoint}")
+            log.info(f"Logged {usage_request.requests} requests for {usage_request.endpoint}")
         else:
             log.warning("Failed to log usage for API key")
 
