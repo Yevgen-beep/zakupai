@@ -7,3 +7,4 @@ pytest>=7.0
 httpx>=0.24
 prometheus_client
 hvac>=1.2
+slowapi>=0.1.9

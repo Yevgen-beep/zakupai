@@ -10,13 +10,19 @@ from typing import Annotated
 
 import psycopg2
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
-from services.common.vault_client import VaultClientError, load_kv_to_env
+from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
+from schemas import ProfitRequest, RiskScoreRequest
+from exceptions import validation_exception_handler, payload_too_large_handler, rate_limit_handler
 
 # ---------- минимальное JSON-логирование + request-id ----------
 logging.basicConfig(
@@ -166,6 +172,28 @@ def save_finance_calc(lot_id: int | None, input_payload: dict, results: dict):
         log.warning(f"finance_calcs insert failed: {e}")
 
 
+class PayloadSizeLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to limit request payload size to 2MB.
+    Returns HTTP 413 if payload exceeds the limit.
+    Stage 7 Phase 1: Security Quick Wins
+    """
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in ["/health", "/metrics", "/docs", "/openapi.json"]:
+            return await call_next(request)
+
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.MAX_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Payload Too Large"}
+            )
+
+        return await call_next(request)
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path == "/health":
@@ -240,7 +268,16 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# Add audit middleware
+# Initialize rate limiter (Stage 7 Phase 1)
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Register exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# Add middlewares (order matters: payload check -> audit -> prometheus)
+app.add_middleware(PayloadSizeLimitMiddleware)
 app.add_middleware(AuditMiddleware)
 add_prometheus_middleware(app, SERVICE_NAME)
 
@@ -296,7 +333,7 @@ class PenaltyRequest(BaseModel):
 
 
 # ---------- эндпоинты ----------
-@app.post("/calc/vat")
+@app.post("/vat")
 def calc_vat(req: VatRequest, request: Request):
     rid = request.state.rid
     rate = float(req.vat_rate) / 100.0
@@ -321,7 +358,7 @@ def calc_vat(req: VatRequest, request: Request):
     return result
 
 
-@app.post("/calc/margin")
+@app.post("/margin")
 def calc_margin(req: MarginRequest, request: Request):
     rid = request.state.rid
     rate = float(req.vat_rate) / 100.0
@@ -351,7 +388,7 @@ def calc_margin(req: MarginRequest, request: Request):
     return result
 
 
-@app.post("/calc/penalty")
+@app.post("/penalty")
 def calc_penalty(req: PenaltyRequest, request: Request):
     rid = request.state.rid
     penalty = (
@@ -368,6 +405,52 @@ def calc_penalty(req: PenaltyRequest, request: Request):
         "ts": datetime.now(UTC).isoformat(),
     }
     save_finance_calc(req.lot_id, req.model_dump(), result)
+    return result
+
+
+@app.post("/profit")
+@limiter.limit("30/minute")
+def calc_profit(req: ProfitRequest, request: Request):
+    """
+    Calculate profit with strict input validation.
+    Stage 7 Phase 1: Security Quick Wins
+    Rate limited to 30 requests per minute.
+    """
+    rid = request.state.rid
+    # Dummy calculation as per specification
+    profit = 0.84
+    result = {
+        "lot_id": req.lot_id,
+        "supplier_id": req.supplier_id,
+        "region": req.region,
+        "profit": profit,
+        "request_id": rid,
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    save_finance_calc(req.lot_id, req.model_dump(), result)
+    return result
+
+
+@app.post("/risk-score")
+@limiter.limit("30/minute")
+def calc_risk_score(req: RiskScoreRequest, request: Request):
+    """
+    Calculate supplier risk score with strict input validation.
+    Stage 7 Phase 1: Security Quick Wins
+    Rate limited to 30 requests per minute.
+    """
+    rid = request.state.rid
+    # Dummy calculation as per specification
+    risk_score = 0.42
+    result = {
+        "supplier_bin": req.supplier_bin,
+        "year": req.year,
+        "risk_score": risk_score,
+        "risk_level": "low" if risk_score < 3 else "medium" if risk_score < 7 else "high",
+        "request_id": rid,
+        "ts": datetime.now(UTC).isoformat(),
+    }
+    save_finance_calc(None, req.model_dump(), result)
     return result
 
 

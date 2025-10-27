@@ -277,6 +277,8 @@ Vault
 
 [ ] Перенести конфиденциальные переменные (DB URI, API keys, Telegram tokens)  
 [ ] Настроить Alertmanager webhook (реальный Telegram / Slack)  
+[ ] Business metrics (anti-dumping %, goszakup errors)
+
 
 ---
 
