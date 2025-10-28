@@ -3,7 +3,9 @@ services:
   libs:
     image: libs:latest
     build:
-      context: ./libs
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./libs/Dockerfile
     command: ["sleep", "infinity"]
     restart: "no"
 
@@ -65,6 +67,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      vault:
+        condition: service_started
     networks:
       - zakupai-network
     restart: unless-stopped
@@ -82,6 +86,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      vault:
+        condition: service_started
       calc-service:
         condition: service_started
       embedding-api:
@@ -112,7 +118,9 @@ services:
 
   goszakup-api:
     build:
-      context: ./services/goszakup-api
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/goszakup-api/Dockerfile
     container_name: zakupai-goszakup-api
     ports:
       - "7005:8001"
@@ -156,6 +164,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      vault:
+        condition: service_started
     restart: unless-stopped
 
   gateway:
@@ -186,7 +196,7 @@ services:
     networks:
       - zakupai-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -195,7 +205,8 @@ services:
 
   web-ui:
     build:
-      context: ./web
+      context: .
+      dockerfile: ./web/Dockerfile
     image: zakupai/web-ui:${TAG:-stage5}
     container_name: zakupai-web-ui
     ports:
@@ -235,7 +246,9 @@ services:
 
   zakupai-bot:
     build:
-      context: ./bot
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./bot/Dockerfile
     image: zakupai/bot:${TAG:-stage5}
     container_name: zakupai-bot
     env_file:
@@ -311,17 +324,17 @@ services:
       - n8n_data:/home/node/.n8n
     environment:
       GENERIC_TIMEZONE: Asia/Almaty
-      N8N_BASIC_AUTH_ACTIVE: false
+      N8N_BASIC_AUTH_ACTIVE: "false"
       N8N_HOST: 0.0.0.0
       N8N_PORT: 5678
       N8N_PROTOCOL: https
       N8N_EDITOR_BASE_URL: https://n8n.exomind.site
       WEBHOOK_URL: https://n8n.exomind.site
       N8N_ENCRYPTION_KEY: mySecretEncryptionKey123456
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: false
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
       DB_SQLITE_POOL_SIZE: 10
-      N8N_RUNNERS_ENABLED: true
-      N8N_SECURE_COOKIE: false
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_SECURE_COOKIE: "false"
     env_file:
       - .env
     networks:
@@ -357,7 +370,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_SECURITY_COOKIE_SECURE: false
+      GF_SECURITY_COOKIE_SECURE: "false"
       GF_SECURITY_COOKIE_SAMESITE: lax
     networks:
       - zakupai-network
@@ -388,6 +401,29 @@ services:
       - zakupai-network
     restart: unless-stopped
 
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: zakupai-vault
+    command: server
+    environment:
+      SKIP_SETCAP: "true"
+      VAULT_LOG_LEVEL: info
+    ports:
+      - published: 8200
+        target: 8200
+    volumes:
+      - ./monitoring/vault/config.hcl:/vault/config/config.hcl:ro
+      - vault_data:/vault/file:rw
+      - vault_logs:/vault/logs:rw
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - zakupai-network
+      - vault-net
+      - monitoring-net
+    restart: unless-stopped
+    user: 100:1000
+
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.47.0
     container_name: zakupai-cadvisor
@@ -405,7 +441,10 @@ services:
     restart: unless-stopped
 
   db-backup:
-    build: ./backup
+    build:
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./backup/Dockerfile
     container_name: zakupai-db-backup
     env_file:
       - .env
@@ -437,9 +476,17 @@ volumes:
   backup_data:
   prometheus_data:
   grafana_data:
+  vault_data:
+  vault_logs:
 
 networks:
   zakupai-network:
     driver: bridge
   ai-network:
     driver: bridge
+  vault-net:
+    driver: bridge
+    internal: false
+  monitoring-net:
+    driver: bridge
+    internal: false

@@ -1,0 +1,107 @@
+# ===========================================
+# Docker Compose Override — Monitoring Stack
+# ===========================================
+# This file extends docker-compose.yml with monitoring-specific services.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.override.monitoring.yml up -d
+#
+# Services:
+# - Vault (HashiCorp Vault 1.17)
+# - Prometheus exporters (optional)
+# - Monitoring network isolation
+
+version: '3.8'
+
+services:
+  # ===========================================
+  # HashiCorp Vault — Secrets Management
+  # ===========================================
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: zakupai-vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_LOG_LEVEL: "info"
+    volumes:
+      # Vault configuration — only one config file mounted
+      - ./monitoring/vault/config.hcl:/vault/config/config.hcl:ro
+      # Data storage (file backend)
+      - vault_data:/vault/file
+      # Logs (optional)
+      - vault_logs:/vault/logs
+
+    command: server 
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - zakupai-network
+      - vault-net
+      - monitoring-net
+    healthcheck:
+      test: ["CMD", "vault", "status", "-format=json"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    # Security: run as vault user (UID 100)
+    user: "100:1000"
+
+  # ===========================================
+  # Prometheus — Updated to include Vault metrics
+  # ===========================================
+  prometheus:
+    environment:
+      # Optional: Vault CA certificate for TLS scraping
+      SSL_CERT_FILE: /vault-ca/ca.crt
+    volumes:
+      # Optional: Mount Vault CA for scraping HTTPS metrics
+      - ./monitoring/vault/tls/ca.crt:/vault-ca/ca.crt:ro
+    networks:
+      - zakupai-network
+      - monitoring-net
+
+  # ===========================================
+  # Grafana — Connected to monitoring network
+  # ===========================================
+  grafana:
+    networks:
+      - zakupai-network
+      - monitoring-net
+
+  # ===========================================
+  # Alertmanager — Loads secrets from Vault
+  # ===========================================
+  alertmanager:
+    environment:
+      # Telegram notification secrets (can be pulled from Vault)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    networks:
+      - zakupai-network
+      - monitoring-net
+
+# ===========================================
+# Additional Volumes
+# ===========================================
+volumes:
+  vault_data:
+    driver: local
+  vault_logs:
+    driver: local
+
+# ===========================================
+# Additional Networks
+# ===========================================
+networks:
+  # Vault-specific network for secrets access
+  vault-net:
+    driver: bridge
+    internal: false
+
+  # Monitoring network for Prometheus, Grafana, Alertmanager
+  monitoring-net:
+    driver: bridge
+    internal: false
