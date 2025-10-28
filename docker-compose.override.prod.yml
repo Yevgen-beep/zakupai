@@ -35,10 +35,10 @@ services:
 
   calc-service:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=warning
-      - ENABLE_SWAGGER=false
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="false"
+      - ENABLE_AUDIT_LOG="true"
     logging:
       driver: "loki"
       options:
@@ -57,10 +57,10 @@ services:
 
   risk-engine:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=warning
-      - ENABLE_SWAGGER=false
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="false"
+      - ENABLE_AUDIT_LOG="true"
     logging:
       driver: "loki"
       options:
@@ -81,10 +81,10 @@ services:
 
   doc-service:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=warning
-      - ENABLE_SWAGGER=false
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="false"
+      - ENABLE_AUDIT_LOG="true"
     deploy:
       resources:
         limits:
@@ -97,10 +97,10 @@ services:
 
   embedding-api:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=warning
-      - ENABLE_SWAGGER=false
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="false"
+      - ENABLE_AUDIT_LOG="true"
     logging:
       driver: "loki"
       options:
@@ -119,10 +119,10 @@ services:
 
   etl-service:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=warning
-      - ENABLE_SWAGGER=false
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="false"
+      - ENABLE_AUDIT_LOG="true"
     logging:
       driver: "loki"
       options:
@@ -141,10 +141,10 @@ services:
 
   web:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - CORS_ORIGINS=https://zakupai.exomind.site,https://n8n.exomind.site
-      - CSRF_ENABLED=true
-      - SECURE_COOKIES=true
+      - CSRF_ENABLED="true"
+      - SECURE_COOKIES="true"
     deploy:
       resources:
         limits:
@@ -157,7 +157,7 @@ services:
 
   zakupai-bot:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=warning
     logging:
       driver: "loki"
@@ -195,7 +195,7 @@ services:
       - ./monitoring/grafana:/etc/grafana/provisioning
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
-      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_COOKIE_SECURE="true"
       - GF_SECURITY_COOKIE_SAMESITE=lax
     networks:
       - zakupai-network

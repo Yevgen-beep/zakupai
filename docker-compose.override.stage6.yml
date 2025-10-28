@@ -8,14 +8,16 @@ services:
   embedding-api:
     profiles: ["stage6"]
     build:
-      context: ./services/embedding-api
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/embedding-api/Dockerfile
 
   calc-service:
     profiles: ["stage6"]
     build:
-      context: ./services/calc-service
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/calc-service/Dockerfile
     environment:
       - VAULT_ADDR=https://vault:8200
       - VAULT_CACERT=/etc/vault/ca.pem
@@ -28,8 +30,9 @@ services:
   risk-engine:
     profiles: ["stage6"]
     build:
-      context: ./services/risk-engine
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/risk-engine/Dockerfile
     environment:
       - VAULT_ADDR=https://vault:8200
       - VAULT_CACERT=/etc/vault/ca.pem
@@ -42,10 +45,9 @@ services:
   doc-service:
     profiles: ["stage6"]
     build:
-      context: ./services/doc-service
-      dockerfile: Dockerfile
-      additional_contexts:
-        - libs=./libs
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/doc-service/Dockerfile
 
   chromadb:
     profiles: ["stage6"]
@@ -56,10 +58,9 @@ services:
   billing-service:
     profiles: ["stage6"]
     build:
-      context: ./services/billing-service
-      dockerfile: Dockerfile
-      additional_contexts:
-        - libs=./libs
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/billing-service/Dockerfile
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -69,8 +70,9 @@ services:
   etl-service:
     profiles: ["stage6"]
     build:
-      context: ./services/etl-service
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/etl-service/Dockerfile
     environment:
       - VAULT_ADDR=https://vault:8200
       - VAULT_CACERT=/etc/vault/ca.pem
@@ -203,8 +205,9 @@ services:
   gateway:
     profiles: ["stage6"]
     build:
-      context: ./services/gateway
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/gateway/Dockerfile
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 10s
@@ -220,14 +223,16 @@ services:
   zakupai-bot:
     profiles: ["stage6"]
     build:
-      context: ./bot
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./bot/Dockerfile
 
   web-ui:
     profiles: ["stage6"]
     build:
-      context: ./web
-      dockerfile: Dockerfile
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./web/Dockerfile
 
   db-backup:
     profiles: ["stage6"]

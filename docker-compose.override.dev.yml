@@ -18,7 +18,7 @@ services:
     ports:
       - "7001:8000"
     environment:
-      - DEBUG=true
+      - DEBUG="true"
       - LOG_LEVEL=debug
     profiles: ["dev", "default"]
 
@@ -26,7 +26,7 @@ services:
     ports:
       - "7002:8000"
     environment:
-      - DEBUG=true
+      - DEBUG="true"
       - LOG_LEVEL=debug
     profiles: ["dev", "default"]
 
@@ -34,7 +34,7 @@ services:
     ports:
       - "7003:8000"
     environment:
-      - DEBUG=true
+      - DEBUG="true"
       - LOG_LEVEL=debug
     profiles: ["dev", "default"]
 
@@ -42,7 +42,7 @@ services:
     ports:
       - "7010:8000"
     environment:
-      - DEBUG=true
+      - DEBUG="true"
       - LOG_LEVEL=debug
     profiles: ["dev", "default"]
 
@@ -50,15 +50,15 @@ services:
     ports:
       - "8081:8000"
     environment:
-      - DEBUG=true
+      - DEBUG="true"
       - CORS_ORIGINS=http://localhost:3000,http://localhost:8080,http://localhost:8081,http://127.0.0.1:3000,http://127.0.0.1:8080,http://127.0.0.1:8081
-      - CSRF_ENABLED=false
-      - SECURE_COOKIES=false
+      - CSRF_ENABLED="false"
+      - SECURE_COOKIES="false"
     profiles: ["dev", "default"]
 
   bot:
     environment:
-      - DEBUG=true
+      - DEBUG="true"
       - LOG_LEVEL=debug
     profiles: ["dev", "default"]
 

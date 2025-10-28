@@ -254,14 +254,21 @@ Vault
 
 ## Stage 7 — Input Validation / Rate Limit / Docs
 
-[ ] Добавить Pydantic-валидацию входных данных для всех API (max_length, ranges)  
-[ ] Реализовать ограничение размера payload (413 Payload Too Large)  
-[ ] Внедрить rate-limiter (по API-ключу / IP / user_id)  
-[ ] Добавить централизованную обработку ошибок (422, 413, 401)  
-[ ] Сгенерировать OpenAPI / Swagger и загрузить в Docs-портал  
-[ ] Обновить тесты для валидации (ожидание 422 / 413)  
-[ ] Обновить CI-workflows для smoke-тестов Docs  
-
+[x] Добавить Pydantic-валидацию входных данных для всех API (max_length, ranges)  
+[x] Реализовать ограничение размера payload (413 Payload Too Large)  
+[x] Внедрить rate-limiter (по API-ключу / IP / user_id)  
+[x] Добавить централизованную обработку ошибок (422, 413, 401)  
+[x] Сгенерировать OpenAPI / Swagger и загрузить в Docs-портал  
+[x] Обновить тесты для валидации (ожидание 422 / 413)  
+[x] Обновить CI-workflows для smoke-тестов Docs  
+[ ] Fix gateway external port mapping and add /health endpoint
+    - Ensure "8080:80" in docker-compose.yml
+    - Add Nginx health location:
+        location /health {
+            return 200 '{"status":"ok"}';
+            add_header Content-Type application/json;
+        }
+[x]Stage 7 Phase 1 — Security Quick Wins (completed)
 ---
 
 ## Stage 7 — Monitoring + Vault + Secrets

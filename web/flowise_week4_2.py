@@ -15,7 +15,7 @@ import structlog
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, root_validator, validator
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -33,8 +33,7 @@ class ComplaintRequest(BaseModel):
     reason: str = Field(..., description="Complaint reason")
     date: str | None = Field(None, description="Complaint date (ISO format YYYY-MM-DD)")
 
-    @field_validator("reason")
-    @classmethod
+    @validator("reason")
     def validate_reason(cls, value: str) -> str:
         trimmed = value.strip()
         if not trimmed:
@@ -45,8 +44,7 @@ class ComplaintRequest(BaseModel):
             raise ValueError("Reason must be at least 5 characters")
         return trimmed
 
-    @field_validator("date", mode="before")
-    @classmethod
+    @validator("date", pre=True, always=True)
     def validate_date(cls, value: str | None) -> str:
         """Ensure complaint date is set and valid"""
         if value in (None, ""):
@@ -66,11 +64,11 @@ class ComplaintRequest(BaseModel):
 
         return complaint_date.isoformat()
 
-    @model_validator(mode="after")
-    def ensure_date(cls, model: "ComplaintRequest") -> "ComplaintRequest":
-        if model.date in (None, ""):
-            model.date = date.today().isoformat()
-        return model
+    @root_validator(pre=False)
+    def ensure_date(cls, values: dict) -> dict:
+        if values.get("date") in (None, ""):
+            values["date"] = date.today().isoformat()
+        return values
 
 
 class ComplaintResponse(BaseModel):
@@ -120,15 +118,13 @@ class SupplierRequest(BaseModel):
         None, description="Source names: satu, 1688, alibaba"
     )
 
-    @model_validator(mode="after")
-    def validate_budget_range(cls, model: "SupplierRequest") -> "SupplierRequest":
-        if (
-            model.min_budget is not None
-            and model.max_budget is not None
-            and model.max_budget < model.min_budget
-        ):
+    @root_validator(pre=False)
+    def validate_budget_range(cls, values: dict) -> dict:
+        min_budget = values.get("min_budget")
+        max_budget = values.get("max_budget")
+        if min_budget is not None and max_budget is not None and max_budget < min_budget:
             raise ValueError("max_budget must be >= min_budget")
-        return model
+        return values
 
 
 class SupplierResponse(BaseModel):

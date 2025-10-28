@@ -53,10 +53,33 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .flowise_endpoints import create_flowise_endpoints
+from flowise_endpoints import create_flowise_endpoints
 
 # Load environment variables from .env
 load_dotenv()
+
+# Load secrets from Vault (fallback to .env)
+try:
+    from zakupai_common.vault_client import VaultClientError, load_kv_to_env
+    from zakupai_common.audit_logger import get_audit_logger
+
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+
+        load_kv_to_env("api", mapping={"ZAKUPAI_API_KEY": "ZAKUPAI_API_KEY"})
+        load_kv_to_env("goszakup", mapping={"GOSZAKUP_TOKEN": "GOSZAKUP_TOKEN"})
+        print("Vault bootstrap success: secrets loaded")
+    except VaultClientError as exc:
+        print(f"Vault load failed: {exc}. Using .env fallback.")
+    except Exception as exc:
+        print(f"Unexpected Vault error: {exc}. Using .env fallback.")
+except ImportError:
+    print("zakupai_common not available, using .env only")
+    get_audit_logger = None  # Disable audit logging if common lib unavailable
 
 # Setup structured logging
 structlog.configure(
@@ -156,6 +179,25 @@ instrumentator.instrument(app).expose(app)
 @app.get("/health", status_code=200)
 async def health():
     return {"status": "ok"}
+
+# Audit logging middleware
+if get_audit_logger:
+    @app.middleware("http")
+    async def audit_middleware(request: Request, call_next):
+        # Log important API calls
+        if request.method in ["POST", "PUT", "DELETE"] and not request.url.path.startswith("/health"):
+            audit_logger = get_audit_logger()
+            audit_logger.log_event(
+                event_type=f"web_{request.method.lower()}",
+                user_id="web-ui",
+                details={
+                    "path": request.url.path,
+                    "method": request.method,
+                },
+                ip_address=request.client.host if request.client else None,
+            )
+        response = await call_next(request)
+        return response
 
 # CORS configuration - secure for production
 app.add_middleware(

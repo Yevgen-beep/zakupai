@@ -22,6 +22,31 @@ try:
 except ImportError:
     print("⚠️ python-dotenv not installed, using system environment variables only")
 
+# Load secrets from Vault (fallback to .env)
+try:
+    from zakupai_common.vault_client import VaultClientError, load_kv_to_env
+
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
+        os.environ.setdefault("POSTGRES_HOST", db_secret.get("POSTGRES_HOST", ""))
+        os.environ.setdefault("POSTGRES_PORT", str(db_secret.get("POSTGRES_PORT", "5432")))
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+
+        # Load Telegram bot token
+        monitoring_secret = load_kv_to_env("monitoring")
+        os.environ.setdefault("TELEGRAM_BOT_TOKEN", monitoring_secret.get("TELEGRAM_BOT_TOKEN", ""))
+
+        print("✅ Vault bootstrap success: secrets loaded")
+    except VaultClientError as exc:
+        print(f"⚠️ Vault load failed: {exc}. Using .env fallback.")
+    except Exception as exc:
+        print(f"⚠️ Unexpected Vault error: {exc}. Using .env fallback.")
+except ImportError:
+    print("⚠️ zakupai_common not available, using .env only")
+
 
 class DatabaseConfig(BaseModel):
     """Конфигурация базы данных"""

@@ -56,6 +56,15 @@ scrape_configs:
       - target_label: service
         replacement: risk
 
+  # Risk-engine business metrics (dedicated port)
+  - job_name: risk-engine-business
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['risk-engine:9102']
+    relabel_configs:
+      - target_label: service
+        replacement: risk-business
+
   - job_name: doc-service
     metrics_path: /metrics
     static_configs:
@@ -127,6 +136,7 @@ scrape_configs:
       - target_label: service
         replacement: nginx-exporter
 
+  # Vault metrics (requires authentication)
   - job_name: vault
     metrics_path: /v1/sys/metrics
     params:
@@ -135,7 +145,14 @@ scrape_configs:
     static_configs:
       - targets: ['vault:8200']
     tls_config:
-      insecure_skip_verify: true
+      # CA certificate for Vault TLS verification
+      ca_file: /etc/prometheus/vault-ca/ca.crt
+      # For dev without TLS, use:
+      # insecure_skip_verify: true
     authorization:
       type: Bearer
+      # Token file mounted from monitoring/vault/creds/monitoring.token
       credentials_file: /etc/prometheus/vault-metrics.token
+    relabel_configs:
+      - target_label: service
+        replacement: vault

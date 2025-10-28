@@ -6,3 +6,4 @@ pydantic==2.5.0
 pymorphy3==1.2.1
 pymorphy3-dicts-ru==2.4.417150.4580142
 aiohttp
+hvac>=2.3

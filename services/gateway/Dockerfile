@@ -6,6 +6,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+
 COPY services/gateway/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
@@ -17,7 +19,7 @@ RUN pip install /app/libs/zakupai_common
 
 ENV PYTHONPATH=/app:/app/services:/app/libs:${PYTHONPATH}
 
-ENV PORT=8000
-EXPOSE 8000
+ENV PORT=80
+EXPOSE 80
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]

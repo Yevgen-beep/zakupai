@@ -45,7 +45,21 @@ __pycache__/
 
 # Vault secrets and TLS material
 .secrets/
-monitoring/vault/tls/*
+.vault-token
+.vault-unseal-key
+vault-init-output.json
+vault-unseal-keys.txt
+monitoring/vault/tls/*.key
+monitoring/vault/tls/*.crt
+monitoring/vault/tls/*.csr
+monitoring/vault/tls/*.srl
+!monitoring/vault/tls/generate-certs.sh
+!monitoring/vault/tls/openssl.cnf
+monitoring/vault/data/
+monitoring/vault/creds/*.token
+monitoring/vault/creds/unseal-keys.txt
+!monitoring/vault/creds/README.md
+!monitoring/vault/creds/.gitkeep
 monitoring/prometheus/vault-metrics.token
 
 # Docker volumes data

@@ -7,7 +7,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_ACTIVE="true"
       - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-zakupai2024}
       - N8N_HOST=${N8N_HOST:-localhost}
@@ -16,7 +16,7 @@ services:
       - WEBHOOK_TUNNEL_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
       - GENERIC_TIMEZONE=Asia/Almaty
       - DB_TYPE=sqlite
-      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS="false"
       # ZakupAI Integration
       - ZAKUPAI_API_KEY=${ZAKUPAI_API_KEY:-your-api-key-here}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -48,7 +48,7 @@ services:
       - PORT=3000
       - FLOWISE_USERNAME=admin
       - FLOWISE_PASSWORD=zakupai2024
-      - FLOWISE_OVERRIDE_DATABASE=true
+      - FLOWISE_OVERRIDE_DATABASE="true"
       - DATABASE_PATH=/opt/flowise/.flowise
       - APIKEY_PATH=/opt/flowise/.flowise
       - SECRETKEY_PATH=/opt/flowise/.flowise

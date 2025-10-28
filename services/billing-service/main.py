@@ -12,7 +12,9 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
 
+from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
+from zakupai_common.audit_logger import get_audit_logger
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -24,6 +26,27 @@ logging.basicConfig(
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("billing-service")
+
+
+def bootstrap_vault():
+    """Load secrets from Vault, fallback to .env if not available."""
+    try:
+        db_secret = load_kv_to_env("db")
+        # Ensure compatibility variables for legacy code
+        os.environ.setdefault("DB_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("DB_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("DB_NAME", db_secret.get("POSTGRES_DB", ""))
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+
+        load_kv_to_env("api", mapping={"API_KEY": "API_KEY"})
+        log.info("Vault bootstrap success: secrets loaded from vault")
+    except VaultClientError as exc:
+        log.warning(f"Vault load failed: {exc}. Using .env fallback.")
+    except Exception as exc:
+        log.warning(f"Unexpected Vault error: {exc}. Using .env fallback.")
+
+
+bootstrap_vault()
 
 SERVICE_NAME = "billing"
 
@@ -467,6 +490,7 @@ async def health():
 @limiter.limit("30/minute")
 async def create_key(request: Request, create_key_request: CreateKeyRequest):
     """Create API key for user"""
+    audit_logger = get_audit_logger()
     try:
         # Create or get user
         user = create_or_get_user(create_key_request.tg_id, create_key_request.email)
@@ -475,6 +499,19 @@ async def create_key(request: Request, create_key_request: CreateKeyRequest):
         api_key = create_api_key(user["id"])
 
         log.info(f"Created API key for tg_id={create_key_request.tg_id}, plan={user['plan']}")
+
+        # Audit log: API key created
+        audit_logger.log_event(
+            event_type="api_key_created",
+            user_id=str(create_key_request.tg_id),
+            details={
+                "user_id_db": user["id"],
+                "plan": user["plan"],
+                "tg_id": create_key_request.tg_id,
+                "email": create_key_request.email,
+            },
+            ip_address=request.client.host if request.client else None,
+        )
 
         return CreateKeyResponse(api_key=api_key, plan=user["plan"], expires_at=None)
 

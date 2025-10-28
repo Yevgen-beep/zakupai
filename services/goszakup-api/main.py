@@ -16,10 +16,26 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
+from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from zakupai_common.metrics import record_goszakup_error
+from zakupai_common.audit_logger import get_audit_logger
 
 logger = logging.getLogger(__name__)
+
+
+def bootstrap_vault():
+    """Load secrets from Vault, fallback to .env if not available."""
+    try:
+        load_kv_to_env("goszakup", mapping={"GOSZAKUP_TOKEN": "GOSZAKUP_TOKEN"})
+        logger.info("Vault bootstrap success: goszakup token loaded")
+    except VaultClientError as exc:
+        logger.warning(f"Vault load failed: {exc}. Using .env fallback.")
+    except Exception as exc:
+        logger.warning(f"Unexpected Vault error: {exc}. Using .env fallback.")
+
+
+bootstrap_vault()
 
 SERVICE_NAME = "goszakup"
 
@@ -278,10 +294,27 @@ async def metrics():
 @app.post("/search", response_model=SearchResponse)
 async def search_lots(request: SearchRequest):
     """Универсальный поиск лотов"""
+    audit_logger = get_audit_logger()
     if not client:
         raise HTTPException(status_code=500, detail="Client not initialized")
 
-    return await client.search_lots(request)
+    result = await client.search_lots(request)
+
+    # Audit log: Goszakup API search
+    audit_logger.log_event(
+        event_type="goszakup_search",
+        user_id="system",
+        details={
+            "keyword": request.keyword,
+            "limit": request.limit,
+            "api_version": request.api_version,
+            "api_used": result.api_used,
+            "total_found": result.total_found,
+            "query_time_ms": result.query_time_ms,
+        },
+    )
+
+    return result
 
 
 @app.get("/search", response_model=SearchResponse)

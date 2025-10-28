@@ -1,0 +1,59 @@
+# ===========================================
+# Vault Configuration — ZakupAI Production (TLS)
+# ===========================================
+# TLS-enabled configuration with file storage backend.
+# For HA production: switch to raft storage.
+#
+# Usage:
+#   Copy this to config.hcl and generate TLS certificates first:
+#   ./monitoring/vault/tls/generate-certs.sh
+
+storage "file" {
+  path = "/vault/file"
+}
+
+listener "tcp" {
+  address       = "0.0.0.0:8200"
+  tls_cert_file = "/vault/tls/server.crt"
+  tls_key_file  = "/vault/tls/server.key"
+  tls_min_version = "tls12"
+
+  # Client certificate authentication (optional)
+  # tls_require_and_verify_client_cert = true
+  # tls_client_ca_file = "/vault/tls/ca.crt"
+}
+
+# Cluster address for HA (future use)
+listener "tcp" {
+  address       = "0.0.0.0:8201"
+  tls_cert_file = "/vault/tls/server.crt"
+  tls_key_file  = "/vault/tls/server.key"
+  tls_min_version = "tls12"
+}
+
+# Disable mlock for container environments
+disable_mlock = true
+
+# Enable Web UI
+ui = true
+
+# Prometheus metrics endpoint
+# Note: unauthenticated_metrics_access removed in Vault 1.17+
+# Metrics now require authentication by default
+telemetry {
+  prometheus_retention_time = "24h"
+  disable_hostname          = true
+}
+
+# API address (HTTPS)
+api_addr = "https://0.0.0.0:8200"
+cluster_addr = "https://0.0.0.0:8201"
+
+# Log level
+log_level = "info"
+
+# Seal configuration (auto-unseal for production)
+# seal "awskms" {
+#   region     = "us-east-1"
+#   kms_key_id = "your-kms-key-id"
+# }

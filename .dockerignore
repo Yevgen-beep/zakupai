@@ -1,0 +1,69 @@
+# === 🔒 Vault runtime data ===
+monitoring/vault/data/
+monitoring/vault/logs/
+monitoring/vault/tls/
+monitoring/vault/creds/
+monitoring/vault/init-vault.sh
+monitoring/vault/policies/
+monitoring/vault/VAULT_INITIALIZATION.md
+monitoring/vault/PERMISSIONS_SETUP.md
+
+# === 📊 Monitoring ===
+monitoring/prometheus/data/
+monitoring/grafana/data/
+monitoring/alertmanager/data/
+monitoring/blackbox/data/
+monitoring/loki/
+monitoring/logs/
+*.log
+
+# === 🧠 AI & Workflow Runtimes ===
+flowise/.flowise/
+flowise/data/
+n8n/.n8n/
+n8n/data/
+n8n/logs/
+*.sqlite
+*.db
+
+# === 🧰 Python Build & Cache ===
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+*.egg-info/
+.eggs/
+*.pytest_cache/
+*.mypy_cache/
+*.ruff_cache/
+*.coverage
+.pytest_cache/
+.vscode/
+.idea/
+
+# === 🗄️ Local Dev & System Files ===
+.env
+.env.*
+*.env
+*.local
+*.bak
+*.tmp
+*.swp
+*.DS_Store
+Thumbs.db
+
+# === 🧱 Docker & Compose Outputs ===
+docker-compose.override.*.yml~
+**/Dockerfile~
+.dockerignore~
+**/.dockerignore~
+**/build/
+**/dist/
+**/node_modules/
+**/venv/
+**/.venv/
+**/.cache/
+**/htmlcov/
+**/.coverage
+**/coverage.xml
+

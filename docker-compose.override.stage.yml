@@ -13,47 +13,47 @@ services:
 
   calc-service:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=info
-      - ENABLE_SWAGGER=true
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="true"
+      - ENABLE_AUDIT_LOG="true"
     profiles: ["stage", "default"]
 
   risk-engine:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=info
-      - ENABLE_SWAGGER=true
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="true"
+      - ENABLE_AUDIT_LOG="true"
     profiles: ["stage", "default"]
 
   doc-service:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=info
-      - ENABLE_SWAGGER=true
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="true"
+      - ENABLE_AUDIT_LOG="true"
     profiles: ["stage", "default"]
 
   embedding-api:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=info
-      - ENABLE_SWAGGER=true
-      - ENABLE_AUDIT_LOG=true
+      - ENABLE_SWAGGER="true"
+      - ENABLE_AUDIT_LOG="true"
     profiles: ["stage", "default"]
 
   web:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - CORS_ORIGINS=https://stage.zakupai.example.com,https://stage-n8n.exomind.site
-      - CSRF_ENABLED=true
-      - SECURE_COOKIES=true
+      - CSRF_ENABLED="true"
+      - SECURE_COOKIES="true"
     profiles: ["stage", "default"]
 
   bot:
     environment:
-      - DEBUG=false
+      - DEBUG="false"
       - LOG_LEVEL=info
     profiles: ["stage", "default"]
 

@@ -25,6 +25,16 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" >&2
 }
 
+# Audit logging function
+AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-/backups/audit.log}"
+audit_log() {
+    local event_type=$1
+    local status=$2
+    local details=$3
+
+    echo "{\"timestamp\":\"$(date -Iseconds)\",\"event\":\"$event_type\",\"status\":\"$status\",\"details\":\"$details\",\"backup_file\":\"${BACKUP_FILENAME:-}\"}" >> "$AUDIT_LOG_FILE"
+}
+
 setup_rclone() {
     log "Setting up rclone configuration for B2..."
 
@@ -41,6 +51,7 @@ EOF
 
 create_backup() {
     log "Creating database backup: ${BACKUP_FILENAME}"
+    audit_log "backup_create_start" "info" "Starting backup for database ${DB_NAME}"
 
     if [ "$DRY_RUN" = "true" ]; then
         log "DRY RUN: Would create backup with pg_dump"
@@ -69,6 +80,7 @@ create_backup() {
     # Check if backup was created successfully
     if [ ! -f "$BACKUP_PATH" ]; then
         log "ERROR: Backup file was not created"
+        audit_log "backup_create_complete" "error" "Backup file not created"
         exit 1
     fi
 
@@ -78,18 +90,23 @@ create_backup() {
     # Verify backup integrity
     if ! gzip -t "$BACKUP_PATH"; then
         log "ERROR: Backup file is corrupted"
+        audit_log "backup_create_complete" "error" "Backup file corrupted"
         exit 1
     fi
+
+    audit_log "backup_create_complete" "success" "Backup created successfully, size: ${backup_size} bytes"
 }
 
 upload_backup() {
     log "Uploading backup to B2..."
+    audit_log "backup_upload_start" "info" "Uploading to B2 bucket ${B2_BUCKET}"
 
     local remote_path="b2:${B2_BUCKET}/${B2_PREFIX}/${BACKUP_FILENAME}"
 
     if [ "$DRY_RUN" = "true" ]; then
         log "DRY RUN: Would upload to ${remote_path}"
         log "DRY RUN: rclone copy ${BACKUP_PATH} b2:${B2_BUCKET}/${B2_PREFIX}/"
+        audit_log "backup_upload_complete" "info" "DRY RUN: Upload skipped"
     else
         rclone copy "$BACKUP_PATH" "b2:${B2_BUCKET}/${B2_PREFIX}/" \
             --progress \
@@ -100,8 +117,10 @@ upload_backup() {
         # Verify upload
         if rclone lsf "b2:${B2_BUCKET}/${B2_PREFIX}/" | grep -q "$BACKUP_FILENAME"; then
             log "Backup uploaded successfully to ${remote_path}"
+            audit_log "backup_upload_complete" "success" "Uploaded to ${remote_path}"
         else
             log "ERROR: Backup upload verification failed"
+            audit_log "backup_upload_complete" "error" "Upload verification failed"
             exit 1
         fi
     fi

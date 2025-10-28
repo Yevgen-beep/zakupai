@@ -1,0 +1,486 @@
+services:
+  # 🔹 Общий слой с библиотекой zakupai_common
+  libs:
+    image: libs:latest
+    build:
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./libs/Dockerfile
+    command: ["sleep", "infinity"]
+    restart: "no"
+
+  # 🔹 Основная база данных PostgreSQL
+  db:
+    image: postgres:16
+    container_name: zakupai-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  # =======================================================
+  # === Микросервисы ZakupAI ===
+  # =======================================================
+
+  embedding-api:
+    build:
+      context: .
+      dockerfile: ./services/embedding-api/Dockerfile
+    image: zakupai/embedding-api:${TAG:-stage5}
+    container_name: zakupai-embedding-api
+    ports:
+      - "7010:8000"
+    env_file:
+      - .env
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    networks:
+      - zakupai-network
+      - ai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  calc-service:
+    build:
+      context: .
+      dockerfile: ./services/calc-service/Dockerfile
+    image: zakupai/calc-service:${TAG:-stage5}
+    container_name: zakupai-calc-service
+    ports:
+      - "7001:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_started
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  risk-engine:
+    build:
+      context: .
+      dockerfile: ./services/risk-engine/Dockerfile
+    image: zakupai/risk-engine:${TAG:-stage5}
+    container_name: zakupai-risk-engine
+    ports:
+      - "7002:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_started
+      calc-service:
+        condition: service_started
+      embedding-api:
+        condition: service_started
+    networks:
+      - zakupai-network
+      - ai-network
+    restart: unless-stopped
+
+  doc-service:
+    build:
+      context: .
+      dockerfile: ./services/doc-service/Dockerfile
+    container_name: zakupai-doc-service
+    ports:
+      - "7003:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      embedding-api:
+        condition: service_started
+    networks:
+      - zakupai-network
+      - ai-network
+    restart: unless-stopped
+
+  goszakup-api:
+    build:
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./services/goszakup-api/Dockerfile
+    container_name: zakupai-goszakup-api
+    ports:
+      - "7005:8001"
+    env_file:
+      - .env
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  billing-service:
+    build:
+      context: .
+      dockerfile: ./services/billing-service/Dockerfile
+    container_name: zakupai-billing-service
+    ports:
+      - "7004:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  etl-service:
+    build:
+      context: .
+      dockerfile: ./services/etl-service/Dockerfile
+    image: zakupai/etl-service:${TAG:-stage5}
+    container_name: zakupai-etl-service
+    ports:
+      - "7011:8000"
+    env_file:
+      - .env
+    environment:
+      GOSZAKUP_TOKEN: ${GOSZAKUP_TOKEN}
+      DATABASE_URL: postgresql://zakupai:zakupai@db:5432/zakupai
+    networks:
+      - zakupai-network
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_started
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: ./services/gateway/Dockerfile
+    image: zakupai/gateway:${TAG:-stage5}
+    container_name: zakupai-gateway
+    ports:
+      - "8080:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      web-ui:
+        condition: service_healthy
+      calc-service:
+        condition: service_started
+      risk-engine:
+        condition: service_started
+      doc-service:
+        condition: service_started
+      embedding-api:
+        condition: service_started
+      billing-service:
+        condition: service_started
+      etl-service:
+        condition: service_started
+    networks:
+      - zakupai-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  web-ui:
+    build:
+      context: .
+      dockerfile: ./web/Dockerfile
+    image: zakupai/web-ui:${TAG:-stage5}
+    container_name: zakupai-web-ui
+    ports:
+      - "8082:8000"
+    env_file:
+      - .env
+    environment:
+      GATEWAY_URL: http://gateway
+      ZAKUPAI_API_KEY: changeme
+      GOSZAKUP_TOKEN: ${GOSZAKUP_TOKEN}
+      GOSZAKUP_API_URL: http://goszakup-api:8001
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      db:
+        condition: service_healthy
+      goszakup-api:
+        condition: service_started
+      calc-service:
+        condition: service_started
+      risk-engine:
+        condition: service_started
+      doc-service:
+        condition: service_started
+      embedding-api:
+        condition: service_started
+      etl-service:
+        condition: service_started
+    networks:
+      - zakupai-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  zakupai-bot:
+    build:
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./bot/Dockerfile
+    image: zakupai/bot:${TAG:-stage5}
+    container_name: zakupai-bot
+    env_file:
+      - ./bot/.env
+    environment:
+      GATEWAY_URL: http://zakupai-gateway
+      DATABASE_URL: postgresql+asyncpg://zakupai:zakupai@db:5432/zakupai
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: zakupai
+      POSTGRES_USER: zakupai
+      POSTGRES_PASSWORD: zakupai
+    depends_on:
+      db:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  # =======================================================
+  # === Infrastructure & Monitoring ===
+  # =======================================================
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: zakupai-chromadb
+    ports:
+      - "8010:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    environment:
+      CHROMA_SERVER_HOST: 0.0.0.0
+      CHROMA_SERVER_HTTP_PORT: 8000
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  flowise:
+    image: flowiseai/flowise
+    container_name: zakupai-flowise
+    ports:
+      - "3000:3000"
+    volumes:
+      - flowise_data:/root/.flowise
+      - ./flowise-tools:/opt/flowise_tools:ro
+    environment:
+      FLOWISE_USERNAME: admin
+      FLOWISE_PASSWORD: admin123
+      DATABASE_PATH: /root/.flowise/flowise.sqlite
+      SECRETKEY_PATH: /root/.flowise
+      LOG_LEVEL: info
+      LOG_PATH: /root/.flowise/logs
+      BLOB_STORAGE_PATH: /root/.flowise/storage
+    env_file:
+      - .env
+    networks:
+      - ai-network
+      - zakupai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - chromadb
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:1.105.4
+    container_name: zakupai-n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      GENERIC_TIMEZONE: Asia/Almaty
+      N8N_BASIC_AUTH_ACTIVE: "false"
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://n8n.exomind.site
+      WEBHOOK_URL: https://n8n.exomind.site
+      N8N_ENCRYPTION_KEY: mySecretEncryptionKey123456
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
+      DB_SQLITE_POOL_SIZE: 10
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_SECURE_COOKIE: "false"
+    env_file:
+      - .env
+    networks:
+      - ai-network
+      - zakupai-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: zakupai-prometheus
+    ports:
+      - "9095:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: zakupai-grafana
+    ports:
+      - "3030:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_COOKIE_SECURE: "false"
+      GF_SECURITY_COOKIE_SAMESITE: lax
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.25.0
+    container_name: zakupai-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.24.0
+    container_name: zakupai-blackbox
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  vault:
+  image: hashicorp/vault:1.17
+  container_name: zakupai-vault
+  command: server
+  environment:
+    SKIP_SETCAP: "true"
+    VAULT_LOG_LEVEL: info
+  ports:
+    - published: 8200
+      target: 8200
+  volumes:
+    - ./monitoring/vault/config.hcl:/vault/config/config.hcl:ro
+    - vault_data:/vault/file:rw
+    - vault_logs:/vault/logs:rw
+  cap_add:
+    - IPC_LOCK
+  networks:
+    - zakupai-network
+    - vault-net
+    - monitoring-net
+  restart: unless-stopped
+  user: 100:1000
+
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: zakupai-cadvisor
+    ports:
+      - "8081:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+  db-backup:
+    build:
+      # unified root build context (2025-10)
+      context: .
+      dockerfile: ./backup/Dockerfile
+    container_name: zakupai-db-backup
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: zakupai
+      POSTGRES_USER: zakupai
+      POSTGRES_PASSWORD: zakupai
+      BACKUP_RETENTION_DAYS: 14
+    volumes:
+      - backup_data:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+# =======================================================
+# === Volumes & Networks ===
+# =======================================================
+
+volumes:
+  postgres_data:
+  chromadb_data:
+  flowise_data:
+  n8n_data:
+  backup_data:
+  prometheus_data:
+  grafana_data:
+  vault_data:
+
+networks:
+  zakupai-network:
+    driver: bridge
+  ai-network:
+    driver: bridge

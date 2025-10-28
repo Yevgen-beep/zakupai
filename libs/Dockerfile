@@ -3,5 +3,5 @@
 FROM alpine:3.18 AS libs
 
 # копируем общую библиотеку внутрь контейнера
-COPY zakupai_common /zakupai_common
+COPY libs/zakupai_common /zakupai_common
 

@@ -6,3 +6,4 @@ python-dotenv>=1.0
 chromadb>=0.4.24
 prometheus_client
 slowapi>=0.1.9
+hvac>=2.3

@@ -11,7 +11,7 @@ import structlog
 from fastapi import HTTPException
 from fastapi.responses import Response
 
-from .flowise_week4_2 import (
+from flowise_week4_2 import (
     ComplaintRequest,
     ComplaintResponse,
     SupplierRequest,

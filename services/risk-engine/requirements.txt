@@ -14,3 +14,4 @@ sqlalchemy
 tenacity
 hvac>=1.2
 slowapi>=0.1.9
+asyncpg>=0.29

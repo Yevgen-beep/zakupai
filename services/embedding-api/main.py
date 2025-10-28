@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
 
+from zakupai_common.vault_client import VaultClientError, load_kv_to_env
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -30,6 +31,26 @@ logging.basicConfig(
     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}',
 )
 log = logging.getLogger("embedding-api")
+
+
+def bootstrap_vault():
+    """Load secrets from Vault, fallback to .env if not available."""
+    try:
+        db_secret = load_kv_to_env("db")
+        os.environ.setdefault("DB_USER", db_secret.get("POSTGRES_USER", ""))
+        os.environ.setdefault("DB_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
+        os.environ.setdefault("DB_NAME", db_secret.get("POSTGRES_DB", ""))
+        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
+
+        load_kv_to_env("api", mapping={"API_KEY": "API_KEY"})
+        log.info("Vault bootstrap success: secrets loaded")
+    except VaultClientError as exc:
+        log.warning(f"Vault load failed: {exc}. Using .env fallback.")
+    except Exception as exc:
+        log.warning(f"Unexpected Vault error: {exc}. Using .env fallback.")
+
+
+bootstrap_vault()
 
 SERVICE_NAME = "embedding"
 

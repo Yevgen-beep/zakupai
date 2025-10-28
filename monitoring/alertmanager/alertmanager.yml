@@ -7,9 +7,19 @@ route:
   group_wait: 10s
   group_interval: 10s
   repeat_interval: 1h
-  receiver: 'web.hook'
+  receiver: 'telegram'
 
 receivers:
+  - name: 'telegram'
+    webhook_configs:
+      - url: 'https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage'
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+        # Message template for Telegram
+        # Note: Actual formatting will be handled by a webhook proxy or custom integration
+        # For direct Telegram API, use a webhook service like https://github.com/metalmatze/alertmanager-bot
+
   - name: 'web.hook'
     webhook_configs:
       - url: 'http://localhost:5001/webhook'
