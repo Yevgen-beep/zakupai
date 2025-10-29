@@ -54,12 +54,19 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 Базовая структура:
 monitoring/vault/
  ├── config.hcl
- ├── creds/init.json
- ├── policies/zakupai-policy.hcl
+ ├── creds/
+ │    ├── init.json
+ │    ├── etl-service_role_id
+ │    ├── etl-service_secret_id
+ │    ├── calc-service_role_id
+ │    ├── calc-service_secret_id
+ │    ├── risk-engine_role_id
+ │    ├── risk-engine_secret_id
+ ├── policies/
+ │    └── zakupai-policy.hcl
  ├── init-vault.sh
  └── README.md
-libs/
- └── vault_client.py
+
 
 Phase 3 Summary:
 
