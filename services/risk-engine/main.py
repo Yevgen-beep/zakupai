@@ -6,6 +6,7 @@ import time
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import psycopg2
 import yaml
@@ -19,7 +20,7 @@ from rnu_client import RNUClient, RNUValidationError, get_rnu_client
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from zakupai_common.vault_client import VaultClientError, load_kv_to_env
+from libs.vault_client import VaultClient, VaultClientError
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -70,22 +71,35 @@ logging.basicConfig(
 log = structlog.get_logger("risk-engine")
 
 
+def _apply_database_defaults(dsn: str) -> None:
+    """Загружаем переменные окружения из DATABASE_URL для legacy-кода."""
+    parsed = urlparse(dsn)
+    if parsed.username:
+        os.environ.setdefault("DB_USER", parsed.username)
+        os.environ.setdefault("POSTGRES_USER", parsed.username)
+    if parsed.password:
+        os.environ.setdefault("DB_PASSWORD", parsed.password)
+        os.environ.setdefault("POSTGRES_PASSWORD", parsed.password)
+    if parsed.path and parsed.path != "/":
+        db_name = parsed.path.lstrip("/")
+        os.environ.setdefault("DB_NAME", db_name)
+        os.environ.setdefault("POSTGRES_DB", db_name)
+    if parsed.hostname:
+        os.environ.setdefault("DB_HOST", parsed.hostname)
+    if parsed.port:
+        os.environ.setdefault("DB_PORT", str(parsed.port))
+
+
 def bootstrap_vault():
     try:
-        db_secret = load_kv_to_env("db")
-        os.environ.setdefault("DB_USER", db_secret.get("POSTGRES_USER", ""))
-        os.environ.setdefault("DB_PASSWORD", db_secret.get("POSTGRES_PASSWORD", ""))
-        os.environ.setdefault("DB_NAME", db_secret.get("POSTGRES_DB", ""))
-        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
-        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
-        os.environ.setdefault(
-            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
-        )
-        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
-        load_kv_to_env("api", mapping={"API_KEY": "API_KEY", "X_API_KEY": "X_API_KEY"})
-        log.info("vault_bootstrap_success", loaded_keys=sorted(db_secret.keys()))
+        client = VaultClient()
+        secrets = client.read("app")
+        os.environ.update(secrets)
+        if secrets.get("DATABASE_URL"):
+            _apply_database_defaults(secrets["DATABASE_URL"])
+        log.info("vault_bootstrap_success", loaded_keys=sorted(secrets.keys()))
     except VaultClientError as exc:
-        log.warning("Vault bootstrap skipped: %s", exc)
+        log.warning("Vault недоступен, использую значения по умолчанию: %s", exc)
     except Exception:  # pragma: no cover - defensive fallback
         log.exception("Vault bootstrap failed")
 

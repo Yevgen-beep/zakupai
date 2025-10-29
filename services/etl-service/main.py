@@ -30,8 +30,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.responses import Response, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from urllib.parse import urlparse
 
-from zakupai_common.vault_client import VaultClientError, load_kv_to_env
+from libs.vault_client import VaultClient, VaultClientError
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -49,25 +50,27 @@ load_dotenv()
 _etl_vault_logger = logging.getLogger("etl.vault")
 
 
+def _apply_database_defaults(dsn: str) -> None:
+    """Разбираем DATABASE_URL и выставляем базовые переменные окружения."""
+    parsed = urlparse(dsn)
+    if parsed.username:
+        os.environ.setdefault("POSTGRES_USER", parsed.username)
+    if parsed.password:
+        os.environ.setdefault("POSTGRES_PASSWORD", parsed.password)
+    if parsed.path and parsed.path != "/":
+        os.environ.setdefault("POSTGRES_DB", parsed.path.lstrip("/"))
+
+
 def bootstrap_vault():
     try:
-        db_secret = load_kv_to_env("db")
-        os.environ.setdefault("DATABASE_URL", db_secret.get("DATABASE_URL", ""))
-        os.environ.setdefault(
-            "POSTGRES_PASSWORD", db_secret.get("POSTGRES_PASSWORD", "")
-        )
-        os.environ.setdefault("POSTGRES_USER", db_secret.get("POSTGRES_USER", ""))
-        os.environ.setdefault("POSTGRES_DB", db_secret.get("POSTGRES_DB", ""))
-        load_kv_to_env(
-            "goszakup",
-            mapping={
-                "GOSZAKUP_TOKEN": "GOSZAKUP_TOKEN",
-                "GOSZAKUP_API_URL": "GOSZAKUP_API_URL",
-            },
-        )
-        _etl_vault_logger.info("Vault bootstrap success: %s", sorted(db_secret.keys()))
+        client = VaultClient()
+        secrets = client.read("app")
+        os.environ.update(secrets)
+        if secrets.get("DATABASE_URL"):
+            _apply_database_defaults(secrets["DATABASE_URL"])
+        _etl_vault_logger.info("Vault secrets загружены: %s", sorted(secrets.keys()))
     except VaultClientError as exc:
-        _etl_vault_logger.warning("Vault bootstrap skipped: %s", exc)
+        _etl_vault_logger.warning("Vault недоступен, продолжаем с локальными значениями: %s", exc)
     except Exception:  # pragma: no cover - defensive fallback
         _etl_vault_logger.exception("Vault bootstrap failed")
 

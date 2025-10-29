@@ -60,6 +60,27 @@ jobs:
           [ -f bot/.env ] || cp bot/.env.example bot/.env
           docker compose config -q
 
+  vault_smoke:
+    runs-on: ubuntu-latest
+    needs: compose_sanity
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare environment files
+        run: |
+          cp .env.example .env
+          cp bot/.env.example bot/.env
+      - name: Start Vault container
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml up -d vault
+      - name: Init Vault secrets
+        run: docker exec zakupai-vault /vault/init-vault.sh
+      - name: Vault status check
+        run: docker exec zakupai-vault vault status
+      - name: Vault KV smoke test
+        run: docker exec zakupai-vault vault kv get zakupai/app
+      - name: Stop Vault container
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml down
+
   build:
     runs-on: ubuntu-latest
     needs: precommit

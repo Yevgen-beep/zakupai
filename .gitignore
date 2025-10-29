@@ -56,8 +56,7 @@ monitoring/vault/tls/*.srl
 !monitoring/vault/tls/generate-certs.sh
 !monitoring/vault/tls/openssl.cnf
 monitoring/vault/data/
-monitoring/vault/creds/*.token
-monitoring/vault/creds/unseal-keys.txt
+monitoring/vault/creds/*
 !monitoring/vault/creds/README.md
 !monitoring/vault/creds/.gitkeep
 monitoring/prometheus/vault-metrics.token

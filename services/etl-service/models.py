@@ -65,8 +65,8 @@ class BatchUploadResponse(BaseModel):
         default=[], description="List of validation errors"
     )
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "success": True,
                 "batch_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -77,3 +77,4 @@ class BatchUploadResponse(BaseModel):
                 ],
             }
         }
+    }

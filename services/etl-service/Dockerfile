@@ -6,6 +6,10 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=on \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY services/etl-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt --timeout 300 -i https://pypi.org/simple
 
