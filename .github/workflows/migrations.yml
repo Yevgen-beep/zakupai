@@ -1,11 +1,22 @@
 name: Database Migrations
 
+# on:
+#   push:
+#     paths:
+#       - 'services/*/migrations/**'
+#       - 'services/*/app/models.py'
+#   pull_request:
+#     paths:
+#       - 'services/*/migrations/**'
+#       - 'services/*/app/models.py'
 on:
   push:
+    branches: [main]
     paths:
       - 'services/*/migrations/**'
       - 'services/*/app/models.py'
   pull_request:
+    branches: [main]
     paths:
       - 'services/*/migrations/**'
       - 'services/*/app/models.py'
@@ -36,6 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-db-migrations-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-db-migrations-
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -43,6 +62,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install alembic sqlalchemy psycopg2-binary
 
       - name: Run migrations
@@ -65,3 +85,11 @@ jobs:
             alembic downgrade -1 || echo "No previous revision to downgrade"
             alembic upgrade head
           fi
+      - name: Upload migration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-${{ matrix.service }}-logs
+          path: |
+            services/${{ matrix.service }}/alembic.ini
+            services/${{ matrix.service }}/migrations

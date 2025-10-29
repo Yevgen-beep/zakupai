@@ -1,62 +1,119 @@
 ---
 name: ci
-'on':
-  push: {}
-  pull_request: {}
+# 'on':
+#   push: {}
+#   pull_request: {}
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 permissions:
   contents: read
 env:
   RUN_PRIORITY4_TESTS: false
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: 'pip-${{ runner.os }}-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      # - name: Run basic code checks only (Vault CI hotfix)
+      #   run: |
+      #     echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+      #     black --check . || true
+      #     flake8 . || true
+      #     echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      # - name: Skip migrations (temporary)
+      #   run: |
+      #     echo "⏩ Skipping Alembic migrations during Vault integration phase"
+      #     exit 0
+      - name: Install lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade black flake8
+      - name: Run black
+        run: black --check .
+      - name: Run flake8
+        run: flake8 .
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
   compose_sanity:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      - uses: actions/checkout@v4
+      # - name: Run basic code checks only (Vault CI hotfix)
+      #   run: |
+      #     echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+      #     black --check . || true
+      #     flake8 . || true
+      #     echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      # - name: Skip migrations (temporary)
+      #   run: |
+      #     echo "⏩ Skipping Alembic migrations during Vault integration phase"
+      #     exit 0
+      - name: Prepare environment files
+        run: |
+          cp .env.example .env
+          cp bot/.env.example bot/.env
+      - name: Validate docker-compose configuration
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml config -q
+
   vault_smoke:
     runs-on: ubuntu-latest
     needs: compose_sanity
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      - uses: actions/checkout@v4
+      # - name: Run basic code checks only (Vault CI hotfix)
+      #   run: |
+      #     echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+      #     black --check . || true
+      #     flake8 . || true
+      #     echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      # - name: Skip migrations (temporary)
+      #   run: |
+      #     echo "⏩ Skipping Alembic migrations during Vault integration phase"
+      #     exit 0
+      - name: Prepare environment files
+        run: |
+          cp .env.example .env
+          cp bot/.env.example bot/.env
+      - name: Start Vault service
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml up -d vault
+      - name: Verify Vault sys/health endpoint
+        run: |
+          for attempt in {1..10}; do
+            status=$(curl -s -o /tmp/vault_health.json -w "%{http_code}" http://127.0.0.1:8200/v1/sys/health || true)
+            if [ "$status" = "200" ] || [ "$status" = "503" ]; then
+              cat /tmp/vault_health.json
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Vault health endpoint did not respond with 200 or 503"
+          cat /tmp/vault_health.json || true
+          exit 1
+      - name: Upload Vault health details
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-health-response
+          path: /tmp/vault_health.json
+      - name: Tear down Vault stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml down
+
   build:
+    if: false  # Stage7 refactor: legacy build matrix disabled (covered by compose_sanity)
     runs-on: ubuntu-latest
     needs: precommit
     concurrency:
@@ -66,274 +123,392 @@ jobs:
       fail-fast: false
       matrix:
         svc:
-        - calc-service
-        - risk-engine
-        - doc-service
-        - embedding-api
-        - etl-service
+          - calc-service
+          - risk-engine
+          - doc-service
+          - embedding-api
+          - etl-service
     steps:
-    - uses: actions/checkout@v4
-    - uses: docker/setup-qemu-action@v3
-    - uses: docker/setup-buildx-action@v3
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
+
   precommit:
+    if: false  # Stage7 refactor: lint job handles formatting checks
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', '**/requirements.txt')
-          }}
-        restore-keys: 'pip-${{ runner.os }}-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', '**/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Install pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pre-commit
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Install pre-commit
-      run: 'python -m pip install --upgrade pip
-
-        pip install pre-commit
-
-        '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
   migrate:
     runs-on: ubuntu-latest
-    needs: precommit
+    # needs: precommit  # Covered by lint job in Stage7 refactor
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      - uses: actions/checkout@v4
+      - name: Cache pip for migrations
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-migrations-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-migrations-
+      # - name: Run basic code checks only (Vault CI hotfix)
+      #   run: |
+      #     echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+      #     black --check . || true
+      #     flake8 . || true
+      #     echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      # - name: Skip migrations (temporary)
+      #   run: |
+      #     echo "⏩ Skipping Alembic migrations during Vault integration phase"
+      #     exit 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install migration tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install alembic psycopg2-binary
+      - name: Prepare environment files
+        run: |
+          cp .env.example .env
+          cp bot/.env.example bot/.env
+      - name: Run Alembic migrations via docker compose
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml up -d db
+          timeout 120 bash -c "until docker compose exec db pg_isready -U zakupai; do sleep 4; done"
+          docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml run --rm migrator
+      - name: Collect migration logs
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml logs db > migration-db.log
+      - name: Upload migration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-logs
+          path: migration-db.log
+      - name: Tear down compose stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage7.yml down
+
   pytest:
+    if: false  # Stage7 refactor: pytest matrix paused during Vault integration
     runs-on: ubuntu-latest
     needs: migrate
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: 'pip-${{ runner.os }}-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
   deploy:
+    if: false  # Stage7 refactor: deployment gated until lean CI is validated
     runs-on: ubuntu-latest
     needs:
-    - pytest
-    - bandit-scan
-    if: github.ref == 'refs/heads/refactor/common-lib-test' && github.event_name ==
-      'push'
+      - pytest
+      - bandit-scan
+    # if: github.ref == 'refs/heads/refactor/common-lib-test' && github.event_name == 'push'
     steps:
-    - uses: actions/checkout@v4
-    - uses: docker/setup-buildx-action@v3
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
+
   smoke-matrix:
+    if: false  # Stage7 refactor: redundant with compose_sanity/vault_smoke
     runs-on: ubuntu-latest
     needs:
-    - migrate
-    - build
+      - precommit
     strategy:
+      fail-fast: false
       matrix:
         service:
-        - calc
-        - risk
-        - doc
-        - emb
+          - calc
+          - risk
+          - doc
+          - emb
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
+      - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
+
   etl-smoke-test:
+    if: false  # Stage7 refactor: temporarily disabled
     runs-on: ubuntu-latest
-    needs: migrate
+    needs:
+      - migrate
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-etl-${{ hashFiles('services/etl-service/requirements.txt')
-          }}
-        restore-keys: 'pip-${{ runner.os }}-etl-
+      - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('services/etl-service/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
   etl-upload-test:
+    if: false  # Stage7 refactor: temporarily disabled
     runs-on: ubuntu-latest
-    needs: migrate
+    needs:
+      - migrate
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-etl-${{ hashFiles('services/etl-service/requirements.txt')
-          }}
-        restore-keys: 'pip-${{ runner.os }}-etl-
+      - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('services/etl-service/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
   priority3-integration:
+    if: false  # Stage7 refactor: awaiting new integration plan
     runs-on: ubuntu-latest
-    needs: migrate
+    needs:
+      - migrate
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-priority3-${{ hashFiles('services/etl-service/requirements.txt',
-          'services/embedding-api/requirements.txt') }}
-        restore-keys: 'pip-${{ runner.os }}-priority3-
+      - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('services/**/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
   web-ui-integration:
+    if: false  # Stage7 refactor: awaiting new integration plan
     runs-on: ubuntu-latest
-    needs: migrate
+    needs:
+      - migrate
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-web-ui-${{ hashFiles('web/requirements.txt') }}
-        restore-keys: 'pip-${{ runner.os }}-web-ui-
+      - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('web/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
   webui-e2e-test:
+    if: false  # Stage7 refactor: awaiting new integration plan
     runs-on: ubuntu-latest
-    needs: migrate
+    needs:
+      - migrate
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Cache pip
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-webui-${{ hashFiles('web/requirements.txt') }}
-        restore-keys: 'pip-${{ runner.os }}-webui-
+      - uses: actions/checkout@v4
+      - name: Create .env from example
+        run: cp .env.example .env
+      - name: Prepare bot .env
+        run: cp bot/.env.example bot/.env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('web/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
   bandit-scan:
+    if: false  # Stage7 refactor: security scanning to be reintroduced post-mvp
     runs-on: ubuntu-latest
     permissions:
       security-events: write
       contents: read
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install bandit
+        run: pip install bandit[sarif]
+      - name: Run bandit (SARIF)
+        continue-on-error: true
+        run: |
+          bandit -c .bandit \
+            -x ".venv,venv,build,dist,migrations,__pycache__,node_modules,.git" \
+            -r services/ libs/ bot/ web/ scripts/ tests/ *.py \
+            --severity-level medium \
+            -f sarif -o bandit.sarif
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit.sarif
+          category: bandit-security-scan
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-sarif-report
+          path: bandit.sarif
+          retention-days: 30
+
   priority4-integration:
-    if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
+    if: false  # Stage7 refactor: disabled legacy Week4 suite
+    # if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
     runs-on: ubuntu-latest
     continue-on-error: false
     env:
-      DATABASE_URL: postgresql://zakupai:test123@localhost:5432/zakupai_test
+      DATABASE_URL: "postgresql://zakupai:test123@localhost:5432/zakupai_test"
     strategy:
       matrix:
         python-version:
-        - '3.11'
-        - '3.12'
+          - '3.11'
+          - '3.12'
     services:
       postgres:
         image: postgres:15
@@ -341,54 +516,54 @@ jobs:
           POSTGRES_DB: zakupai_test
           POSTGRES_USER: zakupai
           POSTGRES_PASSWORD: test123
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s
-          --health-retries 5
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
         ports:
-        - 5432:5432
+          - 5432:5432
       redis:
         image: redis:7-alpine
-        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
-          5s --health-retries 5
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
         ports:
-        - 6379:6379
+          - 6379:6379
       chromadb:
         image: ghcr.io/chroma-core/chroma:latest
         env:
           CHROMA_SERVER_HOST: 0.0.0.0
         ports:
-        - 8000:8000
+          - 8000:8000
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt')
-          }}
-        restore-keys: 'pip-${{ runner.os }}-${{ matrix.python-version }}-
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.python-version }}-
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0
 
-          pip-${{ runner.os }}-
-
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
   priority4-performance:
-    if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
+    if: false  # Stage7 refactor: disabled legacy performance suite
+    # if: ${{ env.RUN_PRIORITY4_TESTS == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version:
-        - '3.11'
-        - '3.12'
+          - '3.11'
+          - '3.12'
     services:
       postgres:
         image: postgres:15
@@ -396,46 +571,43 @@ jobs:
           POSTGRES_DB: zakupai_test
           POSTGRES_USER: zakupai
           POSTGRES_PASSWORD: test123
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s
-          --health-retries 5
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
         ports:
-        - 5432:5432
+          - 5432:5432
       redis:
         image: redis:7-alpine
-        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout
-          5s --health-retries 5
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
         ports:
-        - 6379:6379
+          - 6379:6379
       flowise:
         image: flowiseai/flowise:latest
         env:
           FLOWISE_USERNAME: admin
           FLOWISE_PASSWORD: test123
         ports:
-        - 3000:3000
+          - 3000:3000
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ matrix.python-version }}-performance-${{ hashFiles('**/requirements*.txt')
-          }}
-        restore-keys: 'pip-${{ runner.os }}-${{ matrix.python-version }}-performance-
-
-          pip-${{ runner.os }}-${{ matrix.python-version }}-
-
-          pip-${{ runner.os }}-
-
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability\n\
-        black --check . || true\nflake8 . || true\necho \"\u2705 Linting complete,\
-        \ skipping database tests and Vault integration checks"
-    - name: Skip migrations (temporary)
-      run: "\u23E9 Skipping Alembic migrations during Vault integration phase\nexit\
-        \ 0"
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ matrix.python-version }}-performance-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ matrix.python-version }}-performance-
+            pip-${{ runner.os }}-${{ matrix.python-version }}-
+            pip-${{ runner.os }}-
+      - name: Run basic code checks only (Vault CI hotfix)
+        run: |
+          echo "🧩 Stage7 Vault Hotfix: Skipping pytest & migrations for CI stability"
+          black --check . || true
+          flake8 . || true
+          echo "✅ Linting complete, skipping database tests and Vault integration checks"
+      - name: Skip migrations (temporary)
+        run: |
+          echo "⏩ Skipping Alembic migrations during Vault integration phase"
+          exit 0

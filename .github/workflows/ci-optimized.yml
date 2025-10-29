@@ -1,8 +1,13 @@
 ---
 name: ci-optimized
-'on':
-  push: {}
-  pull_request: {}
+# 'on':
+#   push: {}
+#   pull_request: {}
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 permissions:
   contents: read
   security-events: write
@@ -10,198 +15,124 @@ env:
   PYTHON_VERSION: '3.11'
   PIP_CACHE_DIR: ~/.cache/pip
   APT_CACHE_DIR: ~/.cache/apt
+
 jobs:
   fast-checks:
+    if: false  # Stage7 refactor: workflow consolidated into ci.yml
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         check:
-        - lint
-        - compose-config
-        - security
+          - lint
+          - compose-config
+          - security
     steps:
-    - uses: actions/checkout@v4
-    - name: Setup Python (for lint and security)
-      if: matrix.check != 'compose-config'
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    - name: Cache pip dependencies
-      if: matrix.check != 'compose-config'
-      uses: actions/cache@v4
-      with:
-        path: ${{ env.PIP_CACHE_DIR }}
-        key: pip-${{ runner.os }}-${{ matrix.check }}-${{ hashFiles('**/requirements.txt',
-          '.pre-commit-config.yaml') }}
-        restore-keys: 'pip-${{ runner.os }}-${{ matrix.check }}-
+      # Original fast-check steps retained for reference.
+      # - uses: actions/checkout@v4
+      # - name: Setup Python (for lint and security)
+      #   if: matrix.check != 'compose-config'
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: ${{ env.PYTHON_VERSION }}
+      # - name: Cache pip dependencies
+      #   if: matrix.check != 'compose-config'
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ${{ env.PIP_CACHE_DIR }}
+      #     key: pip-${{ runner.os }}-${{ matrix.check }}-${{ hashFiles('**/requirements.txt', '.pre-commit-config.yaml') }}
+      #     restore-keys: |
+      #       pip-${{ runner.os }}-${{ matrix.check }}-
+      #       pip-${{ runner.os }}-
+      - run: echo "fast-checks workflow disabled during Stage7 refactor"
 
-          pip-${{ runner.os }}-
-
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      if: matrix.check == 'lint'
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      if: matrix.check == 'lint'
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
-    - name: Run basic code checks only (Vault CI hotfix)
-      if: matrix.check == 'security'
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      if: matrix.check == 'security'
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
-    - name: Run basic code checks only (Vault CI hotfix)
-      if: matrix.check == 'compose-config'
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      if: matrix.check == 'compose-config'
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
   build-services:
+    if: false  # Stage7 refactor: workflow consolidated into ci.yml
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         service:
-        - calc-service
-        - risk-engine
-        - doc-service
-        - embedding-api
-        - etl-service
+          - calc-service
+          - risk-engine
+          - doc-service
+          - embedding-api
+          - etl-service
     steps:
-    - uses: actions/checkout@v4
-    - uses: docker/setup-qemu-action@v3
-    - uses: docker/setup-buildx-action@v3
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      # - uses: actions/checkout@v4
+      # - uses: docker/setup-qemu-action@v3
+      # - uses: docker/setup-buildx-action@v3
+      - run: echo "build-services workflow disabled during Stage7 refactor"
+
   setup-database:
+    if: false  # Stage7 refactor: workflow consolidated into ci.yml
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      # - uses: actions/checkout@v4
+      - run: echo "setup-database workflow disabled during Stage7 refactor"
+
   test-matrix:
+    if: false  # Stage7 refactor: workflow consolidated into ci.yml
     runs-on: ubuntu-latest
     needs:
-    - fast-checks
-    - setup-database
+      - fast-checks
+      - setup-database
     strategy:
       fail-fast: false
       matrix:
         test-suite:
-        - name: unit-tests
-          cache-key: unit
-          services: db
-          install-tesseract: false
-        - name: etl-smoke
-          cache-key: etl
-          services: db
-          install-tesseract: false
-        - name: etl-upload
-          cache-key: etl-full
-          services: db
-          install-tesseract: true
-        - name: priority3-e2e
-          cache-key: priority3
-          services: db chromadb embedding-api etl-service goszakup-api n8n
-          install-tesseract: true
-        - name: web-ui-integration
-          cache-key: webui
-          services: db etl-service
-          install-tesseract: false
-        - name: webui-e2e
-          cache-key: webui-full
-          services: db goszakup-api etl-service chromadb web-ui
-          install-tesseract: true
+          - name: unit-tests
+            cache-key: unit
+            services: db
+            install-tesseract: false
+          - name: etl-smoke
+            cache-key: etl
+            services: db
+            install-tesseract: false
+          - name: etl-upload
+            cache-key: etl-full
+            services: db
+            install-tesseract: true
+          - name: priority3-e2e
+            cache-key: priority3
+            services: db chromadb embedding-api etl-service goszakup-api n8n
+            install-tesseract: true
+          - name: web-ui-integration
+            cache-key: webui
+            services: db etl-service
+            install-tesseract: false
+          - name: webui-e2e
+            cache-key: webui-full
+            services: db goszakup-api etl-service chromadb web-ui
+            install-tesseract: true
     steps:
-    - uses: actions/checkout@v4
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ${{ env.PIP_CACHE_DIR }}
-        key: pip-${{ runner.os }}-${{ matrix.test-suite.cache-key }}-${{ hashFiles('services/**/requirements.txt',
-          'web/requirements.txt') }}
-        restore-keys: 'pip-${{ runner.os }}-${{ matrix.test-suite.cache-key }}-
+      - run: echo "test-matrix workflow disabled during Stage7 refactor"
 
-          pip-${{ runner.os }}-
-
-          '
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
   smoke-tests:
+    if: false  # Stage7 refactor: workflow consolidated into ci.yml
     runs-on: ubuntu-latest
     needs:
-    - build-services
-    - setup-database
+      - build-services
+      - setup-database
     strategy:
       fail-fast: false
       matrix:
         service:
-        - calc
-        - risk
-        - doc
-        - emb
+          - calc
+          - risk
+          - doc
+          - emb
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic code checks only (Vault CI hotfix)
-      run: "echo \"\U0001F9E9 Stage7 Vault Hotfix: Skipping pytest & migrations for\
-        \ CI stability\"\nblack --check . || true\nflake8 . || true\necho \"\u2705\
-        \ Linting complete, skipping database tests and Vault integration checks\"\
-        \n"
-    - name: Skip migrations (temporary)
-      run: "echo \"\u23E9 Skipping Alembic migrations during Vault integration phase\"\
-        \nexit 0\n"
+      - run: echo "smoke-tests workflow disabled during Stage7 refactor"
+
   ci-summary:
+    if: false  # Stage7 refactor: workflow consolidated into ci.yml
     runs-on: ubuntu-latest
     needs:
-    - fast-checks
-    - build-services
-    - test-matrix
-    - smoke-tests
-    if: always()
+      - fast-checks
+      - build-services
+      - test-matrix
+      - smoke-tests
+    # if: always()
     steps:
-    - name: Check overall status
-      run: "echo \"## CI Pipeline Results\" >> $GITHUB_STEP_SUMMARY\necho \"- Fast\
-        \ checks: ${{ needs.fast-checks.result }}\" >> $GITHUB_STEP_SUMMARY\necho\
-        \ \"- Service builds: ${{ needs.build-services.result }}\" >> $GITHUB_STEP_SUMMARY\n\
-        echo \"- Integration tests: ${{ needs.test-matrix.result }}\" >> $GITHUB_STEP_SUMMARY\n\
-        echo \"- Smoke tests: ${{ needs.smoke-tests.result }}\" >> $GITHUB_STEP_SUMMARY\n\
-        \nif [[ \"${{ needs.fast-checks.result }}\" != \"success\" ]] || \\\n   [[\
-        \ \"${{ needs.build-services.result }}\" != \"success\" ]] || \\\n   [[ \"\
-        ${{ needs.test-matrix.result }}\" != \"success\" ]] || \\\n   [[ \"${{ needs.smoke-tests.result\
-        \ }}\" != \"success\" ]]; then\n  echo \"\u274C CI Pipeline failed\"\n  exit\
-        \ 1\nelse\n  echo \"\u2705 CI Pipeline passed\"\nfi\n"
+      - run: echo "ci-summary workflow disabled during Stage7 refactor"
