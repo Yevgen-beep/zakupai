@@ -1,0 +1,105 @@
+services:
+  vault:
+    container_name: zakupai-vault
+    image: hashicorp/vault:1.17
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk update \
+        && apk add --no-cache bash jq curl \
+        && mkdir -p /vault/creds \
+        && chown -R vault:vault /vault/file /vault/logs /vault/creds \
+        && exec su vault -s /bin/sh -c "vault server -config=/vault/config/config.hcl"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault_data:/vault/file
+      - vault_logs:/vault/logs
+      - ./monitoring/vault/config/config.hcl:/vault/config/config.hcl:ro
+      - ./monitoring/vault/init-vault.sh:/vault/init-vault.sh:ro
+      - ./monitoring/vault/policies:/vault/policies:ro
+      - ./monitoring/vault/creds:/vault/creds:rw
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_LOG_LEVEL: info
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          status=$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/v1/sys/health) \
+          && case "$$status" in 200|429|472|473|501|503) exit 0 ;; *) exit 1 ;; esac
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+
+
+  calc-service:
+    environment:
+      VAULT_ADDR: http://zakupai-vault:8200
+      VAULT_ROLE_ID_FILE: /vault/creds/calc-service_role_id.txt
+      VAULT_SECRET_ID_FILE: /vault/creds/calc-service_secret_id.txt
+    volumes:
+      - ./monitoring/vault/creds:/vault/creds:ro  # Сервис читает AppRole креды только на чтение
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  etl-service:
+    environment:
+      VAULT_ADDR: http://zakupai-vault:8200
+      VAULT_ROLE_ID_FILE: /vault/creds/etl-service_role_id.txt
+      VAULT_SECRET_ID_FILE: /vault/creds/etl-service_secret_id.txt
+    volumes:
+      - ./monitoring/vault/creds:/vault/creds:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  risk-engine:
+    environment:
+      VAULT_ADDR: http://zakupai-vault:8200
+      VAULT_ROLE_ID_FILE: /vault/creds/risk-engine_role_id.txt
+      VAULT_SECRET_ID_FILE: /vault/creds/risk-engine_secret_id.txt
+    volumes:
+      - ./monitoring/vault/creds:/vault/creds:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      calc-service:
+        condition: service_started
+      embedding-api:
+        condition: service_started
+      vault:
+        condition: service_healthy
+
+  alertmanager:
+    environment:
+      VAULT_ADDR: http://zakupai-vault:8200
+      VAULT_ROLE_ID_FILE: /vault/creds/alertmanager_role_id.txt
+      VAULT_SECRET_ID_FILE: /vault/creds/alertmanager_secret_id.txt
+    volumes:
+      - ./monitoring/vault/creds:/vault/creds:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+
+volumes:
+  vault_creds:
