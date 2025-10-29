@@ -273,7 +273,7 @@ Vault
 
 ## Stage 7 — Monitoring + Vault + Secrets
 
-[ ] Поднять контейнер Vault (`hashicorp/vault:1.17`)  
+[x] Поднять контейнер Vault (`hashicorp/vault:1.17`)  
  • Конфиг → `monitoring/vault/config.hcl`, порт 8200  
  • Сгенерировать root-token и CA  
 
