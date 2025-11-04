@@ -12,6 +12,6 @@ redis
 structlog
 sqlalchemy
 tenacity
-hvac>=1.2
+hvac==2.1.0
 slowapi>=0.1.9
 asyncpg>=0.29

@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
 
-from libs.vault_client import VaultClient, VaultClientError
+from zakupai_common.vault_client import get_vault_client
 from zakupai_common.fastapi.metrics import add_prometheus_middleware
 from schemas import ProfitRequest, RiskScoreRequest
 from exceptions import validation_exception_handler, payload_too_large_handler, rate_limit_handler
@@ -54,16 +54,17 @@ def _apply_database_defaults(dsn: str) -> None:
 
 def bootstrap_vault():
     try:
-        client = VaultClient()
-        secrets = client.read("app")
-        os.environ.update(secrets)
-        if secrets.get("DATABASE_URL"):
-            _apply_database_defaults(secrets["DATABASE_URL"])
-        log.info("Vault secrets загружены: %s", sorted(secrets.keys()))
-    except VaultClientError as exc:
-        log.warning("Vault недоступен, использую значения по умолчанию: %s", exc)
-    except Exception as exc:  # pragma: no cover - защитный fallback
-        log.error("Сбой инициализации Vault", exc_info=exc)
+        vault_client = get_vault_client(enable_fallback=True)
+
+        # Load database secrets
+        db_secrets = vault_client.get_secret("shared/db")
+        if db_secrets.get("DATABASE_URL"):
+            os.environ.setdefault("DATABASE_URL", db_secrets["DATABASE_URL"])
+            _apply_database_defaults(db_secrets["DATABASE_URL"])
+
+        log.info("✅ Vault secrets загружены")
+    except Exception as exc:
+        log.warning("⚠️ Vault недоступен, используется fallback: %s", exc)
 
 
 bootstrap_vault()

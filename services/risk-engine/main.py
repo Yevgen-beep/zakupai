@@ -20,7 +20,7 @@ from rnu_client import RNUClient, RNUValidationError, get_rnu_client
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from libs.vault_client import VaultClient, VaultClientError
+from zakupai_common.vault_client import get_vault_client
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -92,16 +92,22 @@ def _apply_database_defaults(dsn: str) -> None:
 
 def bootstrap_vault():
     try:
-        client = VaultClient()
-        secrets = client.read("app")
-        os.environ.update(secrets)
-        if secrets.get("DATABASE_URL"):
-            _apply_database_defaults(secrets["DATABASE_URL"])
-        log.info("vault_bootstrap_success", loaded_keys=sorted(secrets.keys()))
-    except VaultClientError as exc:
-        log.warning("Vault недоступен, использую значения по умолчанию: %s", exc)
-    except Exception:  # pragma: no cover - defensive fallback
-        log.exception("Vault bootstrap failed")
+        vault_client = get_vault_client(enable_fallback=True)
+
+        # Load database secrets
+        db_secrets = vault_client.get_secret("shared/db")
+        if db_secrets.get("DATABASE_URL"):
+            os.environ.setdefault("DATABASE_URL", db_secrets["DATABASE_URL"])
+            _apply_database_defaults(db_secrets["DATABASE_URL"])
+
+        # Load Redis secrets
+        redis_secrets = vault_client.get_secret("shared/redis")
+        if redis_secrets.get("REDIS_URL"):
+            os.environ.setdefault("REDIS_URL", redis_secrets["REDIS_URL"])
+
+        log.info("vault_bootstrap_success", message="✅ Vault secrets загружены")
+    except Exception as exc:
+        log.warning("vault_bootstrap_fallback", message="⚠️ Vault недоступен, используется fallback", error=str(exc))
 
 
 bootstrap_vault()

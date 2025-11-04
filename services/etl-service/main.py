@@ -32,7 +32,7 @@ from starlette.responses import Response, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from urllib.parse import urlparse
 
-from libs.vault_client import VaultClient, VaultClientError
+from zakupai_common.vault_client import get_vault_client
 from zakupai_common.audit_logger import get_audit_logger
 from zakupai_common.compliance import ComplianceSettings
 from zakupai_common.fastapi.error_middleware import ErrorHandlerMiddleware
@@ -63,16 +63,33 @@ def _apply_database_defaults(dsn: str) -> None:
 
 def bootstrap_vault():
     try:
-        client = VaultClient()
-        secrets = client.read("app")
-        os.environ.update(secrets)
-        if secrets.get("DATABASE_URL"):
-            _apply_database_defaults(secrets["DATABASE_URL"])
-        _etl_vault_logger.info("Vault secrets загружены: %s", sorted(secrets.keys()))
-    except VaultClientError as exc:
-        _etl_vault_logger.warning("Vault недоступен, продолжаем с локальными значениями: %s", exc)
-    except Exception:  # pragma: no cover - defensive fallback
-        _etl_vault_logger.exception("Vault bootstrap failed")
+        vault_client = get_vault_client(enable_fallback=True)
+
+        # Load database secrets
+        db_secrets = vault_client.get_secret("shared/db")
+        if db_secrets.get("DATABASE_URL"):
+            os.environ.setdefault("DATABASE_URL", db_secrets["DATABASE_URL"])
+            _apply_database_defaults(db_secrets["DATABASE_URL"])
+
+        # Load Redis secrets
+        redis_secrets = vault_client.get_secret("shared/redis")
+        if redis_secrets.get("REDIS_URL"):
+            os.environ.setdefault("REDIS_URL", redis_secrets["REDIS_URL"])
+
+        # Load service-specific secrets
+        openai_secrets = vault_client.get_secret("services/etl/openai")
+        if openai_secrets.get("OPENAI_API_KEY"):
+            os.environ.setdefault("OPENAI_API_KEY", openai_secrets["OPENAI_API_KEY"])
+
+        telegram_secrets = vault_client.get_secret("services/etl/telegram")
+        if telegram_secrets.get("TELEGRAM_TOKEN"):
+            os.environ.setdefault("TELEGRAM_TOKEN", telegram_secrets["TELEGRAM_TOKEN"])
+        if telegram_secrets.get("TELEGRAM_BOT_TOKEN"):
+            os.environ.setdefault("TELEGRAM_BOT_TOKEN", telegram_secrets["TELEGRAM_BOT_TOKEN"])
+
+        _etl_vault_logger.info("✅ Vault secrets загружены")
+    except Exception as exc:
+        _etl_vault_logger.warning("⚠️ Vault недоступен, используется fallback: %s", exc)
 
 
 bootstrap_vault()
