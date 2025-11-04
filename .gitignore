@@ -49,6 +49,14 @@ __pycache__/
 .vault-unseal-key
 vault-init-output.json
 vault-unseal-keys.txt
+
+# Vault container - secrets and data
+vault/data/*
+!vault/data/.gitkeep
+vault/scripts/*.sh
+!vault/scripts/README.md
+
+# Monitoring Vault - TLS certs and credentials
 monitoring/vault/tls/*.key
 monitoring/vault/tls/*.crt
 monitoring/vault/tls/*.csr

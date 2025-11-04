@@ -1,0 +1,3 @@
+# WARNING: This directory stores Vault secrets (init.json, .env.vault)
+# NEVER commit files from this directory to version control!
+# Use Docker VOLUMES only - bind mounts may accidentally leak secrets to Git
