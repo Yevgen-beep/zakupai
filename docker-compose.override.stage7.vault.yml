@@ -1,0 +1,326 @@
+# ============================================================================
+# Stage 7 - Vault HVAC Integration (Phase 4 - Production Ready)
+# ============================================================================
+# Full production-ready Vault integration with:
+# - AppRole authentication for all services
+# - Centralized secrets management
+# - Auto-renewal and fallback support
+# - Health checks and observability
+# - Audit logging
+#
+# Usage:
+#   docker-compose -f docker-compose.yml \
+#     -f docker-compose.override.stage7.vault.yml up -d
+#
+# Prerequisites:
+#   1. Run vault initialization: ./vault/scripts/init-vault.sh
+#   2. Setup AppRoles: ./vault/scripts/setup-approles.sh
+#   3. Create .env.vault with AppRole credentials
+#   4. Migrate secrets: ./vault/scripts/migrate-secrets.sh
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # Vault Server
+  # ==========================================================================
+  vault:
+    container_name: zakupai-vault
+    build:
+      context: ./vault
+      dockerfile: Dockerfile
+    command: ["/vault/scripts/init-and-start.sh"]
+    ports:
+      - "8200:8200"  # Vault API
+    cap_add:
+      - IPC_LOCK  # Required for mlock
+    volumes:
+      # Vault configuration
+      - ./vault/config/vault.hcl:/vault/config/vault.hcl:ro
+      - ./vault/config/policies:/vault/config/policies:ro
+      # Vault scripts
+      - ./vault/scripts:/vault/scripts:ro
+      # Vault data and logs (Docker volumes - never bind mounts!)
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_LOG_LEVEL: info
+      VAULT_SECRETS_PATH: /vault/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          status=$$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/v1/sys/health) \
+          && case "$$status" in 200|429|472|473|501|503) exit 0 ;; *) exit 1 ;; esac
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - zakupai-network
+    restart: unless-stopped
+    labels:
+      - "com.zakupai.service=vault"
+      - "com.zakupai.description=HashiCorp Vault for secrets management"
+
+  # ==========================================================================
+  # ETL Service
+  # ==========================================================================
+  etl-service:
+    env_file:
+      - .env.vault  # AppRole credentials
+    environment:
+      # Vault configuration
+      - VAULT_ENABLED=true
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_KV_MOUNT=zakupai
+      - VAULT_FALLBACK=true
+      # AppRole credentials (from .env.vault)
+      - VAULT_ROLE_ID=${VAULT_ETL_SERVICE_ROLE_ID}
+      - VAULT_SECRET_ID=${VAULT_ETL_SERVICE_SECRET_ID}
+      # Service-specific settings
+      - SERVICE_NAME=etl-service
+      - VAULT_SECRET_PATHS=shared/db,shared/redis,shared/jwt,shared/goszakup,services/etl/openai,services/etl/telegram
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health | grep -q vault || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.zakupai.vault.role=etl-service"
+      - "com.zakupai.vault.paths=shared/*,services/etl/*"
+
+  # ==========================================================================
+  # Calc Service
+  # ==========================================================================
+  calc-service:
+    env_file:
+      - .env.vault
+    environment:
+      - VAULT_ENABLED=true
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_KV_MOUNT=zakupai
+      - VAULT_FALLBACK=true
+      - VAULT_ROLE_ID=${VAULT_CALC_SERVICE_ROLE_ID}
+      - VAULT_SECRET_ID=${VAULT_CALC_SERVICE_SECRET_ID}
+      - SERVICE_NAME=calc-service
+      - VAULT_SECRET_PATHS=shared/db,shared/redis,shared/jwt,shared/goszakup,services/calc/config
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7001/health | grep -q vault || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.zakupai.vault.role=calc-service"
+      - "com.zakupai.vault.paths=shared/*,services/calc/*"
+
+  # ==========================================================================
+  # Risk Engine
+  # ==========================================================================
+  risk-engine:
+    env_file:
+      - .env.vault
+    environment:
+      - VAULT_ENABLED=true
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_KV_MOUNT=zakupai
+      - VAULT_FALLBACK=true
+      - VAULT_ROLE_ID=${VAULT_RISK_ENGINE_ROLE_ID}
+      - VAULT_SECRET_ID=${VAULT_RISK_ENGINE_SECRET_ID}
+      - SERVICE_NAME=risk-engine
+      - VAULT_SECRET_PATHS=shared/db,shared/redis,shared/jwt,shared/goszakup,services/risk/config
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      calc-service:
+        condition: service_started
+      embedding-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7002/health | grep -q vault || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.zakupai.vault.role=risk-engine"
+      - "com.zakupai.vault.paths=shared/*,services/risk/*"
+
+  # ==========================================================================
+  # Doc Service
+  # ==========================================================================
+  doc-service:
+    env_file:
+      - .env.vault
+    environment:
+      - VAULT_ENABLED=true
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_KV_MOUNT=zakupai
+      - VAULT_FALLBACK=true
+      - VAULT_ROLE_ID=${VAULT_CALC_SERVICE_ROLE_ID}  # Reuse calc-service role
+      - VAULT_SECRET_ID=${VAULT_CALC_SERVICE_SECRET_ID}
+      - SERVICE_NAME=doc-service
+      - VAULT_SECRET_PATHS=shared/db,shared/redis,shared/jwt
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Billing Service
+  # ==========================================================================
+  billing-service:
+    env_file:
+      - .env.vault
+    environment:
+      - VAULT_ENABLED=true
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_KV_MOUNT=zakupai
+      - VAULT_FALLBACK=true
+      - VAULT_ROLE_ID=${VAULT_CALC_SERVICE_ROLE_ID}  # Reuse calc-service role
+      - VAULT_SECRET_ID=${VAULT_CALC_SERVICE_SECRET_ID}
+      - SERVICE_NAME=billing-service
+      - VAULT_SECRET_PATHS=shared/db,shared/redis,shared/jwt
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Telegram Bot
+  # ==========================================================================
+  telegram-bot:
+    env_file:
+      - .env.vault
+    environment:
+      - VAULT_ENABLED=true
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_KV_MOUNT=zakupai
+      - VAULT_FALLBACK=true
+      - VAULT_ROLE_ID=${VAULT_TELEGRAM_BOT_ROLE_ID}
+      - VAULT_SECRET_ID=${VAULT_TELEGRAM_BOT_SECRET_ID}
+      - SERVICE_NAME=telegram-bot
+      - VAULT_SECRET_PATHS=shared/db,shared/redis,shared/jwt,shared/goszakup,shared/n8n,shared/flowise,services/etl/telegram
+    depends_on:
+      vault:
+        condition: service_healthy
+      etl-service:
+        condition: service_started
+    labels:
+      - "com.zakupai.vault.role=telegram-bot"
+      - "com.zakupai.vault.paths=shared/*,services/etl/telegram"
+
+  # ==========================================================================
+  # Prometheus (for Vault metrics)
+  # ==========================================================================
+  prometheus:
+    environment:
+      - VAULT_ADDR=http://vault:8200
+    depends_on:
+      vault:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Grafana (for Vault dashboards)
+  # ==========================================================================
+  grafana:
+    volumes:
+      - ./monitoring/grafana/dashboards/vault-health.json:/etc/grafana/provisioning/dashboards/vault-health.json:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  vault-data:
+    driver: local
+    labels:
+      - "com.zakupai.backup=true"
+      - "com.zakupai.security=high"
+  vault-logs:
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  zakupai-network:
+    driver: bridge
+
+# ============================================================================
+# USAGE NOTES
+# ============================================================================
+#
+# 1. First Time Setup:
+#    docker-compose -f docker-compose.yml -f docker-compose.override.stage7.vault.yml up -d vault
+#    export VAULT_TOKEN=$(docker-compose exec vault jq -r '.root_token' /vault/data/init.json)
+#    export VAULT_ADDR=http://localhost:8200
+#    docker-compose exec vault /vault/scripts/init-vault.sh
+#    docker-compose exec vault /vault/scripts/setup-approles.sh
+#    docker-compose exec vault cat /vault/data/approle-credentials.env > .env.vault
+#    chmod 600 .env.vault
+#
+# 2. Migrate Secrets:
+#    docker-compose exec vault /vault/scripts/migrate-secrets.sh
+#
+# 3. Start All Services:
+#    docker-compose -f docker-compose.yml -f docker-compose.override.stage7.vault.yml up -d
+#
+# 4. Verify Integration:
+#    curl http://localhost:7000/health | jq .vault
+#
+# 5. Monitor Vault:
+#    docker-compose logs -f vault
+#    docker-compose exec vault tail -f /vault/logs/audit.log
+#
+# 6. Rotate Secrets (Weekly):
+#    docker-compose exec vault /vault/scripts/rotate-secrets.sh
+#    # Update .env.vault with new credentials
+#    docker-compose up -d --no-deps etl-service calc-service risk-engine
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# Service fails to authenticate:
+#   - Check VAULT_ROLE_ID and VAULT_SECRET_ID in .env.vault
+#   - Verify AppRole exists: vault read auth/approle/role/etl-service
+#   - Check service logs: docker-compose logs etl-service | grep -i vault
+#
+# Vault sealed:
+#   - Check status: docker-compose exec vault vault status
+#   - Restart (auto-unseals): docker-compose restart vault
+#
+# Secrets not found:
+#   - List secrets: vault kv list zakupai/shared
+#   - Run migration: /vault/scripts/migrate-secrets.sh
+#
+# ============================================================================
