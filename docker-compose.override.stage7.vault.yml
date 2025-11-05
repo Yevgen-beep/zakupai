@@ -76,7 +76,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "PING"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -97,7 +97,7 @@ services:
       - VAULT_ENABLED=true
       - VAULT_ADDR=http://vault:8200
       - VAULT_KV_MOUNT=zakupai
-      - VAULT_FALLBACK=true
+      - VAULT_FALLBACK=false
       # AppRole credentials (from .env.vault)
       - VAULT_ROLE_ID=${VAULT_ETL_SERVICE_ROLE_ID}
       - VAULT_SECRET_ID=${VAULT_ETL_SERVICE_SECRET_ID}
@@ -131,7 +131,7 @@ services:
       - VAULT_ENABLED=true
       - VAULT_ADDR=http://vault:8200
       - VAULT_KV_MOUNT=zakupai
-      - VAULT_FALLBACK=true
+      - VAULT_FALLBACK=false
       - VAULT_ROLE_ID=${VAULT_CALC_SERVICE_ROLE_ID}
       - VAULT_SECRET_ID=${VAULT_CALC_SERVICE_SECRET_ID}
       - SERVICE_NAME=calc-service
@@ -163,7 +163,7 @@ services:
       - VAULT_ENABLED=true
       - VAULT_ADDR=http://vault:8200
       - VAULT_KV_MOUNT=zakupai
-      - VAULT_FALLBACK=true
+      - VAULT_FALLBACK=false
       - VAULT_ROLE_ID=${VAULT_RISK_ENGINE_ROLE_ID}
       - VAULT_SECRET_ID=${VAULT_RISK_ENGINE_SECRET_ID}
       - SERVICE_NAME=risk-engine
@@ -241,6 +241,8 @@ services:
   prometheus:
     environment:
       - VAULT_ADDR=http://vault:8200
+    volumes:
+      - vault-logs:/metrics/vault:ro
     depends_on:
       vault:
         condition: service_healthy
@@ -249,8 +251,74 @@ services:
   # Grafana (for Vault dashboards)
   # ==========================================================================
   grafana:
+    environment:
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/ops/platform-ops.json
     volumes:
-      - ./monitoring/grafana/dashboards/vault-health.json:/etc/grafana/provisioning/dashboards/vault-health.json:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: zakupai-node-exporter
+    command:
+      - '--path.rootfs=/host'
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - zakupai-network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: zakupai-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - zakupai-network
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.57.0
+    container_name: zakupai-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: zakupai-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-zakupai}:${POSTGRES_PASSWORD:-zakupai}@db:5432/${POSTGRES_DB:-zakupai}?sslmode=disable"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - zakupai-network
+
+  vault-metrics-proxy:
+    image: python:3.11-alpine
+    container_name: zakupai-vault-metrics
+    command: ["python", "-m", "http.server", "9102", "--directory", "/metrics"]
+    volumes:
+      - vault-logs:/metrics:ro
+    networks:
+      - zakupai-network
+    restart: unless-stopped
     depends_on:
       vault:
         condition: service_healthy

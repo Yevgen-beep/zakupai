@@ -1,0 +1,13 @@
+Removed dashboards:
+  - ZakupAI All
+  - ZakupAI – Live Status Dashboard
+  - ZakupAI – Platform Final Dashboard
+  - ZakupAI – Platform Ops2
+  - ZakupAI – Platform PRO
+
+Active dashboard JSON files:
+  - monitoring/grafana/provisioning/dashboards/summary/zakupai-platform-summary.json
+  - monitoring/grafana/provisioning/dashboards/ops/platform-ops.json
+
+Provisioning status: OK
+Home dashboard: zakupai-platform-ops (ZakupAI – Platform Ops)
