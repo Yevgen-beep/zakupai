@@ -80,3 +80,30 @@ services/etl-service/test_files/
 web/main_fixed.py
 services/*/alembic.ini
 legacy/
+# -------------------------------------------------
+# ZakupAI: Vault Integration & Environment Hygiene
+# -------------------------------------------------
+
+# AppRole credentials and Vault envs
+.env.vault
+.env.backup
+.env.legacy
+.env.template
+
+# Temporary migration outputs
+vault/data/init.json
+vault/data/approle-credentials.env
+vault/logs/*
+!vault/logs/.gitkeep
+
+# Prevent accidental commits of rotation logs or audit trails
+vault/audit.log
+vault/rotation.log
+
+# n8n and Flowise local creds
+n8n/.n8n/
+flowise/.flowise/
+
+# Backblaze and cloud credentials
+b2_credentials.json
+aws_credentials.json
