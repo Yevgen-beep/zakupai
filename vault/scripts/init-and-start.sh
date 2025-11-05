@@ -27,6 +27,7 @@ VAULT_PID=$!
 sleep 5
 
 export VAULT_ADDR='http://127.0.0.1:8200'
+echo "👤 Vault init script running as $(id -u):$(id -g) ($(whoami))"
 
 # Auto-init если первый запуск
 if [ ! -f "$VAULT_SECRETS_PATH/init.json" ]; then

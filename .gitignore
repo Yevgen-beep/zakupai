@@ -107,3 +107,8 @@ flowise/.flowise/
 # Backblaze and cloud credentials
 b2_credentials.json
 aws_credentials.json
+
+# Runtime tools
+monitoring/grafana/dashboards/
+monitoring/scripts/
+

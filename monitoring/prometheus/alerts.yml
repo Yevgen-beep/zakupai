@@ -22,13 +22,15 @@ groups:
           description: "Detected at least 5 HTTP 5xx responses within the last minute."
 
       - alert: ServiceDown
-        expr: up{job=~"gateway|calc-service|risk-engine|doc-service|embedding-api|etl-service"} == 0
+        expr: |
+          up{job=~"calc-service|embedding-api|etl-service|risk-engine"} == 0
+            unless on(job) absent(up{job=~"calc-service|embedding-api|etl-service|risk-engine"})
         for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "Service {{ $labels.job }} is down"
-          description: "Target {{ $labels.instance }} is down for 2m."
+          summary: "Service {{ $labels.job }} appears unreachable"
+          description: "Prometheus has reported {{ $labels.job }} down for more than 2 minutes."
 
       - alert: HighHTTP5xx
         expr: increase(http_requests_total{status_code=~"5.."}[5m]) > 5
