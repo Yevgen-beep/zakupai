@@ -1,0 +1,3 @@
+touch monitoring/vault/creds/.gitkeep
+git add monitoring/vault/creds/.gitkeep .gitignore
+git commit -m "chore(gitignore): exclude Vault creds and sensitive files"
