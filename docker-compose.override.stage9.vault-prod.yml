@@ -1,0 +1,103 @@
+# Docker Compose Override - Stage 9 (Production B2 + TLS + Audit)
+# Purpose: Production-ready Vault with S3 storage, TLS encryption, and audit logging
+# Usage: cp docker-compose.override.stage9.vault-prod.yml docker-compose.override.yml
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: vault
+    restart: unless-stopped
+
+    # Use auto-unseal entrypoint
+    entrypoint: ["/vault/scripts/auto-unseal.sh"]
+
+    # Interactive mode for proper signal handling
+    stdin_open: true
+    tty: true
+
+    # No public ports - Vault accessible only via Docker network
+    ports: []
+
+    environment:
+      # Vault configuration
+      VAULT_ADDR: "https://127.0.0.1:8200"
+      VAULT_API_ADDR: "https://vault.zakupai.local:8200"
+      VAULT_CLUSTER_ADDR: "https://vault.zakupai.local:8201"
+      VAULT_CONFIG: "/vault/config/vault-config.hcl"
+      VAULT_LOG_LEVEL: "info"
+
+      # Auto-unseal configuration
+      ENCRYPTED_KEY_FILE: "/vault/creds/vault-unseal-key.enc"
+      PASSWORD_FILE: "/vault/.unseal-password"
+
+      # Backblaze B2 credentials (S3-compatible)
+      # IMPORTANT: Set these via docker-compose.override.local.yml or .env
+      # AWS_ACCESS_KEY_ID: "your_b2_application_key_id"
+      # AWS_SECRET_ACCESS_KEY: "your_b2_application_key"
+
+      # TLS settings
+      VAULT_SKIP_VERIFY: "false"
+
+    volumes:
+      # Configuration
+      - ./monitoring/vault/config/secure/config-stage9.hcl:/vault/config/vault-config.hcl:ro
+
+      # Logs (local backup + audit)
+      - ./monitoring/vault/logs:/vault/logs
+
+      # Scripts
+      - ./monitoring/vault/scripts:/vault/scripts:ro
+
+      # TLS certificates
+      - ./monitoring/vault/tls:/vault/tls:ro
+
+      # Credentials (encrypted keys and master password)
+      - ./monitoring/vault/creds:/vault/creds:ro
+      - ./monitoring/vault/.unseal-password:/vault/.unseal-password:ro
+
+      # Plugins (optional)
+      - ./monitoring/vault/plugins:/vault/plugins:ro
+
+    cap_add:
+      - IPC_LOCK
+
+    networks:
+      - zakupai-network
+      - monitoring-net
+
+    healthcheck:
+      test: ["CMD", "sh", "-c", "VAULT_SKIP_VERIFY=false vault status -format=json 2>/dev/null | jq -e '.sealed == false' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+    labels:
+      - "com.zakupai.service=vault"
+      - "com.zakupai.stage=9"
+      - "com.zakupai.auto-unseal=enabled"
+      - "com.zakupai.storage=s3-b2"
+      - "com.zakupai.tls=enabled"
+      - "com.zakupai.audit=enabled"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Resource limits (adjust based on workload)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  zakupai-network:
+    external: true
+    name: zakupai_zakupai-network
+  monitoring-net:
+    external: true
+    name: zakupai_monitoring-net

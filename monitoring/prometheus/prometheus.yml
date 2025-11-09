@@ -9,35 +9,12 @@ rule_files:
 alerting:
   alertmanagers:
     - static_configs:
-        - targets:
-            - alertmanager:9093
+        - targets: ['alertmanager:9093']
 
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ['prometheus:9090']
-
-  - job_name: blackbox-http
-    metrics_path: /probe
-    static_configs:
-      - targets: ['http://gateway:8080/health']
-    params:
-      module: [http_2xx]
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: blackbox-exporter:9115
-
-  - job_name: node-exporter
-    static_configs:
-      - targets: ['node-exporter-stage6:9100']
-
-  - job_name: cadvisor
-    static_configs:
-      - targets: ['cadvisor:8080']
 
   # ZakupAI microservices (FastAPI /metrics)
   - job_name: calc-service
@@ -56,23 +33,6 @@ scrape_configs:
       - target_label: service
         replacement: risk
 
-  # Risk-engine business metrics (dedicated port)
-  - job_name: risk-engine-business
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['risk-engine:9102']
-    relabel_configs:
-      - target_label: service
-        replacement: risk-business
-
-  - job_name: doc-service
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['doc-service:8000']
-    relabel_configs:
-      - target_label: service
-        replacement: doc
-
   - job_name: embedding-api
     metrics_path: /metrics
     static_configs:
@@ -89,66 +49,15 @@ scrape_configs:
       - target_label: service
         replacement: etl
 
-  - job_name: web-ui
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['web-ui:8000']
-    relabel_configs:
-      - target_label: service
-        replacement: web-ui
-
-  - job_name: goszakup-api
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['goszakup-api:8001']
-    relabel_configs:
-      - target_label: service
-        replacement: goszakup
-
-  - job_name: billing-service
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['billing-service:8000']
-    relabel_configs:
-      - target_label: service
-        replacement: billing
-
-  - job_name: zakupai-bot
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['zakupai-bot:8081']
-    relabel_configs:
-      - target_label: service
-        replacement: bot
-
-  - job_name: gateway
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['gateway:80']
-    relabel_configs:
-      - target_label: service
-        replacement: gateway
-
-  - job_name: nginx
-    static_configs:
-      - targets: ['nginx-exporter:9113']
-    relabel_configs:
-      - target_label: service
-        replacement: nginx-exporter
-
   # Vault metrics (requires authentication)
   - job_name: vault
     metrics_path: /v1/sys/metrics
     params:
       format: ['prometheus']
-    scheme: https
+    scheme: http
+    scrape_interval: 30s
     static_configs:
       - targets: ['vault:8200']
-    tls_config:
-      # CA certificate for Vault TLS verification
-      ca_file: /etc/prometheus/vault-ca/ca.crt
-      # For dev without TLS, use:
-      # insecure_skip_verify: true
     authorization:
       type: Bearer
       # Token file mounted from monitoring/vault/creds/monitoring.token
@@ -156,3 +65,23 @@ scrape_configs:
     relabel_configs:
       - target_label: service
         replacement: vault
+  - job_name: "vault_metrics"
+    scheme: http
+    static_configs:
+      - targets: ["vault-metrics-proxy:9102"]
+        labels:
+          service: "vault"
+    metrics_path: /vault_metrics.prom
+    scrape_interval: 30s
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ['redis-exporter:9121']
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ['postgres-exporter:9187']

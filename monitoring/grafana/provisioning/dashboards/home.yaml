@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: 'Default Home Dashboard'
+    orgId: 1
+    type: file
+    folder: ''
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/ops/platform-ops.json

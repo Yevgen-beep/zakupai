@@ -1,0 +1,18 @@
+apiVersion: 1
+providers:
+  - name: 'ZakupAI Platform Summary'
+    folder: 'ZakupAI'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/summary
+
+  - name: 'ZakupAI Platform Ops'
+    folder: 'ZakupAI'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 10
+    options:
+      path: /etc/grafana/provisioning/dashboards/ops

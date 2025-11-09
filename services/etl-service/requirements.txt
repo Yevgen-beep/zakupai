@@ -34,5 +34,5 @@ structlog
 # HTTP clients
 aiohttp
 requests
-hvac>=1.2
+hvac==2.1.0
 slowapi>=0.1.9

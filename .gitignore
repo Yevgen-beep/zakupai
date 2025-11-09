@@ -49,10 +49,19 @@ __pycache__/
 .vault-unseal-key
 vault-init-output.json
 vault-unseal-keys.txt
+
+# Vault container - secrets and data
+vault/data/*
+!vault/data/.gitkeep
+vault/scripts/*.sh
+!vault/scripts/README.md
+
+# Monitoring Vault - TLS certs and credentials
 monitoring/vault/tls/*.key
 monitoring/vault/tls/*.crt
 monitoring/vault/tls/*.csr
 monitoring/vault/tls/*.srl
+monitoring/vault/tls/*.pem
 !monitoring/vault/tls/generate-certs.sh
 !monitoring/vault/tls/openssl.cnf
 monitoring/vault/data/
@@ -60,6 +69,14 @@ monitoring/vault/creds/*
 !monitoring/vault/creds/README.md
 !monitoring/vault/creds/.gitkeep
 monitoring/prometheus/vault-metrics.token
+
+# Vault Stage 8 & 9 - Auto-unseal secrets
+monitoring/vault/.unseal-password
+monitoring/vault/creds/vault-unseal-key.txt
+monitoring/vault/creds/vault-unseal-key.enc
+monitoring/vault/logs/audit.log
+monitoring/vault/logs/vault.log
+.vault-token
 
 # Docker volumes data
 data/
@@ -72,3 +89,47 @@ services/etl-service/test_files/
 web/main_fixed.py
 services/*/alembic.ini
 legacy/
+# -------------------------------------------------
+# ZakupAI: Vault Integration & Environment Hygiene
+# -------------------------------------------------
+
+# AppRole credentials and Vault envs
+.env.vault
+.env.backup
+.env.legacy
+.env.template
+
+# Temporary migration outputs
+vault/data/init.json
+vault/data/approle-credentials.env
+vault/logs/*
+!vault/logs/.gitkeep
+
+# Prevent accidental commits of rotation logs or audit trails
+vault/audit.log
+vault/rotation.log
+
+# n8n and Flowise local creds
+n8n/.n8n/
+flowise/.flowise/
+
+# Backblaze and cloud credentials
+b2_credentials.json
+aws_credentials.json
+
+# Runtime tools
+monitoring/grafana/dashboards/
+monitoring/scripts/
+
+
+# ============================
+# 🔐 Vault sensitive secrets
+# ============================
+monitoring/vault/creds/*
+!monitoring/vault/creds/.gitkeep
+
+monitoring/vault/.unseal-password
+monitoring/vault/logs/audit.log
+monitoring/vault/tls/*.pem
+
+

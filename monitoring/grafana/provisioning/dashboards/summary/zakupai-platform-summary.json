@@ -1,0 +1,210 @@
+{
+  "id": null,
+  "uid": "zakupai-summary",
+  "title": "ZakupAI – Platform Summary",
+  "tags": [
+    "summary",
+    "overview",
+    "zakupai"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 37,
+  "version": 7,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "table",
+      "title": "Service Health Overview",
+      "description": "Unified view of all key services (API, Calc, ETL, Risk, Vault, Redis, DB)",
+      "targets": [
+        {
+          "expr": "up{instance=~\"(calc-service|risk-engine|embedding-api|etl-service):.*\"}",
+          "legendFormat": "{{job}} — {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": true
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "🟢 UP",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "🔴 DOWN",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Vault Health",
+      "targets": [
+        {
+          "expr": "vault_health_status or on() vector(0)",
+          "legendFormat": "status",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Vault Token TTL (hours)",
+      "targets": [
+        {
+          "expr": "vault_token_ttl_seconds / 3600",
+          "legendFormat": "root TTL (h)",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      }
+    },
+    {
+      "type": "graph",
+      "title": "HTTP 5xx Rate (API Layer)",
+      "targets": [
+        {
+          "expr": "up{instance=~\".*\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
+      "description": "⚠️ Using service availability as proxy; http_requests_total unavailable"
+    },
+    {
+      "type": "graph",
+      "title": "CPU Usage (All Containers)",
+      "targets": [
+        {
+          "expr": "sum by (container_label_com_docker_compose_service)(rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service=~\"(calc-service|risk-engine|embedding-api|etl-service|vault|redis|db)\"}[5m]))",
+          "legendFormat": "{{container_label_com_docker_compose_service}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      }
+    },
+    {
+      "type": "graph",
+      "title": "API Latency (p95)",
+      "targets": [
+        {
+          "expr": "up{instance=~\".*\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      },
+      "description": "⚠️ Using service availability as placeholder; latency metrics unavailable"
+    },
+    {
+      "type": "graph",
+      "title": "Container Memory Usage",
+      "targets": [
+        {
+          "expr": "sum by (container_label_com_docker_compose_service)(container_memory_usage_bytes{container_label_com_docker_compose_service=~\"(calc-service|risk-engine|embedding-api|etl-service|vault|redis|db)\"})",
+          "legendFormat": "{{container_label_com_docker_compose_service}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "zakupai-prom"
+      }
+    }
+  ],
+  "datasource": {
+    "type": "prometheus",
+    "uid": "zakupai-prom"
+  },
+  "editable": true,
+  "gnetId": null
+}
