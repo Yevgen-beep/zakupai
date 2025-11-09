@@ -125,9 +125,11 @@ monitoring/scripts/
 # ============================
 # 🔐 Vault sensitive secrets
 # ============================
-monitoring/vault/creds/
+monitoring/vault/creds/*
 !monitoring/vault/creds/.gitkeep
+
 monitoring/vault/.unseal-password
 monitoring/vault/logs/audit.log
 monitoring/vault/tls/*.pem
+
 
