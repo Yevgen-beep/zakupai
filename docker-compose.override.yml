@@ -1,0 +1,77 @@
+# Docker Compose Override - Stage 8 (Auto-Unseal File Backend)
+# Purpose: Enable auto-unseal functionality for Vault
+# Usage: cp docker-compose.override.stage8.vault-secure.yml docker-compose.override.yml
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: vault
+    restart: unless-stopped
+
+    # Use auto-unseal entrypoint
+    entrypoint: ["/vault/scripts/auto-unseal.sh"]
+
+    # Interactive mode for proper signal handling
+    stdin_open: true
+    tty: true
+
+    # No public ports - Vault accessible only via Docker network
+    ports: []
+
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+      VAULT_API_ADDR: "http://127.0.0.1:8200"
+      VAULT_CONFIG: "/vault/config/vault-config.hcl"
+      VAULT_LOG_LEVEL: "info"
+
+      # Auto-unseal configuration
+      ENCRYPTED_KEY_FILE: "/vault/creds/vault-unseal-key.enc"
+      PASSWORD_FILE: "/vault/.unseal-password"
+
+    volumes:
+      # Configuration
+      - ./monitoring/vault/config/secure/config.hcl:/vault/config/vault-config.hcl:ro
+
+      # Data persistence
+      - vault-data:/vault/data
+
+      # Logs
+      - ./monitoring/vault/logs:/vault/logs
+
+      # Scripts
+      - ./monitoring/vault/scripts:/vault/scripts:ro
+
+      # Credentials (encrypted keys and master password)
+      - ./monitoring/vault/creds:/vault/creds:ro
+      - ./monitoring/vault/.unseal-password:/vault/.unseal-password:ro
+
+    cap_add:
+      - IPC_LOCK
+
+    networks:
+      - zakupai-network
+      - monitoring-net
+
+    healthcheck:
+      test: ["CMD", "sh", "-c", "vault status -format=json | jq -e '.sealed == false'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+    labels:
+      - "com.zakupai.service=vault"
+      - "com.zakupai.stage=8"
+      - "com.zakupai.auto-unseal=enabled"
+
+volumes:
+  vault-data:
+    driver: local
+
+networks:
+  zakupai-network:
+    external: true
+    name: zakupai_zakupai-network
+  monitoring-net:
+    external: true
+    name: zakupai_monitoring-net

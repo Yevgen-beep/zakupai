@@ -1,0 +1,233 @@
+# Vault Prometheus Alert Rules
+# Purpose: Monitor Vault health, performance, and security for Stage 9
+# SLA: 99.5% uptime, <100ms latency (p99), sealed=false
+
+groups:
+  - name: vault_availability
+    interval: 30s
+    rules:
+      # Critical: Vault is down
+      - alert: VaultDown
+        expr: up{job="vault"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault is down"
+          description: "Vault ({{ $labels.instance }}) has been down for more than 2 minutes. CRITICAL: All secret access is unavailable."
+          runbook: "https://github.com/zakupai/docs/runbooks/vault-down.md"
+          action: "Check container: docker logs vault && docker restart vault"
+
+      # Critical: Vault is sealed
+      - alert: VaultSealed
+        expr: vault_core_unsealed == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault is sealed"
+          description: "Vault ({{ $labels.instance }}) is sealed. Auto-unseal may have failed. All secret access is blocked."
+          runbook: "https://github.com/zakupai/docs/runbooks/vault-sealed.md"
+          action: "Check auto-unseal: docker logs vault | grep -i unseal"
+
+      # Warning: Vault restarted recently
+      - alert: VaultRestarted
+        expr: time() - vault_core_unsealed_time < 300
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault restarted recently"
+          description: "Vault ({{ $labels.instance }}) was unsealed less than 5 minutes ago. Recent restart detected."
+          action: "Check logs for restart reason: docker logs vault --since 10m"
+
+  - name: vault_performance
+    interval: 1m
+    rules:
+      # Warning: High request latency
+      - alert: VaultHighLatency
+        expr: histogram_quantile(0.99, rate(vault_core_handle_request_duration_seconds_bucket[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault request latency is high"
+          description: "Vault ({{ $labels.instance }}) p99 latency is {{ $value }}s (>100ms). Performance degraded."
+          action: "Check B2 connectivity, CPU/memory usage, and connection pool"
+
+      # Warning: High request rate
+      - alert: VaultHighRequestRate
+        expr: rate(vault_core_handle_request_count[5m]) > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault request rate is high"
+          description: "Vault ({{ $labels.instance }}) is handling {{ $value }} req/s. Possible load spike or abuse."
+          action: "Check audit log for suspicious activity: tail -100 monitoring/vault/logs/audit.log"
+
+      # Critical: Too many failed requests
+      - alert: VaultHighErrorRate
+        expr: rate(vault_core_handle_request_errors[5m]) > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault error rate is high"
+          description: "Vault ({{ $labels.instance }}) has {{ $value }} errors/s. Check B2 storage and auth issues."
+          action: "Check logs: docker logs vault --tail 100 | grep -i error"
+
+  - name: vault_storage
+    interval: 5m
+    rules:
+      # Critical: Storage backend unavailable
+      - alert: VaultStorageUnreachable
+        expr: vault_storage_backend_unreachable == 1
+        for: 2m
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault storage backend is unreachable"
+          description: "Vault ({{ $labels.instance }}) cannot reach B2 storage. Data persistence is at risk."
+          action: "Check B2 credentials, network connectivity, and B2 service status"
+
+      # Warning: High storage latency
+      - alert: VaultStorageHighLatency
+        expr: histogram_quantile(0.99, rate(vault_storage_write_duration_seconds_bucket[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault storage write latency is high"
+          description: "Vault ({{ $labels.instance }}) B2 write latency is {{ $value }}s (>1s). Storage performance degraded."
+          action: "Check B2 service status and network latency"
+
+  - name: vault_security
+    interval: 2m
+    rules:
+      # Critical: Too many authentication failures
+      - alert: VaultHighAuthFailures
+        expr: rate(vault_token_creation_failed[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Vault ({{ $labels.instance }}) has {{ $value }} auth failures/s. Possible brute-force attack."
+          action: "Check audit log: grep 'permission denied' monitoring/vault/logs/audit.log | tail -50"
+
+      # Warning: Token creation rate spike
+      - alert: VaultTokenCreationSpike
+        expr: rate(vault_token_creation[5m]) > 50
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Unusual token creation rate"
+          description: "Vault ({{ $labels.instance }}) is creating {{ $value }} tokens/s. Possible token leakage or abuse."
+          action: "Check audit log for unusual token creation patterns"
+
+      # Warning: Audit log not being written
+      - alert: VaultAuditLogInactive
+        expr: rate(vault_audit_log_request[5m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault audit log is not receiving entries"
+          description: "Vault ({{ $labels.instance }}) audit log has not received any entries for 15 minutes."
+          action: "Check audit device: vault audit list && ls -lh monitoring/vault/logs/audit.log"
+
+  - name: vault_capacity
+    interval: 5m
+    rules:
+      # Warning: High memory usage
+      - alert: VaultHighMemoryUsage
+        expr: (container_memory_usage_bytes{name="vault"} / container_spec_memory_limit_bytes{name="vault"}) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault memory usage is high"
+          description: "Vault container is using {{ $value | humanizePercentage }} of allocated memory."
+          action: "Check for memory leaks or increase memory limit in docker-compose"
+
+      # Warning: High CPU usage
+      - alert: VaultHighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{name="vault"}[5m]) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault CPU usage is high"
+          description: "Vault container is using {{ $value }} CPU cores consistently."
+          action: "Check for performance bottlenecks or increase CPU limit"
+
+  - name: vault_backup
+    interval: 1h
+    rules:
+      # Critical: Backup not running
+      - alert: VaultBackupMissing
+        expr: time() - vault_last_backup_timestamp > 86400
+        for: 1h
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault backup is overdue"
+          description: "Vault backup has not run in the last 24 hours. Data loss risk."
+          action: "Check cron job: crontab -l | grep vault-migrate && ./scripts/vault-migrate-stage9.sh backup"
+
+  - name: vault_tls
+    interval: 24h
+    rules:
+      # Warning: TLS certificate expiring soon
+      - alert: VaultTLSCertExpiringSoon
+        expr: vault_tls_certificate_expiry_seconds < 2592000
+        for: 1h
+        labels:
+          severity: warning
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault TLS certificate expiring soon"
+          description: "Vault TLS certificate expires in less than 30 days."
+          action: "Renew certificate: make vault-tls-renew && docker restart vault"
+
+      # Critical: TLS certificate expired
+      - alert: VaultTLSCertExpired
+        expr: vault_tls_certificate_expiry_seconds < 0
+        labels:
+          severity: critical
+          service: vault
+          stage: "9"
+        annotations:
+          summary: "Vault TLS certificate expired"
+          description: "Vault TLS certificate has EXPIRED. HTTPS connections will fail."
+          action: "URGENT: Renew certificate immediately: make vault-tls-renew && docker restart vault"
