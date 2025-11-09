@@ -11,8 +11,6 @@
 # - Prometheus exporters (optional)
 # - Monitoring network isolation
 
-version: '3.8'
-
 services:
   # ===========================================
   # HashiCorp Vault — Secrets Management
@@ -20,24 +18,23 @@ services:
   vault:
     image: hashicorp/vault:1.17
     container_name: zakupai-vault
-    ports:
-      - "8200:8200"
+    # No public ports - Vault accessible only via Docker network
+    ports: []
     environment:
       VAULT_LOG_LEVEL: "info"
     volumes:
       # Vault configuration — only one config file mounted
       - ./monitoring/vault/config.hcl:/vault/config/config.hcl:ro
       # Data storage (file backend)
-      - vault_data:/vault/file
+      - vault-data:/vault/file
       # Logs (optional)
-      - vault_logs:/vault/logs
+      - vault-logs:/vault/logs
 
     command: server 
     cap_add:
       - IPC_LOCK
     networks:
       - zakupai-network
-      - vault-net
       - monitoring-net
     healthcheck:
       test: ["CMD", "vault", "status", "-format=json"]
@@ -87,21 +84,18 @@ services:
 # Additional Volumes
 # ===========================================
 volumes:
-  vault_data:
+  vault-data:
     driver: local
-  vault_logs:
+  vault-logs:
     driver: local
 
 # ===========================================
 # Additional Networks
 # ===========================================
 networks:
-  # Vault-specific network for secrets access
-  vault-net:
-    driver: bridge
-    internal: false
-
   # Monitoring network for Prometheus, Grafana, Alertmanager
+  # Internal network - no external internet access
   monitoring-net:
     driver: bridge
-    internal: false
+    internal: true
+    name: zakupai_monitoring-net

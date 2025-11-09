@@ -143,3 +143,146 @@ stage6-status: ## Показать статус контейнеров и мет
 	@echo ""
 	@echo "=== Grafana Dashboard ==="
 	@curl -s -u admin:admin 'http://localhost:3030/api/dashboards/uid/zakupai-overview' 2>/dev/null | jq -r '"Dashboard: " + .dashboard.title + " (" + (.dashboard.panels | length | tostring) + " panels)"' || echo "❌ Grafana not accessible"
+
+# --------------------------------------------
+# 🔐 Vault Stage 7 (Manual Unseal)
+# --------------------------------------------
+
+stage7: ## Stage 7: Manual unseal with file backend
+	@echo "🔐 Applying Stage 7 configuration (Manual File Backend)..."
+	@cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+	@echo "✅ Stage 7 config applied. Start Vault with: docker-compose up -d vault"
+	@echo "⚠️  Manual unseal required after restart."
+
+# --------------------------------------------
+# 🔐 Vault Stage 8 (Auto-Unseal File Backend)
+# --------------------------------------------
+
+stage8: ## Stage 8: Auto-unseal with encrypted keys on file backend
+	@echo "🔐 Applying Stage 8 configuration (Auto-Unseal File Backend)..."
+	@if [ ! -f monitoring/vault/.unseal-password ]; then \
+		echo "❌ Master password not found. Run: ./monitoring/vault/scripts/encrypt-unseal.sh"; \
+		exit 1; \
+	fi
+	@if [ ! -f monitoring/vault/creds/vault-unseal-key.enc ]; then \
+		echo "❌ Encrypted unseal key not found. Run: ./monitoring/vault/scripts/encrypt-unseal.sh"; \
+		exit 1; \
+	fi
+	@cp monitoring/vault/config/secure/config.hcl monitoring/vault/config/vault-config.hcl
+	@cp docker-compose.override.stage8.vault-secure.yml docker-compose.override.yml
+	@echo "✅ Stage 8 config applied."
+	@echo "🚀 Starting Vault with auto-unseal..."
+	@docker-compose up -d vault
+	@echo "⏳ Waiting for Vault to start (30s)..."
+	@sleep 30
+	@docker logs vault --tail 20
+	@echo ""
+	@echo "✅ Stage 8 deployment complete. Verify with: make vault-secure-status"
+
+vault-secure-init: ## Initialize Vault (Stage 8) with 5 key shares, threshold 3
+	@echo "🔐 Initializing Vault..."
+	@docker exec -it vault vault operator init -key-shares=5 -key-threshold=3 \
+		-format=json | tee vault-init-output.json
+	@echo "✅ Vault initialized. Save the output securely!"
+	@echo "⚠️  Run: ./monitoring/vault/scripts/encrypt-unseal.sh to encrypt keys"
+
+vault-secure-status: ## Check Vault status (Stage 8)
+	@echo "🔍 Vault Status:"
+	@docker exec vault vault status || true
+	@echo ""
+	@echo "🔍 Auto-Unseal Log (last 20 lines):"
+	@docker logs vault --tail 20 | grep -E "(unseal|sealed|Vault)"
+
+vault-secure-backup: ## Backup Vault data (Stage 8)
+	@echo "💾 Creating Vault backup..."
+	@BACKUP_FILE="vault-backup-$$(date +%Y%m%d-%H%M%S).tar.gz"; \
+	tar -czf $$BACKUP_FILE monitoring/vault/data/ monitoring/vault/creds/vault-unseal-key.enc monitoring/vault/.unseal-password; \
+	echo "✅ Backup created: $$BACKUP_FILE"; \
+	chmod 600 $$BACKUP_FILE
+
+vault-secure-test: ## Test Vault AppRole access (Stage 8)
+	@echo "🧪 Testing Vault AppRole access..."
+	@docker exec vault vault kv list zakupai/ || echo "❌ KV engine not accessible"
+
+# --------------------------------------------
+# 🔐 Vault Stage 9 (Production B2 + TLS)
+# --------------------------------------------
+
+stage9: ## Stage 9: Production with B2 storage, TLS, and audit
+	@echo "🔐 Applying Stage 9 configuration (Production B2 + TLS + Audit)..."
+	@if [ -z "$$AWS_ACCESS_KEY_ID" ] || [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then \
+		echo "❌ B2 credentials not set. Export AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"; \
+		exit 1; \
+	fi
+	@if [ ! -f monitoring/vault/tls/vault-cert.pem ] || [ ! -f monitoring/vault/tls/vault-key.pem ]; then \
+		echo "❌ TLS certificates not found. Run: make vault-tls-renew"; \
+		exit 1; \
+	fi
+	@cp monitoring/vault/config/secure/config-stage9.hcl monitoring/vault/config/vault-config.hcl
+	@cp docker-compose.override.stage9.vault-prod.yml docker-compose.override.yml
+	@echo "✅ Stage 9 config applied."
+	@echo "🚀 Starting Vault with B2 + TLS + Audit..."
+	@docker-compose up -d vault
+	@echo "⏳ Waiting for Vault to start (40s)..."
+	@sleep 40
+	@docker logs vault --tail 30
+	@echo ""
+	@echo "✅ Stage 9 deployment complete. Verify with: make smoke-stage9"
+
+vault-prod-status: ## Check Vault status (Stage 9)
+	@echo "🔍 Vault Status (Production):"
+	@VAULT_SKIP_VERIFY=false docker exec vault vault status || true
+	@echo ""
+	@echo "🔍 Audit Log (last 10 entries):"
+	@tail -10 monitoring/vault/logs/audit.log 2>/dev/null || echo "No audit log yet"
+
+vault-prod-backup: ## Backup Vault to B2 (Stage 9)
+	@echo "💾 Creating Vault snapshot and uploading to B2..."
+	@./scripts/vault-migrate-stage9.sh backup
+
+vault-tls-renew: ## Generate/renew TLS certificates for Vault
+	@echo "🔐 Generating TLS certificates for Vault..."
+	@mkdir -p monitoring/vault/tls
+	@openssl req -x509 -nodes -newkey rsa:4096 -days 365 \
+		-keyout monitoring/vault/tls/vault-key.pem \
+		-out monitoring/vault/tls/vault-cert.pem \
+		-subj "/CN=vault.zakupai.local" \
+		-addext "subjectAltName=DNS:vault.zakupai.local,DNS:localhost,IP:127.0.0.1"
+	@chmod 600 monitoring/vault/tls/vault-key.pem
+	@chmod 644 monitoring/vault/tls/vault-cert.pem
+	@echo "✅ TLS certificates generated:"
+	@echo "   - monitoring/vault/tls/vault-cert.pem"
+	@echo "   - monitoring/vault/tls/vault-key.pem"
+
+smoke-stage9: ## Run smoke tests for Stage 9
+	@echo "🧪 Running Stage 9 smoke tests..."
+	@./monitoring/vault/tests/smoke-stage9.sh
+
+# --------------------------------------------
+# 🔙 Rollback Commands
+# --------------------------------------------
+
+rollback-stage8: ## Rollback from Stage 8 to Stage 7
+	@echo "🔙 Rolling back to Stage 7..."
+	@docker-compose down vault
+	@cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+	@rm -f docker-compose.override.yml
+	@docker-compose up -d vault
+	@echo "✅ Rolled back to Stage 7. Manual unseal required."
+	@echo "Run: vault operator unseal <key>"
+
+rollback-stage9: ## Rollback from Stage 9 to Stage 8
+	@echo "🔙 Rolling back to Stage 8..."
+	@docker-compose down vault
+	@cp monitoring/vault/config/secure/config.hcl monitoring/vault/config/vault-config.hcl
+	@cp docker-compose.override.stage8.vault-secure.yml docker-compose.override.yml
+	@echo "📦 Restoring data from latest backup..."
+	@LATEST_BACKUP=$$(ls -t vault-backup-*.tar.gz 2>/dev/null | head -1); \
+	if [ -n "$$LATEST_BACKUP" ]; then \
+		tar -xzf $$LATEST_BACKUP -C / ; \
+		echo "✅ Data restored from: $$LATEST_BACKUP"; \
+	else \
+		echo "⚠️  No backup found. Data may be lost."; \
+	fi
+	@docker-compose up -d vault
+	@echo "✅ Rolled back to Stage 8. Auto-unseal active."

@@ -61,6 +61,7 @@ monitoring/vault/tls/*.key
 monitoring/vault/tls/*.crt
 monitoring/vault/tls/*.csr
 monitoring/vault/tls/*.srl
+monitoring/vault/tls/*.pem
 !monitoring/vault/tls/generate-certs.sh
 !monitoring/vault/tls/openssl.cnf
 monitoring/vault/data/
@@ -68,6 +69,14 @@ monitoring/vault/creds/*
 !monitoring/vault/creds/README.md
 !monitoring/vault/creds/.gitkeep
 monitoring/prometheus/vault-metrics.token
+
+# Vault Stage 8 & 9 - Auto-unseal secrets
+monitoring/vault/.unseal-password
+monitoring/vault/creds/vault-unseal-key.txt
+monitoring/vault/creds/vault-unseal-key.enc
+monitoring/vault/logs/audit.log
+monitoring/vault/logs/vault.log
+.vault-token
 
 # Docker volumes data
 data/
