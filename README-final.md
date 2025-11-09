@@ -2,6 +2,12 @@
 
 **TL;DR**: Полная миграция Vault от ручного unseal до production-ready с B2 storage, TLS и audit logging.
 
+**Current Status (2025-11-09):**
+- ✅ **Stage 7** (Manual Unseal) — Complete
+- ✅ **Stage 8** (Auto-Unseal + Network Consolidation) — Complete
+- 🟡 **Stage 9** (B2 + TLS + Audit) — Pending rollout (config ready)
+- 🔴 **Stage 9.5** (Goszakup Integration + Workflows) — Not started
+
 ---
 
 ## 🚀 Быстрый старт (5 минут)
