@@ -80,7 +80,8 @@ zakupai/
 │
 ├── monitoring/vault/
 │   ├── config/
-│   │   ├── stage7-config.hcl          # Stage 7: Manual unseal
+│   │   ├── stage7/                    # Legacy configs
+│   │   │   └── stage7-config.hcl      # Stage 7: Manual unseal
 │   │   └── secure/
 │   │       ├── config.hcl             # Stage 8: Auto-unseal file
 │   │       └── config-stage9.hcl      # Stage 9: B2 + TLS + audit

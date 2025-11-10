@@ -73,7 +73,7 @@
 docker-compose down vault
 
 # 2. Восстановить Stage 7 конфигурацию
-cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+cp monitoring/vault/config/stage7/stage7-config.hcl monitoring/vault/config/vault-config.hcl
 
 # 3. Удалить Stage 8 override
 rm -f docker-compose.override.yml

@@ -405,7 +405,7 @@ services:
       VAULT_LOG_LEVEL: info
       VAULT_ADDR: http://127.0.0.1:8200
     volumes:
-      - ./monitoring/vault/config/config.hcl:/vault/config/config.hcl:ro
+      - ./monitoring/vault/config/stage7/config.hcl:/vault/config/config.hcl:ro
       - vault-data:/vault/file:rw
       - vault-logs:/vault/logs:rw
     cap_add:

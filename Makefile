@@ -150,7 +150,7 @@ stage6-status: ## Показать статус контейнеров и мет
 
 stage7: ## Stage 7: Manual unseal with file backend
 	@echo "🔐 Applying Stage 7 configuration (Manual File Backend)..."
-	@cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+	@cp monitoring/vault/config/stage7/stage7-config.hcl monitoring/vault/config/vault-config.hcl
 	@echo "✅ Stage 7 config applied. Start Vault with: docker-compose up -d vault"
 	@echo "⚠️  Manual unseal required after restart."
 
@@ -265,7 +265,7 @@ smoke-stage9: ## Run smoke tests for Stage 9
 rollback-stage8: ## Rollback from Stage 8 to Stage 7
 	@echo "🔙 Rolling back to Stage 7..."
 	@docker-compose down vault
-	@cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+	@cp monitoring/vault/config/stage7/stage7-config.hcl monitoring/vault/config/vault-config.hcl
 	@rm -f docker-compose.override.yml
 	@docker-compose up -d vault
 	@echo "✅ Rolled back to Stage 7. Manual unseal required."
