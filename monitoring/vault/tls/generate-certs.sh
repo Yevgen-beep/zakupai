@@ -1,111 +1,49 @@
 #!/bin/bash
-# ===========================================
-# Generate Self-Signed TLS Certificates for Vault
-# ===========================================
-# Usage: ./monitoring/vault/tls/generate-certs.sh
-#
-# This script generates:
-# - CA certificate (ca.crt, ca.key)
-# - Vault server certificate (server.crt, server.key)
-#
-# ⚠️ For development only! Use proper PKI in production.
+# ============================================================================
+# TLS Certificates Generator for Vault Stage 9
+# ============================================================================
+# Purpose: Generate self-signed certificates with correct permissions
+# Usage: ./generate-certs.sh [--docker-volume]
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+VOLUME_NAME="zakupai_vault_tls"
 
-DAYS=3650  # 10 years (dev only)
-COUNTRY="KZ"
-STATE="Almaty"
-CITY="Almaty"
-ORG="ZakupAI"
-OU="DevOps"
-CN_CA="ZakupAI Root CA"
-CN_SERVER="vault"
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-echo "🔐 Generating TLS certificates for Vault..."
+echo -e "${GREEN}=== Vault TLS Certificate Generator ===${NC}\n"
 
-# ===========================================
-# 1. Generate CA (Certificate Authority)
-# ===========================================
-
-if [ -f "ca.key" ]; then
-  echo "⚠️  CA key already exists, skipping CA generation"
+if [[ "${1:-}" == "--docker-volume" ]]; then
+    echo -e "${YELLOW}📦 Generating certificates directly in Docker volume${NC}"
+    docker run --rm -v ${VOLUME_NAME}:/vault/tls alpine sh -c "
+        apk add --no-cache openssl > /dev/null 2>&1;
+        cd /vault/tls;
+        echo '🔐 Generating private key...';
+        openssl genrsa -out vault.key 2048 2>/dev/null;
+        echo '📜 Generating certificate...';
+        openssl req -new -x509 -key vault.key -out vault.crt \
+            -days 365 \
+            -subj '/C=KZ/ST=Karaganda/L=Karagandy/O=ZakupAI/CN=vault' 2>/dev/null;
+        echo '🔒 Setting permissions (UID 100:100)...';
+        chown 100:100 vault.key vault.crt;
+        chmod 640 vault.key;
+        chmod 644 vault.crt;
+        echo '✅ Certificates generated:';
+        ls -la /vault/tls;"
+    echo -e "\n${GREEN}✅ Certificates created in Docker volume: ${VOLUME_NAME}${NC}"
 else
-  echo "📝 Creating CA private key..."
-  openssl genrsa -out ca.key 4096
-
-  echo "📝 Creating CA certificate..."
-  openssl req -x509 -new -nodes -key ca.key -sha256 -days ${DAYS} -out ca.crt \
-    -subj "/C=${COUNTRY}/ST=${STATE}/L=${CITY}/O=${ORG}/OU=${OU}/CN=${CN_CA}"
-
-  echo "✅ CA certificate created: ca.crt"
+    echo -e "${YELLOW}📁 Generating certificates in local directory${NC}"
+    openssl genrsa -out "${SCRIPT_DIR}/vault.key" 2048 2>/dev/null
+    openssl req -new -x509 -key "${SCRIPT_DIR}/vault.key" -out "${SCRIPT_DIR}/vault.crt" \
+        -days 365 -subj "/C=KZ/ST=Karaganda/L=Karagandy/O=ZakupAI/CN=vault" 2>/dev/null
+    chmod 640 "${SCRIPT_DIR}/vault.key"
+    chmod 644 "${SCRIPT_DIR}/vault.crt"
+    echo -e "\n${GREEN}✅ Certificates created in: ${SCRIPT_DIR}${NC}"
+    ls -la "${SCRIPT_DIR}"/vault.{key,crt}
+    echo -e "\n${YELLOW}⚠️  Note: Permissions will be fixed by init-container${NC}"
 fi
-
-# ===========================================
-# 2. Generate Vault Server Certificate
-# ===========================================
-
-echo "📝 Creating Vault server private key..."
-openssl genrsa -out server.key 2048
-
-echo "📝 Creating certificate signing request (CSR)..."
-openssl req -new -key server.key -out server.csr \
-  -subj "/C=${COUNTRY}/ST=${STATE}/L=${CITY}/O=${ORG}/OU=${OU}/CN=${CN_SERVER}"
-
-# Create openssl config for SAN (Subject Alternative Names)
-cat > server.ext <<EOF
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
-subjectAltName = @alt_names
-
-[alt_names]
-DNS.1 = vault
-DNS.2 = localhost
-DNS.3 = zakupai-vault
-DNS.4 = vault.zakupai.local
-IP.1 = 127.0.0.1
-IP.2 = 0.0.0.0
-EOF
-
-echo "📝 Signing server certificate with CA..."
-openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key \
-  -CAcreateserial -out server.crt -days ${DAYS} -sha256 \
-  -extfile server.ext
-
-# Clean up temporary files
-rm -f server.csr server.ext
-
-echo "✅ Vault server certificate created: server.crt, server.key"
-
-# ===========================================
-# 3. Verify certificates
-# ===========================================
-
-echo ""
-echo "🔍 Verifying certificates..."
-openssl x509 -in ca.crt -noout -subject -dates
-openssl x509 -in server.crt -noout -subject -dates -ext subjectAltName
-
-echo ""
-echo "✅ TLS certificates generated successfully!"
-echo ""
-echo "📁 Files created:"
-echo "   - ca.crt       (CA certificate)"
-echo "   - ca.key       (CA private key)"
-echo "   - server.crt   (Vault server certificate)"
-echo "   - server.key   (Vault server private key)"
-echo ""
-echo "⚠️  Next steps:"
-echo "   1. Set proper permissions (DO NOT RUN - documentation only):"
-echo "      chmod 600 server.key ca.key"
-echo "      chmod 644 server.crt ca.crt"
-echo "      chown 100:1000 server.* ca.*  # vault user in container"
-echo ""
-echo "   2. Verify Vault can read certificates:"
-echo "      docker exec zakupai-vault ls -la /vault/tls/"
-echo ""
-echo "   3. Test TLS connection:"
-echo "      curl --cacert ca.crt https://localhost:8200/v1/sys/health"
+echo -e "\n${GREEN}🎉 Certificate generation complete!${NC}"

@@ -334,133 +334,117 @@ DoD: make test-priority4 (pytest + scripts/e2e/run_tests.py + python test_metric
 ---
 
 ZakupAI — Development Roadmap (Stage 7–10)
-Stage 7 — Monitoring, Vault, Security
-Vault Deployment and Monitoring Stack
 
-[x] Развернуть контейнер Vault (hashicorp/vault:1.17)
- • Конфиг: monitoring/vault/config.hcl, порт 8200
- • Сгенерировать root-token и CA
+## ✅ Stage 7 — Vault Integration and Security Middleware
+[x] Vault контейнер запущен в dev-режиме и инициализирован через init-vault.sh  
+[x] Добавлен hvac в calc / etl / risk (частично)  
+[x] Включён Prometheus мониторинг Vault  
+[x] Созданы политики и AppRole ролей для сервисов  
+[x] Добавлены rate-limit и payload-guard в gateway  
+[ ] **Auth Middleware and Secrets Management (migrated to Stage 9)**
 
-[x] Настроить мониторинг
- • Prometheus, Alertmanager, Grafana
- • Blackbox Exporter, cAdvisor, Loki
- • Prometheus rules (error ratio, latency p95)
- • Дашборд zakupai-overview (uptime >99%)
+DoD: базовая интеграция Vault есть, middleware работает, часть секретов вынесена в KV v2.
 
-DoD:
-Vault и Monitoring работают стабильно, метрики собираются, health=200 OK.
+---
 
-Vault Integration and Service Stabilization
+## ✅ Stage 8 — Network Consolidation and Auto-Unseal
+[x] Auto-unseal работает (AES-256 + PBKDF2)  
+[x] Сети оптимизированы: zakupai-network + monitoring-net  
+[x] Monitoring stack (Grafana, Prometheus, Alertmanager) в отдельной сети  
+[x] Vault в двух сетях, без наружных портов  
+[x] STAGE8_SYNC_REPORT зафиксирован  
 
-[x] Исправить конфигурацию Vault bootstrap
-[x] Проверить health всех контейнеров
-[x] Добавить сети vault-net и monitoring-net
-[ ] Устранить предупреждения Pydantic (schema_extra → model_config)
+DoD: двухсетевая архитектура принята, auto-unseal проверен, Stage 8 закрыт.
 
-DoD:
-Все контейнеры в состоянии health, Vault стабилен.
-Тег: stable-stage7-28-10
+---
 
-Auth Middleware and Secrets Management
+## 🚧 Stage 9 — Infra Hardening and Secrets (Production Readiness)
 
-[ ] Интегрировать hvac в calc-, etl-, risk-engine
-[ ] Удалить .env из Docker-сборок
-[ ] Перенести все чувствительные переменные (DB URI, API keys, Telegram tokens) в Vault
-[ ] Настроить Alertmanager webhook (Telegram / Slack)
-[ ] Добавить бизнес-метрики (anti-dumping %, goszakup errors)
-[ ] Добавить Vault healthcheck в Compose
+### Secure Vault Storage & Transport
+[ ] Подготовить Backblaze B2: создать bucket `zakupai-vault`, экспортировать `B2_APPLICATION_KEY_ID` и `B2_APPLICATION_KEY`  
+[ ] Выполнить `setup_vault_evolution.sh --stage9-final --verify` (B2 + TLS + audit)  
+[ ] Проверить auto-unseal (AES-256 + PBKDF2)  
+[ ] Smoke-тест `vault status` / `curl https://127.0.0.1:8200/v1/sys/health` → 200 OK  
 
-DoD:
-Все сервисы читают секреты из Vault, .env исключён, webhook-оповещения работают.
+### Network Consolidation
+[ ] `docker compose down && docker network prune -f && docker compose up -d`  
+[ ] Убедиться, что остались только: `zakupai_zakupai-network` и `zakupai_monitoring-net`  
+[ ] Проверить `docker network ls` / `docker inspect`  
+[ ] Зафиксировать в `SYNC_REPORT_2025-11-10.md`  
 
-Stage 8 — Network Consolidation (Completed 2025-11-09)
+### Centralize Secrets in Vault KV v2
+[ ] Создать `zakupai/config/*` и сохранить: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `GOSZAKUP_TOKEN`, `OPENAI_API_KEY`, `JWT_SECRET`  
+[ ] Интегрировать hvac во все сервисы (calc / etl / risk / gateway / bot)  
+[ ] После проверки удалить чувствительные переменные из `.env` и `docker-compose/*.env`  
+[ ] Добавить `tests/test_vault_integration.py` в CI  
+[ ] Добавить endpoint `/vault/health` в Gateway  
 
-[x] Удалить устаревшие сети (ai-network, backend, vault-net)
-[x] Мигрировать 5 сервисов на zakupai-network
-[x] Удалить version: поля из override-файлов
-[x] Проверить Compose-конфигурации (Stage 8, Stage 9, Monitoring)
-[x] Сгенерировать network_cleanup.patch и документацию (NETWORK_*)
+### Database / Redis Hardening
+[ ] PostgreSQL: включить WAL archiving, pgbouncer pooling, роли (etl_ro, risk_rw, calc_ro)  
+[ ] Redis: `appendonly yes`, `maxmemory 256mb`, `requirepass`  
+[ ] Проверить метрики в Prometheus  
 
-DoD:
-Осталось 2 сети: zakupai-network и monitoring-net.
-Все конфиги валидны.
-Тег: stable-stage9-vault-network-ok
+### Monitoring Enhancement (Promtail + Alertmanager)
+[ ] Развернуть Promtail как host-agent (см. STAGE7_SECURITY_AUDIT_PLAN.md)  
+[ ] Проверить метки в Grafana (job="promtail")  
+[ ] Настроить реальный Telegram webhook в Alertmanager и протестировать  
+[ ] Проверить цепочку Prometheus → Alertmanager → Telegram  
 
-Stage 9 — Vault Hardening and Production Readiness
+### Performance / Security / CI / Docs
+[ ] Прогнать нагрузку ≥ 1000 req/min (P95 < 500 ms)  
+[ ] `bandit +snyk +dependency-check` → 0 critical  
+[ ] Обновить GitHub Actions (Vault tests, security-scan, stage9-smoke)  
+[ ] Обновить `README-final.md`, `VAULT_QUICKSTART.md`, `VAULT_ADMIN_GUIDE.md` (Stage 9 Recovery / Rollback)
 
-[ ] Настроить Vault Stage 9: S3 (Backblaze B2 backend), TLS, audit logging
-[ ] Настроить auto-unseal (AES-256 + PBKDF2)
+**DoD:** Vault работает на B2 с TLS и audit-логом; остались 2 сети; секреты в Vault KV v2; . env очищены; Promtail и Alertmanager активны; нагрузка и сканы пройдены; CI/CD зелёный.
 
-[ ] Перенести все конфиденциальные переменные (DB URI, API keys, Telegram, Goszakup) в Vault KV v2
- • Создать путь zakupai/config/* для групп секретов
- • Сохранить POSTGRES_USER, POSTGRES_PASSWORD, TELEGRAM_BOT_TOKEN, GOSZAKUP_TOKEN
- • Настроить загрузку через hvac при старте сервисов (calc, etl, risk-engine, bot, gateway)
- • Очистить .env и Compose-файлы от чувствительных данных
- • Добавить тест tests/test_vault_integration.py в CI
- • DoD: все сервисы стартуют без .env, секреты читаются из Vault KV
+---
 
-[ ] Настроить PostgreSQL (WAL archiving, pooling, роли доступа)
-[ ] Настроить Redis (AOF + пароль + ограничение памяти)
-[ ] Прогнать нагрузочные тесты (1000 req/min, P95 < 500 ms)
-[ ] Провести security-scan (bandit + snyk + dependency-check = 0 critical)
+## 🔐 Auth Middleware and Secrets Management *(migrated from Stage 7 → closing in Stage 9)*
+[ ] Интегрировать hvac в calc / etl / risk / gateway / bot  
+ • Проверить чтение секретов из Vault KV v2 и удалить . env после тестов  
+[ ] Перенести все чувствительные переменные в Vault и проверить hvac-загрузку  
+[ ] Настроить Alertmanager webhook (Telegram / Slack)  
+[ ] Добавить Vault healthcheck в Compose (/vault/health в Gateway)  
+[ ] Включить бизнес-метрики (anti-dumping %, goszakup_errors) — при запуске Stage 10  
 
-DoD: Vault полностью защищён, секреты централизованы, CI/CD зелёный.
+DoD: hvac во всех сервисах, . env удалены, секреты в Vault, Alertmanager активен, healthcheck есть, метрики подключены в аналитическом контуре.
 
-Stage 9.5 — Business Core Integration
-Goszakup API and Data Pipeline
+---
 
-[ ] Настроить интеграцию с Goszakup API
- • Секреты API-ключей хранить в Vault
- • Реализовать endpoint etl/goszakup/sync
- • Выгружать JSON-данные в PostgreSQL (goszakup_lots)
+## 🚧 Stage 10 — Data & AI Integration (ранее Stage 9.5)
 
-[ ] Создать таблицы в PostgreSQL:
- • goszakup_lots — активные тендеры
- • lot_suppliers — поставщики
- • lot_analysis — расчёт прибыльности
+### Readiness Plan (Infra → Data → AI)
+[ ] Подтвердить закрытие Stage 9 DoD (Vault B2 + TLS + CI green)  
+[ ] Проверить чистоту сетей и работу Promtail / Alertmanager  
+[ ] Завести секрет `goszakup_api_key` в Vault (путь zakupai/goszakup)  
 
-DoD:
-ETL-процесс стабильно загружает данные из Goszakup в базу.
+### Goszakup ETL and Database Pipeline
+[ ] Реализовать endpoint `/etl/goszakup/sync` в FastAPI  
+[ ] Создать таблицы: `goszakup_lots`, `lot_suppliers`, `lot_analysis`  
+[ ] Настроить миграции (Alembic / SQL)  
+[ ] Добавить метрики `goszakup_lots_total`, `etl_run_duration_sec` в Prometheus  
 
-Workflow Automation (n8n, Flowise)
+### Workflow Automation (n8n + Flowise)
+[ ] Создать workflows `daily-lot-scanner`, `lot-processing`, `price-monitor`  
+[ ] Импортировать Flowise chatflow и связать с Telegram ботом (/search, /ask)  
+[ ] Проверить цепочку `Goszakup API → n8n → DB → risk-engine → Telegram`  
 
-[ ] Разработать и загрузить n8n-workflow:
- • daily-lot-scanner.json — ежедневная загрузка лотов
- • lot-processing-pipeline.json — фильтрация и нормализация
- • price-monitor.json — поиск ценовых вилок
+### CI / Smoke Tests
+[ ] Добавить ETL и Gateway в GitHub Actions build matrix  
+[ ] Добавить e2e тест “ETL → DB → Risk Engine”  
+[ ] Зафиксировать результаты в `SYNC_REPORT_YYYY-MM-DD.md`
 
-[ ] Создать Flowise chatflow:
- • zakupai-assistant-chatflow.json — помощник для анализа лотов
- • Подключить к Chroma и Embedding API
+**DoD:** Stage 9 закрыт, Vault в продакшене, данные Goszakup загружаются, workflow и мониторинг работают end-to-end.
 
-[ ] Настроить интеграцию с Telegram-ботом:
- • /search — поиск лотов
- • /ask — ИИ-ответ по данным из Flowise
+⚠️ Stage 10 starts only after Stage 9 DoD is fully closed.
 
-DoD:
-n8n и Flowise выполняют workflows без ошибок,
-Telegram-бот возвращает актуальные результаты из БД.
+---
 
-Stage 10 — Production Deployment and Pilot
-Infrastructure Deployment
-
-[ ] Развернуть production-сервер (VPS 8GB / 4vCPU / 100GB SSD)
-[ ] Настроить firewall (порты 80, 443, SSH)
-[ ] Настроить домен и SSL (Let’s Encrypt)
-[ ] Настроить CI/CD-pipeline (build → test → deploy → rollback)
-
-DoD:
-Производственный сервер запущен, деплой автоматизирован.
-
-Pilot Program
-
-[ ] Подготовить материалы для клиентов (онбординг, инструкции, support-канал)
-[ ] Провести пилот с 10–20 компаниями
-[ ] Собрать метрики: DAU, WAU, NPS, pain points
-[ ] Подготовить отчёт и обновить roadmap
-
-DoD:
-Пилот проведён, отчёт собран, проект готов к коммерческому запуску.
+## 📈 Stage 11 — Planned Next Steps
+[ ] Auto-publishing лотов и / daily-report через bot / n8n  
+[ ] GPT-агент для анализа тендеров и составления отчётов  
+[ ] Stage 11 scope будет детализирован после завершения Stage 10
 
 Stage 11 (Planned) — Business Automation and Intelligence
 

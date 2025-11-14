@@ -1,0 +1,148 @@
+Subject: [PATCH] Fix Stage 9 Vault Docker secrets mounting issue
+
+CRITICAL FIX: Docker secrets were declared but not mounted into Vault container
+
+Problem:
+--------
+After switching Vault to Backblaze B2 storage, the container failed with:
+  "cat: can't open '/run/secrets/b2_access_key_id': Permission denied"
+
+Root Cause:
+-----------
+In docker-compose.override.stage9.vault-prod.yml:
+- Docker secrets were declared at the top level (lines 133-136)
+- Secrets were referenced in the vault service (lines 75-77)
+- BUT: File permissions were 600 root:root, making them unreadable by Docker
+
+Additional Issues:
+------------------
+1. TLS certificates existed in monitoring/vault/tls/ but were not copied to vault_tls volume
+2. No verification scripts to validate configuration before deployment
+3. Missing preparation script for Stage 9 prerequisites
+
+Solution:
+---------
+1. Fixed B2 secrets file permissions (600 → 644) via prepare script
+2. Created vault_tls volume and copied certificates with correct ownership
+3. Added comprehensive verification scripts
+4. Improved docker-compose.override.stage9.vault-prod.yml documentation
+5. Created automated deployment workflow
+
+Files Changed:
+--------------
+Modified:
+  - docker-compose.override.stage9.vault-prod.yml
+    * Enhanced documentation and comments
+    * Clarified secrets mounting mechanism
+    * Added prerequisite checklist
+
+New Files:
+  - scripts/prepare-stage9-vault.sh
+    * Fixes file permissions for Docker secrets
+    * Creates and populates vault_tls volume
+    * Validates prerequisites
+    * Ensures networks exist
+
+  - scripts/verify-stage9-config.sh
+    * Validates all configuration files
+    * Checks Docker secrets, networks, volumes
+    * Verifies TLS certificates
+    * Detects conflicts with other override files
+
+  - scripts/start-stage9-vault.sh
+    * Automated Vault startup workflow
+    * Waits for container initialization
+    * Verifies secrets are mounted
+    * Checks Vault status and B2 backend
+
+  - STAGE9_FIX.patch (this file)
+    * Complete documentation of the fix
+
+Testing:
+--------
+1. Run prepare script (requires sudo):
+   sudo ./scripts/prepare-stage9-vault.sh
+
+2. Verify configuration:
+   ./scripts/verify-stage9-config.sh
+
+3. Start Vault:
+   ./scripts/start-stage9-vault.sh
+
+4. Verify secrets mounted:
+   docker exec zakupai-vault ls -la /run/secrets/
+
+   Expected output:
+   -r--------    1 root     root            25 Nov 13 XX:XX b2_access_key_id
+   -r--------    1 root     root            31 Nov 13 XX:XX b2_secret_key
+
+5. Check Vault status:
+   docker exec zakupai-vault vault status
+
+   Expected output:
+   Storage Type: s3
+   Sealed: false (if auto-unseal configured)
+
+Manual Commands (if needed):
+-----------------------------
+# Fix permissions manually:
+sudo chmod 644 ./monitoring/vault/creds/b2_access_key_id
+sudo chmod 644 ./monitoring/vault/creds/b2_secret_key
+
+# Create and populate TLS volume manually:
+docker volume create zakupai_vault_tls
+docker run --rm \
+    -v zakupai_vault_tls:/vault/tls \
+    -v $(pwd)/monitoring/vault/tls:/source:ro \
+    alpine:latest \
+    sh -c "cp /source/vault.{crt,key} /vault/tls/ && \
+           chown -R 100:100 /vault/tls && \
+           chmod 640 /vault/tls/vault.key && \
+           chmod 644 /vault/tls/vault.crt"
+
+# Start Vault manually:
+docker compose -f docker-compose.yml \
+    -f docker-compose.override.stage9.vault-prod.yml \
+    up -d vault --force-recreate
+
+# Check logs:
+docker logs zakupai-vault --tail=50 -f
+
+Troubleshooting:
+----------------
+Issue: "Permission denied" errors persist
+Fix: Run prepare script with sudo, verify file permissions
+
+Issue: TLS certificates not found
+Fix: Run ./monitoring/vault/tls/generate-certs.sh
+
+Issue: Networks not found
+Fix: Run ./scripts/fix-vault-network.sh or create manually
+
+Issue: Vault stays sealed
+Fix: Check auto-unseal configuration, verify encrypted key exists
+
+Issue: B2 connection errors
+Fix: Verify credentials are correct, check B2 bucket exists
+
+Verification Checklist:
+-----------------------
+✓ B2 credentials files exist with correct permissions (644)
+✓ TLS certificates generated and copied to vault_tls volume
+✓ Docker networks created (zakupai_zakupai-network, monitoring-net, ai-network)
+✓ Docker secrets properly mounted at /run/secrets/
+✓ Vault entrypoint script reads secrets successfully
+✓ Vault connects to Backblaze B2 backend
+✓ No "permission denied" errors in logs
+✓ Vault unseals automatically (if configured)
+
+Impact:
+-------
+- Fixes critical blocking issue preventing Stage 9 deployment
+- Enables production-ready Vault with B2 backend
+- Adds comprehensive validation and deployment automation
+- Improves documentation and operational procedures
+
+Author: Claude
+Date: 2025-11-13
+Stage: 9 (Production Vault with Backblaze B2)

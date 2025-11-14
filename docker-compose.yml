@@ -460,6 +460,15 @@ services:
 # === Volumes & Networks ===
 # =======================================================
 
+# =======================================================
+# === Docker Secrets (Stage 9) ===
+# =======================================================
+secrets:
+  b2_access_key_id:
+    file: ./monitoring/vault/creds/b2_access_key_id
+  b2_secret_key:
+    file: ./monitoring/vault/creds/b2_secret_key
+
 volumes:
   postgres_data:
   chromadb_data:
@@ -473,9 +482,13 @@ volumes:
 
 networks:
   zakupai-network:
-    driver: bridge
+    external: true
     name: zakupai_zakupai-network
+
   monitoring-net:
-    driver: bridge
-    internal: true
+    external: true
     name: zakupai_monitoring-net
+
+  ai-network:
+    external: true
+    name: zakupai_ai-network

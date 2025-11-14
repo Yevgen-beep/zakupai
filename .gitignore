@@ -69,6 +69,7 @@ monitoring/vault/creds/*
 !monitoring/vault/creds/README.md
 !monitoring/vault/creds/.gitkeep
 monitoring/prometheus/vault-metrics.token
+monitoring/vault/.env.b2
 
 # Vault Stage 8 & 9 - Auto-unseal secrets
 monitoring/vault/.unseal-password
@@ -133,3 +134,4 @@ monitoring/vault/logs/audit.log
 monitoring/vault/tls/*.pem
 
 
+monitoring/vault/creds/b2_*

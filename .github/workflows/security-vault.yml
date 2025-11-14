@@ -1,0 +1,71 @@
+name: Security - Vault Config Check
+
+on:
+  push:
+    branches: [feature/stage9-vault-hardening]
+  pull_request:
+    branches: [main, feature/stage9-vault-hardening]
+
+jobs:
+  vault-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Vault config has no inline secrets
+        run: |
+          if git grep -niE 'access_key|secret_key' -- monitoring/vault/config/secure 2>/dev/null; then
+            echo "❌ Inline credentials detected"; exit 1;
+          fi
+          echo "✅ No inline secrets in Vault configs"
+
+      - name: Check creds permissions (if present)
+        run: |
+          if [ -f monitoring/vault/creds/b2_access_key_id ]; then
+            [ $$(stat -c "%a" monitoring/vault/creds/b2_access_key_id) -eq 600 ] || { echo "❌ b2_access_key_id permissions must be 600"; exit 1; }
+          fi
+          if [ -f monitoring/vault/creds/b2_secret_key ]; then
+            [ $$(stat -c "%a" monitoring/vault/creds/b2_secret_key) -eq 600 ] || { echo "❌ b2_secret_key permissions must be 600"; exit 1; }
+          fi
+          echo "✅ Creds permissions OK or files absent (expected in CI)"
+
+      - name: Prepare dummy secrets for compose validation
+        run: |
+          mkdir -p monitoring/vault/creds
+          echo "placeholder" > monitoring/vault/creds/b2_access_key_id
+          echo "placeholder" > monitoring/vault/creds/b2_secret_key
+          chmod 600 monitoring/vault/creds/b2_access_key_id monitoring/vault/creds/b2_secret_key
+
+      - name: Compose config validation
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage9.vault-prod.yml config >/dev/null
+
+      - name: Check no bind-mount for TLS
+        run: |
+          if grep -q './monitoring/vault/tls' docker-compose.override.stage9.vault-prod.yml; then
+            echo "❌ Bind-mount detected for TLS — must use named volume vault_tls"
+            exit 1
+          fi
+          echo "✅ Vault TLS correctly uses named volume vault_tls"
+
+      - name: Test TLS preload (dry run)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.stage9.vault-prod.yml --profile init up init-tls
+
+      - name: Verify TLS script fixes Vault permissions
+        run: |
+          if ! grep -q 'chown 100:100' monitoring/vault/tls/generate-certs.sh; then
+            echo "❌ generate-certs.sh missing chown 100:100 (required for Vault uid 100)"
+            exit 1
+          fi
+          if ! grep -q 'chmod 640' monitoring/vault/tls/generate-certs.sh; then
+            echo "❌ generate-certs.sh missing chmod 640 for vault.key"
+            exit 1
+          fi
+          echo "✅ TLS certificate permissions fix present in generate-certs.sh"
+
+      - name: Verify Vault logs use named volume
+        run: |
+          if grep -q './monitoring/vault/logs' docker-compose.override.stage9.vault-prod.yml; then
+            echo "❌ Bind-mount detected for /vault/logs — must use named volume vault_logs"
+            exit 1
+          fi
+          echo "✅ Vault logs correctly use named volume"

@@ -72,6 +72,11 @@ networks:
   zakupai-network:
     external: true
     name: zakupai_zakupai-network
+
   monitoring-net:
     external: true
     name: zakupai_monitoring-net
+
+  ai-network:
+    external: true
+    name: zakupai_ai-network

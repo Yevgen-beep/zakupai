@@ -1,90 +1,150 @@
-# Docker Compose Override - Stage 9 (Production B2 + TLS + Audit)
-# Purpose: Production-ready Vault with S3 storage, TLS encryption, and audit logging
-# Usage: cp docker-compose.override.stage9.vault-prod.yml docker-compose.override.yml
+# ============================================================================
+# Docker Compose Override - Stage 9 (Production-Ready Vault on B2)
+# ============================================================================
+# Purpose: Vault with Backblaze B2 storage backend, TLS, audit logging
+# Changes from Stage 8:
+#   - Storage backend: file → Backblaze B2 (S3-compatible)
+#   - TLS enabled with self-signed certificates
+#   - Docker secrets for B2 credentials
+#   - Auto-unseal with encrypted master key
+#   - Audit logging to persistent volume
+#
+# Prerequisites:
+#   1. B2 credentials in monitoring/vault/creds/b2_access_key_id & b2_secret_key
+#   2. TLS certificates generated: monitoring/vault/tls/vault.{crt,key}
+#   3. Encrypted unseal key: monitoring/vault/creds/vault-unseal-key.enc
+#   4. Master password: monitoring/vault/.unseal-password
+#
+# Usage:
+#   docker compose -f docker-compose.yml \
+#     -f docker-compose.override.stage9.vault-prod.yml up -d
+# ============================================================================
 
 services:
+  # ==========================================================================
+  # Init Container - TLS & Logs Volume Permissions
+  # ==========================================================================
+  vault-tls-init:
+    image: alpine:latest
+    container_name: zakupai-vault-tls-init
+    volumes:
+      - vault_tls:/vault/tls
+      - vault_logs:/vault/logs
+    command: >
+      sh -c "
+      echo '🔧 Fixing volume permissions for Vault user (UID 100)...';
+      if [ -f /vault/tls/vault.key ]; then
+        chown -R 100:100 /vault/tls;
+        chmod 640 /vault/tls/vault.key;
+        chmod 644 /vault/tls/vault.crt;
+        echo '✅ TLS permissions fixed';
+      else
+        echo '⚠️  TLS certificates not found in volume';
+        exit 1;
+      fi;
+      if [ -d /vault/logs ]; then
+        chown -R 100:100 /vault/logs;
+        chmod 755 /vault/logs;
+        echo '✅ Logs permissions fixed';
+      fi;
+      echo '✅ Init complete'
+      "
+    restart: "no"
+    networks: []
+    labels:
+      - "com.zakupai.stage=9"
+      - "com.zakupai.type=init"
+
+  # ==========================================================================
+  # Vault Server - Production Configuration
+  # ==========================================================================
   vault:
     image: hashicorp/vault:1.15
-    container_name: vault
+    container_name: zakupai-vault
     restart: unless-stopped
 
-    # Use auto-unseal entrypoint
-    entrypoint: ["/vault/scripts/auto-unseal.sh"]
+    depends_on:
+      vault-tls-init:
+        condition: service_completed_successfully
 
-    # Interactive mode for proper signal handling
+    # Custom entrypoint: hydrates AWS credentials from Docker secrets
+    entrypoint: ["/vault/scripts/vault-b2-entrypoint.sh"]
+
+    # Required for proper signal handling
     stdin_open: true
     tty: true
 
-    # No public ports - Vault accessible only via Docker network
+    # No exposed ports - internal network only
     ports: []
 
     environment:
-      # Vault configuration
+      # Vault server configuration
       VAULT_ADDR: "https://127.0.0.1:8200"
-      VAULT_API_ADDR: "https://vault.zakupai.local:8200"
-      VAULT_CLUSTER_ADDR: "https://vault.zakupai.local:8201"
-      VAULT_CONFIG: "/vault/config/vault-config.hcl"
+      VAULT_API_ADDR: "https://vault:8200"
+      VAULT_CLUSTER_ADDR: "https://vault:8201"
+      VAULT_CONFIG: "/vault/config/config.hcl"
       VAULT_LOG_LEVEL: "info"
+      VAULT_SKIP_VERIFY: "false"
 
       # Auto-unseal configuration
       ENCRYPTED_KEY_FILE: "/vault/creds/vault-unseal-key.enc"
       PASSWORD_FILE: "/vault/.unseal-password"
 
-      # Backblaze B2 credentials (S3-compatible)
-      # IMPORTANT: Set these via docker-compose.override.local.yml or .env
-      # AWS_ACCESS_KEY_ID: "your_b2_application_key_id"
-      # AWS_SECRET_ACCESS_KEY: "your_b2_application_key"
+      # B2 credentials (read from Docker secrets)
+      AWS_ACCESS_KEY_ID_FILE: "/run/secrets/b2_access_key_id"
+      AWS_SECRET_ACCESS_KEY_FILE: "/run/secrets/b2_secret_key"
 
-      # TLS settings
-      VAULT_SKIP_VERIFY: "false"
+    # CRITICAL FIX: Mount Docker secrets into container
+    secrets:
+      - b2_access_key_id
+      - b2_secret_key
 
     volumes:
-      # Configuration
-      - ./monitoring/vault/config/secure/config-stage9.hcl:/vault/config/vault-config.hcl:ro
+      # Vault configuration (TLS + B2 backend)
+      - ./monitoring/vault/config/secure/config-stage9.hcl:/vault/config/config.hcl:ro
 
-      # Logs (local backup + audit)
-      - ./monitoring/vault/logs:/vault/logs
+      # Persistent logs (audit + server logs)
+      - vault_logs:/vault/logs
 
-      # Scripts
+      # Auto-unseal & B2 entrypoint scripts
       - ./monitoring/vault/scripts:/vault/scripts:ro
 
-      # TLS certificates
-      - ./monitoring/vault/tls:/vault/tls:ro
+      # TLS certificates (from init container)
+      - vault_tls:/vault/tls:ro
 
-      # Credentials (encrypted keys and master password)
+      # Encrypted unseal key + master password
       - ./monitoring/vault/creds:/vault/creds:ro
       - ./monitoring/vault/.unseal-password:/vault/.unseal-password:ro
 
-      # Plugins (optional)
+      # Vault plugins directory (if needed)
       - ./monitoring/vault/plugins:/vault/plugins:ro
+
+    # Run as root to read Docker secrets, Vault process will drop privileges
+    user: "0:0"
 
     cap_add:
       - IPC_LOCK
 
-    networks:
-      - zakupai-network
-      - monitoring-net
+    security_opt:
+      - no-new-privileges:true
 
     healthcheck:
-      test: ["CMD", "sh", "-c", "VAULT_SKIP_VERIFY=false vault status -format=json 2>/dev/null | jq -e '.sealed == false' || exit 1"]
+      test:
+        - CMD
+        - sh
+        - -c
+        - |
+          vault status -format=json 2>/dev/null | \
+          jq -e '.sealed == false' || exit 1
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 90s
 
-    labels:
-      - "com.zakupai.service=vault"
-      - "com.zakupai.stage=9"
-      - "com.zakupai.auto-unseal=enabled"
-      - "com.zakupai.storage=s3-b2"
-      - "com.zakupai.tls=enabled"
-      - "com.zakupai.audit=enabled"
+    networks:
+      - zakupai-network
+      - monitoring-net
 
-    # Security options
-    security_opt:
-      - no-new-privileges:true
-
-    # Resource limits (adjust based on workload)
     deploy:
       resources:
         limits:
@@ -94,10 +154,60 @@ services:
           cpus: '0.5'
           memory: 512M
 
+    labels:
+      - "com.zakupai.service=vault"
+      - "com.zakupai.stage=9"
+      - "com.zakupai.storage=s3-b2"
+      - "com.zakupai.tls=enabled"
+      - "com.zakupai.audit=enabled"
+      - "com.zakupai.auto-unseal=enabled"
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  vault_tls:
+    driver: local
+    labels:
+      - "com.zakupai.stage=9"
+      - "com.zakupai.security=high"
+  vault_logs:
+    driver: local
+    labels:
+      - "com.zakupai.stage=9"
+
+# ============================================================================
+# Networks (FIXED)
+# ============================================================================
+# CRITICAL FIX: Define networks here instead of marking as external
+# This prevents "network not found" errors when Docker removes old networks
 networks:
   zakupai-network:
     external: true
     name: zakupai_zakupai-network
+
   monitoring-net:
     external: true
     name: zakupai_monitoring-net
+
+  ai-network:
+    external: true
+    name: zakupai_ai-network
+
+# ============================================================================
+# MIGRATION NOTES
+# ============================================================================
+# Previous config used:
+#   networks:
+#     zakupai-network:
+#       external: true
+#       name: zakupai_zakupai-network
+#
+# Problem: If network was deleted, Docker couldn't recreate it
+# Solution: Let compose manage network lifecycle
+#
+# If you need external networks (for integration with other stacks):
+#   1. Create networks manually: docker network create zakupai_zakupai-network
+#   2. Mark as external: true in this file
+#   3. Run fix script before compose up
+# ============================================================================
