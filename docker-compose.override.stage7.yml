@@ -19,7 +19,7 @@ services:
     volumes:
       - vault_data:/vault/file
       - vault_logs:/vault/logs
-      - ./monitoring/vault/config/config.hcl:/vault/config/config.hcl:ro
+      - ./monitoring/vault/config/stage7/config.hcl:/vault/config/config.hcl:ro
       - ./monitoring/vault/init-vault.sh:/vault/init-vault.sh:ro
       - ./monitoring/vault/policies:/vault/policies:ro
       - ./monitoring/vault/creds:/vault/creds:rw
@@ -38,6 +38,7 @@ services:
       start_period: 40s
     networks:
       - zakupai-network
+      - monitoring-net
     restart: unless-stopped
 
 
@@ -103,3 +104,16 @@ services:
 
 volumes:
   vault_creds:
+
+networks:
+  zakupai-network:
+    external: true
+    name: zakupai_zakupai-network
+
+  monitoring-net:
+    external: true
+    name: zakupai_monitoring-net
+
+  ai-network:
+    external: true
+    name: zakupai_ai-network

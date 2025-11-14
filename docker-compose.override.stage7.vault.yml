@@ -58,6 +58,7 @@ services:
       start_period: 40s
     networks:
       - zakupai-network
+      - monitoring-net
     restart: unless-stopped
     labels:
       - "com.zakupai.service=vault"
@@ -246,6 +247,9 @@ services:
     depends_on:
       vault:
         condition: service_healthy
+    networks:
+      - zakupai-network
+      - monitoring-net
 
   # ==========================================================================
   # Grafana (for Vault dashboards)
@@ -259,6 +263,9 @@ services:
     depends_on:
       vault:
         condition: service_healthy
+    networks:
+      - zakupai-network
+      - monitoring-net
 
   node-exporter:
     image: prom/node-exporter:v1.7.0
@@ -317,7 +324,7 @@ services:
     volumes:
       - vault-logs:/metrics:ro
     networks:
-      - zakupai-network
+      - monitoring-net
     restart: unless-stopped
     depends_on:
       vault:
@@ -342,7 +349,16 @@ volumes:
 # ============================================================================
 networks:
   zakupai-network:
-    driver: bridge
+    external: true
+    name: zakupai_zakupai-network
+
+  monitoring-net:
+    external: true
+    name: zakupai_monitoring-net
+
+  ai-network:
+    external: true
+    name: zakupai_ai-network
 
 # ============================================================================
 # USAGE NOTES

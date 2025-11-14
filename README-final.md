@@ -2,6 +2,12 @@
 
 **TL;DR**: Полная миграция Vault от ручного unseal до production-ready с B2 storage, TLS и audit logging.
 
+**Current Status (2025-11-09):**
+- ✅ **Stage 7** (Manual Unseal) — Complete
+- ✅ **Stage 8** (Auto-Unseal + Network Consolidation) — Complete
+- 🟡 **Stage 9** (B2 + TLS + Audit) — Pending rollout (config ready)
+- 🔴 **Stage 9.5** (Goszakup Integration + Workflows) — Not started
+
 ---
 
 ## 🚀 Быстрый старт (5 минут)
@@ -62,6 +68,15 @@ make vault-tls-renew
 make smoke-stage9
 ```
 
+## Stage 9 - Vault Hardening & B2 Integration
+
+- Vault хранит данные в Backblaze B2 через S3 backend (`monitoring/vault/config/secure/config-stage9.hcl`), TLS и audit включены.
+- Ключи B2 создаём через `./monitoring/vault/scripts/prepare-b2-secrets.sh`, Docker secrets прокидывают `AWS_ACCESS_KEY_ID/SECRET`.
+- TLS сертификаты генерируем `./monitoring/vault/tls/generate-certs.sh` (можно заменить на Let’s Encrypt).
+- Проверка прод-конфига: `make stage9-verify`; резервные копии — `make vault-backup`.
+- Перед ротацией ключей запускаем `make vault-backup && ./monitoring/vault/scripts/prepare-b2-secrets.sh`, затем `docker compose -f docker-compose.yml -f docker-compose.override.stage9.vault-prod.yml up -d vault`.
+- Политика ротации: обновляем B2 credentials раз в квартал через `prepare-b2-secrets.sh`, обновляем Docker secrets и перезапускаем Vault.
+
 ---
 
 ## 📦 Структура артефактов
@@ -74,7 +89,8 @@ zakupai/
 │
 ├── monitoring/vault/
 │   ├── config/
-│   │   ├── stage7-config.hcl          # Stage 7: Manual unseal
+│   │   ├── stage7/                    # Legacy configs
+│   │   │   └── stage7-config.hcl      # Stage 7: Manual unseal
 │   │   └── secure/
 │   │       ├── config.hcl             # Stage 8: Auto-unseal file
 │   │       └── config-stage9.hcl      # Stage 9: B2 + TLS + audit
@@ -428,6 +444,19 @@ tar -xzf backup.tar.gz
 - [x] Prometheus alerts configured
 - [x] `make smoke-stage9` passes all 15 tests
 - [x] Latency <100ms (p99)
+
+### Troubleshooting — Vault log permissions
+If “Operation not permitted” appears during Stage 9 startup, replace the bind mount `./monitoring/vault/logs:/vault/logs`
+with the named volume `vault_logs:/vault/logs`, then run `docker compose down vault && docker compose up -d vault`.
+
+### Troubleshooting — Vault TLS permissions
+If Vault cannot read `/vault/tls/vault.key`, use `vault_tls:/vault/tls` instead of a bind mount and then recreate the container
+(`docker compose down vault && docker compose up -d vault`) so the named volume is attached with uid 100 ownership.
+
+### Troubleshooting — Vault TLS preload
+If Vault fails with `open /vault/tls/vault.crt: no such file or directory`, run `make vault-tls-preload` to seed the `vault_tls`
+named volume, then restart Vault with `docker compose up -d vault`. Preload again after renewing certificates or recreating
+the `vault_tls` volume.
 
 ---
 

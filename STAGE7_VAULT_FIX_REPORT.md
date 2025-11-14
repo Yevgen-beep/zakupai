@@ -26,7 +26,7 @@ services:
     volumes:
       - vault_data:/vault/file
       - vault_logs:/vault/logs
-      - ./monitoring/vault/config/config.hcl:/vault/config/config.hcl:ro
+      - ./monitoring/vault/config/stage7/config.hcl:/vault/config/config.hcl:ro
       - ./monitoring/vault/init-vault.sh:/vault/init-vault.sh:ro
       - ./monitoring/vault/policies:/vault/policies:ro
       - ./monitoring/vault/creds:/vault/creds:rw

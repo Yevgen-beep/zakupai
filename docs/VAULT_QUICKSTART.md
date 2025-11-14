@@ -14,7 +14,8 @@ docs/
 #### Stage 7 (Manual File Backend)
 ```
 monitoring/vault/config/
-└── stage7-config.hcl                       # Manual unseal, file storage, no TLS
+└── stage7/                                # Legacy Stage 7 configs
+    └── stage7-config.hcl                  # Manual unseal, file storage, no TLS
 ```
 
 #### Stage 8 (Auto-Unseal File Backend)

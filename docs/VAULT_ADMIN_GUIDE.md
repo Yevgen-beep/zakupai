@@ -48,6 +48,12 @@ ls -lht backups/vault/ | head -5
 # Должен быть файл за последние 24 часа
 ```
 
+Vault logs now live in Docker volume `vault_logs`.
+To inspect them:
+```
+docker cp zakupai-vault:/vault/logs/audit.log monitoring/vault/logs/audit.log
+```
+
 ### Еженедельные задачи
 
 **Каждый понедельник:**
@@ -55,6 +61,13 @@ ls -lht backups/vault/ | head -5
 ```bash
 # 1. Проверить TLS сертификат (expiry)
 openssl x509 -in monitoring/vault/tls/vault-cert.pem -noout -enddate
+# Production deployments must use the `vault_tls:/vault/tls` Docker volume (not a bind mount)
+# to avoid permission issues for Vault uid 100.
+if [ ! -f monitoring/vault/tls/vault.crt ]; then
+  make vault-tls-preload
+fi
+# При ошибке "open /vault/tls/vault.crt: no such file or directory" запустите `make vault-tls-preload`,
+# чтобы засеять volume `vault_tls` перед рестартом Vault.
 
 # 2. Проверить backups в B2
 b2 authorize-account "$B2_APPLICATION_KEY_ID" "$B2_APPLICATION_KEY"
@@ -268,12 +281,32 @@ b2 download-file-by-name zakupai-vault-storage \
 tar -xzf restore-backup.tar.gz
 
 # 5. Установить Vault Stage 9
-export AWS_ACCESS_KEY_ID="your_b2_key_id"
-export AWS_SECRET_ACCESS_KEY="your_b2_app_key"
+# (a) Сгенерировать/обновить B2 credentials и TLS
+./monitoring/vault/scripts/prepare-b2-secrets.sh   # создаёт Docker secrets (gitignored)
+./monitoring/vault/tls/generate-certs.sh           # локальный TLS (или подложить LE)
+
+# (b) Применить Stage 9 конфигурацию
 ./setup_vault_evolution.sh --stage9-final --yes
 
 # 6. Проверить
 ./verify_vault_postdeploy.sh
+
+# 7. Сделать свежий backup
+make vault-backup
+
+### Backup / Restore Quick Reference
+
+```bash
+# Создать архив (logs/tls/creds) — запускается на staging/prod
+make vault-backup
+
+# Проверить содержимое
+tar -tzf backups/vault-backup-YYYYMMDD-HHMMSS.tar.gz
+
+# Восстановить (пример)
+tar -xzf backups/vault-backup-YYYYMMDD-HHMMSS.tar.gz -C /
+docker compose -f docker-compose.yml -f docker-compose.override.stage9.vault-prod.yml up -d vault
+```
 ```
 
 #### Scenario 3: B2 недоступен (failover на file backend)

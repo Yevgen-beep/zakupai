@@ -93,9 +93,14 @@ volumes:
 # Additional Networks
 # ===========================================
 networks:
-  # Monitoring network for Prometheus, Grafana, Alertmanager
-  # Internal network - no external internet access
+  zakupai-network:
+    external: true
+    name: zakupai_zakupai-network
+
   monitoring-net:
-    driver: bridge
-    internal: true
+    external: true
     name: zakupai_monitoring-net
+
+  ai-network:
+    external: true
+    name: zakupai_ai-network

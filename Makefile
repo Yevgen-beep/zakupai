@@ -150,7 +150,7 @@ stage6-status: ## Показать статус контейнеров и мет
 
 stage7: ## Stage 7: Manual unseal with file backend
 	@echo "🔐 Applying Stage 7 configuration (Manual File Backend)..."
-	@cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+	@cp monitoring/vault/config/stage7/stage7-config.hcl monitoring/vault/config/vault-config.hcl
 	@echo "✅ Stage 7 config applied. Start Vault with: docker-compose up -d vault"
 	@echo "⚠️  Manual unseal required after restart."
 
@@ -198,7 +198,107 @@ vault-secure-backup: ## Backup Vault data (Stage 8)
 	@BACKUP_FILE="vault-backup-$$(date +%Y%m%d-%H%M%S).tar.gz"; \
 	tar -czf $$BACKUP_FILE monitoring/vault/data/ monitoring/vault/creds/vault-unseal-key.enc monitoring/vault/.unseal-password; \
 	echo "✅ Backup created: $$BACKUP_FILE"; \
-	chmod 600 $$BACKUP_FILE
+
+# --------------------------------------------
+# 🔐 Vault Stage 9 (B2 + TLS + Audit)
+# --------------------------------------------
+
+# ============================================================================
+# Stage 9 - TLS Volume Management
+# ============================================================================
+
+.PHONY: vault-tls-check vault-tls-fix vault-tls-recreate stage9-tls-init
+
+vault-tls-check: ## Check TLS volume permissions
+	@echo "🔍 Checking TLS volume permissions..."
+	@docker run --rm -v zakupai_vault_tls:/vault/tls alpine sh -c \
+		"ls -la /vault/tls && stat -c '%U:%G %a %n' /vault/tls/*"
+
+vault-tls-fix: ## Fix TLS volume permissions (UID 100)
+	@echo "🔧 Fixing TLS volume permissions..."
+	@docker run --rm -v zakupai_vault_tls:/vault/tls alpine sh -c " \
+		if [ -f /vault/tls/vault.key ]; then \
+			chown 100:100 /vault/tls/*; \
+			chmod 640 /vault/tls/vault.key; \
+			chmod 644 /vault/tls/vault.crt; \
+			echo '✅ Permissions fixed:'; \
+			ls -la /vault/tls; \
+		else \
+			echo '❌ TLS certificates not found!'; \
+			exit 1; \
+		fi"
+	@echo "✅ TLS volume permissions corrected"
+
+vault-tls-recreate: ## Recreate TLS certificates with correct permissions
+	@echo "🔐 Recreating TLS certificates..."
+	@docker volume rm zakupai_vault_tls || true
+	@docker volume create zakupai_vault_tls
+	@docker run --rm -v zakupai_vault_tls:/vault/tls alpine sh -c " \
+		apk add --no-cache openssl; \
+		cd /vault/tls; \
+		openssl genrsa -out vault.key 2048; \
+		openssl req -new -x509 -key vault.key -out vault.crt \
+			-days 365 -subj '/C=KZ/ST=Karaganda/L=Karagandy/O=ZakupAI/CN=vault'; \
+		chown 100:100 vault.key vault.crt; \
+		chmod 640 vault.key; \
+		chmod 644 vault.crt; \
+		echo '✅ Certificates generated with correct permissions:'; \
+		ls -la"
+	@echo "✅ TLS volume ready for Vault"
+
+stage9-tls-init: vault-tls-fix ## Initialize TLS for Stage 9 deployment
+	@echo "🚀 TLS initialization complete"
+	@make vault-tls-check
+
+stage9-verify: ## Проверить, что Vault Stage9 поднят на B2 + TLS
+	@echo "🔍 Проверка Stage 9 Vault..."
+	@docker exec zakupai-vault vault status
+	@echo "✅ Vault отвечает и готов"
+
+vault-logs-export: ## Экспорт audit.log из Docker volume Vault
+	@docker cp zakupai-vault:/vault/logs/audit.log monitoring/vault/logs/audit.log
+	@echo "✅ Vault audit.log скопирован из Docker volume"
+
+vault-tls-export: ## Экспорт TLS сертификатов из Docker volume Vault
+	@docker cp zakupai-vault:/vault/tls/vault.crt monitoring/vault/tls/vault.crt
+	@docker cp zakupai-vault:/vault/tls/vault.key monitoring/vault/tls/vault.key
+	@echo "✅ TLS certs exported from Docker volume"
+
+vault-tls-preload: ## Seed TLS certs into named volume (Stage 9)
+	@echo "🔐 Preloading Vault TLS certs into volume..."
+	@if [ ! -f monitoring/vault/tls/vault.crt ] || [ ! -f monitoring/vault/tls/vault.key ]; then \
+		echo "⚠️  TLS certificates not found, generating..."; \
+		$(MAKE) vault-tls-generate; \
+	fi
+	@echo "✅ TLS certificates ready."
+
+vault-tls-generate: ## Generate TLS certificates for Vault (Stage 9)
+	@echo "🔐 Generating Vault TLS certificates..."
+	@mkdir -p monitoring/vault/tls
+	@docker run --rm -v $(PWD)/monitoring/vault/tls:/certs alpine sh -c " \
+		apk add --no-cache openssl && \
+		cd /certs && \
+		openssl req -x509 -nodes -newkey rsa:4096 -days 365 \
+			-keyout vault.key -out vault.crt \
+			-subj '/CN=vault.zakupai.local' \
+			-addext 'subjectAltName=DNS:vault,DNS:vault.zakupai.local,DNS:localhost,IP:127.0.0.1' && \
+		chmod 644 vault.crt && \
+		chmod 600 vault.key && \
+		echo '✅ Certificates generated with correct permissions' && \
+		ls -la"
+	@echo "✅ TLS certificates generated in monitoring/vault/tls/"
+
+vault-tls-hash: ## Check TLS cert hashes inside Vault container
+	@docker exec zakupai-vault md5sum /vault/tls/vault.crt /vault/tls/vault.key
+
+vault-backup: ## Создать архив с Vault logs/tls/creds (Stage 9)
+	@echo "📦 Cоздаём резервную копию Vault Stage9..."
+	@mkdir -p backups
+	@STAMP=$$(date +%Y%m%d-%H%M%S); \
+	FILE=backups/vault-backup-$$STAMP.tar.gz; \
+	tar -czf $$FILE monitoring/vault/logs monitoring/vault/tls monitoring/vault/creds; \
+	chmod 600 $$FILE; \
+	echo "✅ Backup готов: $$FILE"
 
 vault-secure-test: ## Test Vault AppRole access (Stage 8)
 	@echo "🧪 Testing Vault AppRole access..."
@@ -208,26 +308,22 @@ vault-secure-test: ## Test Vault AppRole access (Stage 8)
 # 🔐 Vault Stage 9 (Production B2 + TLS)
 # --------------------------------------------
 
-stage9: ## Stage 9: Production with B2 storage, TLS, and audit
-	@echo "🔐 Applying Stage 9 configuration (Production B2 + TLS + Audit)..."
-	@if [ -z "$$AWS_ACCESS_KEY_ID" ] || [ -z "$$AWS_SECRET_ACCESS_KEY" ]; then \
-		echo "❌ B2 credentials not set. Export AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"; \
+stage9-prepare: ## Prepare Stage 9 prerequisites (B2 credentials + TLS)
+	@echo "🔧 Preparing Stage 9 prerequisites..."
+	@if [ ! -f monitoring/vault/creds/b2_access_key_id ] || [ ! -f monitoring/vault/creds/b2_secret_key ]; then \
+		echo "❌ B2 credentials not found!"; \
+		echo "   Create them with: ./monitoring/vault/scripts/prepare-b2-secrets.sh"; \
 		exit 1; \
 	fi
-	@if [ ! -f monitoring/vault/tls/vault-cert.pem ] || [ ! -f monitoring/vault/tls/vault-key.pem ]; then \
-		echo "❌ TLS certificates not found. Run: make vault-tls-renew"; \
-		exit 1; \
-	fi
-	@cp monitoring/vault/config/secure/config-stage9.hcl monitoring/vault/config/vault-config.hcl
-	@cp docker-compose.override.stage9.vault-prod.yml docker-compose.override.yml
-	@echo "✅ Stage 9 config applied."
-	@echo "🚀 Starting Vault with B2 + TLS + Audit..."
-	@docker-compose up -d vault
-	@echo "⏳ Waiting for Vault to start (40s)..."
-	@sleep 40
-	@docker logs vault --tail 30
-	@echo ""
-	@echo "✅ Stage 9 deployment complete. Verify with: make smoke-stage9"
+	@echo "✅ B2 credentials found"
+	@$(MAKE) vault-tls-preload
+	@echo "✅ Stage 9 prerequisites ready"
+
+stage9-deploy: stage9-prepare ## Deploy Stage 9 Vault with B2 + TLS + Audit
+	@echo "🚀 Deploying Stage 9 Vault..."
+	@./scripts/start-stage9-vault.sh
+
+stage9: stage9-deploy ## Alias for stage9-deploy
 
 vault-prod-status: ## Check Vault status (Stage 9)
 	@echo "🔍 Vault Status (Production):"
@@ -265,7 +361,7 @@ smoke-stage9: ## Run smoke tests for Stage 9
 rollback-stage8: ## Rollback from Stage 8 to Stage 7
 	@echo "🔙 Rolling back to Stage 7..."
 	@docker-compose down vault
-	@cp monitoring/vault/config/stage7-config.hcl monitoring/vault/config/vault-config.hcl
+	@cp monitoring/vault/config/stage7/stage7-config.hcl monitoring/vault/config/vault-config.hcl
 	@rm -f docker-compose.override.yml
 	@docker-compose up -d vault
 	@echo "✅ Rolled back to Stage 7. Manual unseal required."
