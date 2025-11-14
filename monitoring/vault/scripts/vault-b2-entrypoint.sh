@@ -1,51 +1,37 @@
 #!/bin/sh
-set -eu
-
-# Wrapper entrypoint to hydrate AWS credentials from docker secrets files
-# before invoking the official Vault entrypoint.
-#
-# CRITICAL: AWS SDK does NOT support *_FILE variables natively.
-# We must read the secrets and export them as AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+set -e
 
 echo "🔧 Stage 9 Vault B2 Entrypoint - Starting..."
 
-# Check if secrets directory exists
-if [ -d "/run/secrets" ]; then
-  echo "✓ /run/secrets directory exists"
-  ls -la /run/secrets/ 2>/dev/null || echo "⚠️  Cannot list /run/secrets (permission denied - this is normal)"
-else
-  echo "✗ /run/secrets directory does NOT exist - Docker secrets not mounted!"
-  exit 1
+# -------------------------------
+# Load B2 Credentials via Docker secrets
+# -------------------------------
+
+if [ ! -f /run/secrets/b2_access_key_id ] || [ ! -f /run/secrets/b2_secret_key ]; then
+    echo "❌ B2 secrets not found"
+    ls -l /run/secrets || true
+    exit 1
 fi
 
-# Read B2 access key from Docker secret
-if [ -n "${AWS_ACCESS_KEY_ID_FILE:-}" ] && [ -f "$AWS_ACCESS_KEY_ID_FILE" ]; then
-  echo "✓ Reading AWS_ACCESS_KEY_ID from: $AWS_ACCESS_KEY_ID_FILE"
-  # Read the file and export as environment variable
-  AWS_ACCESS_KEY_ID=$(cat "$AWS_ACCESS_KEY_ID_FILE")
-  export AWS_ACCESS_KEY_ID
-  echo "✓ AWS_ACCESS_KEY_ID loaded (length: ${#AWS_ACCESS_KEY_ID} chars)"
-else
-  echo "✗ AWS_ACCESS_KEY_ID_FILE not set or file not found: ${AWS_ACCESS_KEY_ID_FILE:-<not set>}"
-  exit 1
-fi
+AWS_ACCESS_KEY_ID=$(cat /run/secrets/b2_access_key_id)
+AWS_SECRET_ACCESS_KEY=$(cat /run/secrets/b2_secret_key)
 
-# Read B2 secret key from Docker secret
-if [ -n "${AWS_SECRET_ACCESS_KEY_FILE:-}" ] && [ -f "$AWS_SECRET_ACCESS_KEY_FILE" ]; then
-  echo "✓ Reading AWS_SECRET_ACCESS_KEY from: $AWS_SECRET_ACCESS_KEY_FILE"
-  # Read the file and export as environment variable
-  AWS_SECRET_ACCESS_KEY=$(cat "$AWS_SECRET_ACCESS_KEY_FILE")
-  export AWS_SECRET_ACCESS_KEY
-  echo "✓ AWS_SECRET_ACCESS_KEY loaded (length: ${#AWS_SECRET_ACCESS_KEY} chars)"
-else
-  echo "✗ AWS_SECRET_ACCESS_KEY_FILE not set or file not found: ${AWS_SECRET_ACCESS_KEY_FILE:-<not set>}"
-  exit 1
-fi
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
 
-echo "✅ B2 credentials successfully loaded from Docker secrets"
+echo "✓ AWS_ACCESS_KEY_ID loaded (len: ${#AWS_ACCESS_KEY_ID})"
+echo "✓ AWS_SECRET_ACCESS_KEY loaded (len: ${#AWS_SECRET_ACCESS_KEY})"
+
+# -------------------------------
+# Show environment (for debugging)
+# -------------------------------
+
+echo "Environment now contains:"
+env | grep AWS_
+
+# -------------------------------
+# Start Vault server
+# -------------------------------
+
 echo "🚀 Launching Vault server..."
-echo ""
-
-# Execute the official Vault entrypoint
-# Vault will now see AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in environment
-exec /usr/local/bin/docker-entrypoint.sh server
+exec vault server -config="$VAULT_CONFIG"

@@ -135,3 +135,7 @@ monitoring/vault/tls/*.pem
 
 
 monitoring/vault/creds/b2_*
+
+root_token.txt
+unseal_key_*.txt
+vault.key
