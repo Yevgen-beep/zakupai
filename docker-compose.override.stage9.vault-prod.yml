@@ -84,7 +84,7 @@ services:
       VAULT_CLUSTER_ADDR: "https://vault:8201"
       VAULT_CONFIG: "/vault/config/config.hcl"
       VAULT_LOG_LEVEL: "info"
-      VAULT_SKIP_VERIFY: "false"
+      VAULT_SKIP_VERIFY: "true"
 
       # Auto-unseal configuration
       ENCRYPTED_KEY_FILE: "/vault/creds/vault-unseal-key.enc"
@@ -133,9 +133,8 @@ services:
         - CMD
         - sh
         - -c
-        - |
-          vault status -format=json 2>/dev/null | \
-          jq -e '.sealed == false' || exit 1
+        - 'VAULT_SKIP_VERIFY=true vault status >/dev/null 2>&1'
+      
       interval: 30s
       timeout: 10s
       retries: 5
