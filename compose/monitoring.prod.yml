@@ -1,0 +1,79 @@
+version: "3.8"
+
+# ===========================================
+# Docker Compose Override — Monitoring Stack
+# ===========================================
+# PROD variant extracted from docker-compose.override.monitoring.yml
+
+services:
+  # ===========================================
+  # HashiCorp Vault — Secrets Management
+  # ===========================================
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: zakupai-vault
+    ports: []
+    environment:
+      VAULT_LOG_LEVEL: "info"
+    volumes:
+      - ./monitoring/vault/config.hcl:/vault/config/config.hcl:ro
+      - vault-data:/vault/file
+      - vault-logs:/vault/logs
+    command: server
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD", "vault", "status", "-format=json"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    user: "100:1000"
+
+  # ===========================================
+  # Prometheus — Updated to include Vault metrics
+  # ===========================================
+  prometheus:
+    environment:
+      SSL_CERT_FILE: /vault-ca/ca.crt
+    volumes:
+      - ./monitoring/vault/tls/ca.crt:/vault-ca/ca.crt:ro
+    networks:
+      - monitoring-net
+
+  # ===========================================
+  # Grafana — Connected to monitoring network
+  # ===========================================
+  grafana:
+    networks:
+      - monitoring-net
+
+  # ===========================================
+  # Alertmanager — Loads secrets from Vault
+  # ===========================================
+  alertmanager:
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    networks:
+      - monitoring-net
+
+# ===========================================
+# Additional Volumes
+# ===========================================
+volumes:
+  vault-data:
+    driver: local
+  vault-logs:
+    driver: local
+
+# ===========================================
+# Additional Networks
+# ===========================================
+networks:
+  monitoring-net:
+    external: true
+    name: zakupai_monitoring-net

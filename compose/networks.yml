@@ -1,0 +1,14 @@
+version: "3.8"
+
+networks:
+  zakupai-network:
+    name: zakupai_zakupai-network
+    external: true
+
+  monitoring-net:
+    name: zakupai_monitoring-net
+    external: true
+
+  ai-network:
+    name: zakupai_ai-network
+    external: true

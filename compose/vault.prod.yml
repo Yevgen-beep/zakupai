@@ -1,0 +1,87 @@
+version: "3.8"
+
+services:
+  vault-tls-init:
+    image: alpine:3.18
+    container_name: zakupai-vault-tls-init
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      chown -R 100:1000 /vault/tls || true
+      chown -R 100:1000 /vault/logs || true
+      echo "TLS init complete"
+    volumes:
+      - vault_tls:/vault/tls
+      - vault_logs:/vault/logs
+    networks: []
+    restart: "no"
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: zakupai-vault
+
+    depends_on:
+      vault-tls-init:
+        condition: service_completed_successfully
+
+    entrypoint: ["/vault/scripts/vault-b2-entrypoint.sh"]
+
+    user: "0:0"
+    cap_add:
+      - IPC_LOCK
+    security_opt:
+      - no-new-privileges:true
+
+    environment:
+      VAULT_SKIP_VERIFY: "true"
+      VAULT_ADDR: https://127.0.0.1:8200
+      VAULT_API_ADDR: https://vault:8200
+      VAULT_CLUSTER_ADDR: https://vault:8201
+      VAULT_CONFIG: /vault/config/config.hcl
+
+      AWS_ACCESS_KEY_ID_FILE: /run/secrets/b2_access_key_id
+      AWS_SECRET_ACCESS_KEY_FILE: /run/secrets/b2_secret_key
+
+    secrets:
+      - b2_access_key_id
+      - b2_secret_key
+
+    ports: []
+    # Debug:
+    # ports:
+    #   - "127.0.0.1:8200:8200"
+
+    volumes:
+      - ./monitoring/vault/config/secure/config-stage9.hcl:/vault/config/config.hcl:ro
+      - vault_tls:/vault/tls:ro
+      - vault_logs:/vault/logs
+      - ./monitoring/vault/scripts:/vault/scripts:ro
+      - ./monitoring/vault/creds:/vault/creds:ro
+      - ./monitoring/vault/.unseal-password:/vault/.unseal-password:ro
+      - ./monitoring/vault/plugins:/vault/plugins:ro
+
+    networks:
+      - zakupai-network
+      - monitoring-net
+
+    healthcheck:
+      test: ["CMD", "sh", "-c", "VAULT_SKIP_VERIFY=true vault status >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+volumes:
+  vault_tls:
+  vault_logs:
+
+secrets:
+  b2_access_key_id:
+    file: ./monitoring/vault/creds/b2_access_key_id
+  b2_secret_key:
+    file: ./monitoring/vault/creds/b2_secret_key
+
+networks:
+  zakupai-network:
+    external: true
+  monitoring-net:
+    external: true
