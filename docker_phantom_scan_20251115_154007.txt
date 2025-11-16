@@ -1,0 +1,526 @@
+Docker Phantom Container Scan Report
+=====================================
+Date: Сб 15 ноя 2025 15:40:07 +05
+Target: zakupai-flowise
+Project: zakupai
+
+
+## D1: Docker Engine API State
+---
+[OK] Container exists in Docker API (state: running)
+[
+    {
+        "Id": "cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d",
+        "Created": "2025-11-15T10:35:02.339433622Z",
+        "Path": "flowise",
+        "Args": [
+            "start"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 177262,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2025-11-15T10:35:04.935450385Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:bb7b1ebf8ce1c47ce8141c63df784c3fe4e383a88c42c6b58444f72a2ae42fab",
+        "ResolvConfPath": "/var/lib/docker/containers/cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d/hostname",
+        "HostsPath": "/var/lib/docker/containers/cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d/hosts",
+        "LogPath": "/var/lib/docker/containers/cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d/cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d-json.log",
+        "Name": "/zakupai-flowise",
+        "RestartCount": 0,
+        "Driver": "overlay2",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "docker-default",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "zakupai_flowise_data:/root/.flowise:rw",
+                "/home/mint/projects/claude_sandbox/zakupai/flowise-tools:/opt/flowise_tools:ro"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "zakupai_zakupai-network",
+            "PortBindings": {
+                "3000/tcp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "3000"
+                    }
+                ]
+            },
+            "RestartPolicy": {
+                "Name": "unless-stopped",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [
+                "host.docker.internal:host-gateway"
+            ],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "nvidia",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/asound",
+                "/proc/acpi",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/sys/firmware",
+                "/sys/devices/virtual/powercap",
+                "/sys/devices/system/cpu/cpu0/thermal_throttle",
+                "/sys/devices/system/cpu/cpu1/thermal_throttle",
+                "/sys/devices/system/cpu/cpu2/thermal_throttle",
+                "/sys/devices/system/cpu/cpu3/thermal_throttle",
+                "/sys/devices/system/cpu/cpu4/thermal_throttle",
+                "/sys/devices/system/cpu/cpu5/thermal_throttle",
+                "/sys/devices/system/cpu/cpu6/thermal_throttle",
+                "/sys/devices/system/cpu/cpu7/thermal_throttle",
+                "/sys/devices/system/cpu/cpu8/thermal_throttle",
+                "/sys/devices/system/cpu/cpu9/thermal_throttle",
+                "/sys/devices/system/cpu/cpu10/thermal_throttle",
+                "/sys/devices/system/cpu/cpu11/thermal_throttle",
+                "/sys/devices/system/cpu/cpu12/thermal_throttle",
+                "/sys/devices/system/cpu/cpu13/thermal_throttle",
+                "/sys/devices/system/cpu/cpu14/thermal_throttle",
+                "/sys/devices/system/cpu/cpu15/thermal_throttle",
+                "/sys/devices/system/cpu/cpu16/thermal_throttle",
+                "/sys/devices/system/cpu/cpu17/thermal_throttle",
+                "/sys/devices/system/cpu/cpu18/thermal_throttle",
+                "/sys/devices/system/cpu/cpu19/thermal_throttle"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "GraphDriver": {
+            "Data": {
+                "ID": "cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d",
+                "LowerDir": "/var/lib/docker/overlay2/367569d1e546d6de2357b0bc26ba069f629365adf49126939d5a3b16cf25e21d-init/diff:/var/lib/docker/overlay2/fca6f706d6d2e38a9fcc79c3dcf6bec1baa189f4eb0a96c1fa8264631ed2b70c/diff:/var/lib/docker/overlay2/67be819ccc6e345309b22ebc67a5dadb24d0dbeef1919302d41c497f21828597/diff:/var/lib/docker/overlay2/1fc23a746631231fb6c9c4cbd736cf40501164d5c4c9c22e46d2e7592f121e2f/diff:/var/lib/docker/overlay2/2a54f5b3fc4973f55c9049af3df0d32c57f0c570d668579bf62ddcb31f713b1e/diff:/var/lib/docker/overlay2/e3cd5b8d47610e855082e4e33c10d8815d87e257f1b23f3e4f03e04f6209213b/diff:/var/lib/docker/overlay2/799153d78e7215a487de752a4fcec78dddf59af13df9bd0715c080e19750d6b8/diff:/var/lib/docker/overlay2/3b9a3103814367cf45f26cebc0fce6ee8366f95f2d1751503edfdd9150e7e57d/diff",
+                "MergedDir": "/var/lib/docker/overlay2/367569d1e546d6de2357b0bc26ba069f629365adf49126939d5a3b16cf25e21d/merged",
+                "UpperDir": "/var/lib/docker/overlay2/367569d1e546d6de2357b0bc26ba069f629365adf49126939d5a3b16cf25e21d/diff",
+                "WorkDir": "/var/lib/docker/overlay2/367569d1e546d6de2357b0bc26ba069f629365adf49126939d5a3b16cf25e21d/work"
+            },
+            "Name": "overlay2"
+        },
+        "Mounts": [
+            {
+                "Type": "volume",
+                "Name": "zakupai_flowise_data",
+                "Source": "/var/lib/docker/volumes/zakupai_flowise_data/_data",
+                "Destination": "/root/.flowise",
+                "Driver": "local",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": ""
+            },
+            {
+                "Type": "bind",
+                "Source": "/home/mint/projects/claude_sandbox/zakupai/flowise-tools",
+                "Destination": "/opt/flowise_tools",
+                "Mode": "ro",
+                "RW": false,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "cd3feba5c83c",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "3000/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "POSTGRES_PASSWORD=zakupai",
+                "SECRETKEY_PATH=/root/.flowise",
+                "LOG_PATH=/root/.flowise/logs",
+                "BLOB_STORAGE_PATH=/root/.flowise/storage",
+                "DATABASE_PATH=/root/.flowise/flowise.sqlite",
+                "POSTGRES_DB=zakupai",
+                "FLOWISE_PASSWORD=admin123",
+                "POSTGRES_USER=zakupai",
+                "GOSZAKUP_TOKEN=dummy",
+                "LOG_LEVEL=info",
+                "FLOWISE_USERNAME=admin",
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "NODE_VERSION=20.19.5",
+                "YARN_VERSION=1.22.22",
+                "PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser"
+            ],
+            "Cmd": null,
+            "Image": "flowiseai/flowise",
+            "Volumes": null,
+            "WorkingDir": "/",
+            "Entrypoint": [
+                "flowise",
+                "start"
+            ],
+            "OnBuild": null,
+            "Labels": {
+                "com.docker.compose.config-hash": "54663a6e1e3c04fe6cac5d007f6ffd9d290e365850cc669240ba6e9c7f1657ba",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "chromadb:service_started:false",
+                "com.docker.compose.image": "sha256:bb7b1ebf8ce1c47ce8141c63df784c3fe4e383a88c42c6b58444f72a2ae42fab",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "zakupai",
+                "com.docker.compose.project.config_files": "/home/mint/projects/claude_sandbox/zakupai/docker-compose.yml,/home/mint/projects/claude_sandbox/zakupai/docker-compose.override.yml",
+                "com.docker.compose.project.working_dir": "/home/mint/projects/claude_sandbox/zakupai",
+                "com.docker.compose.service": "flowise",
+                "com.docker.compose.version": "2.40.0"
+            }
+        },
+        "NetworkSettings": {
+            "Bridge": "",
+            "SandboxID": "9b43eceed0664a9b77e038265c0640f0643cd563615701e195faef1a1176e7e0",
+            "SandboxKey": "/var/run/docker/netns/9b43eceed066",
+            "Ports": {
+                "3000/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "3000"
+                    },
+                    {
+                        "HostIp": "::",
+                        "HostPort": "3000"
+                    }
+                ]
+            },
+            "HairpinMode": false,
+            "LinkLocalIPv6Address": "",
+            "LinkLocalIPv6PrefixLen": 0,
+            "SecondaryIPAddresses": null,
+            "SecondaryIPv6Addresses": null,
+            "EndpointID": "",
+            "Gateway": "",
+            "GlobalIPv6Address": "",
+            "GlobalIPv6PrefixLen": 0,
+            "IPAddress": "",
+            "IPPrefixLen": 0,
+            "IPv6Gateway": "",
+            "MacAddress": "",
+            "Networks": {
+                "zakupai_zakupai-network": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "zakupai-flowise",
+                        "flowise"
+                    ],
+                    "MacAddress": "e2:56:3d:f9:c6:6d",
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "2e1cbfb9079aed16da7c1d4a5dac9d8d48f910a7ac92e3050faab555ccf47adb",
+                    "EndpointID": "de8289e8024d5e30bec2c54c6fc1ba0a27c8c56b8512131ff9663c5dfaa744b4",
+                    "Gateway": "172.18.0.1",
+                    "IPAddress": "172.18.0.13",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "zakupai-flowise",
+                        "flowise",
+                        "cd3feba5c83c"
+                    ]
+                }
+            }
+        }
+    }
+]
+
+## D2: Container List (docker ps)
+---
+[OK] Container found in 'docker ps -a' (status: Up 5 minutes)
+CONTAINER ID   IMAGE               COMMAND           CREATED         STATUS         PORTS                                         NAMES
+cd3feba5c83c   flowiseai/flowise   "flowise start"   5 minutes ago   Up 5 minutes   0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp   zakupai-flowise
+
+## D3: Docker Compose State
+---
+[OK] Compose project 'zakupai' exists
+NAME                STATUS                                   CONFIG FILES
+zakupai             created(5), restarting(2), running(15)   /home/mint/projects/claude_sandbox/zakupai/docker-compose.yml,/home/mint/projects/claude_sandbox/zakupai/docker-compose.override.yml
+NAME                      IMAGE                              COMMAND                  SERVICE             CREATED         STATUS                           PORTS
+vault                     hashicorp/vault:1.15               "/vault/scripts/auto…"   vault               5 minutes ago   Restarting (255) 8 seconds ago   
+zakupai-alertmanager      prom/alertmanager:v0.25.0          "/bin/alertmanager -…"   alertmanager        5 minutes ago   Up 5 minutes                     0.0.0.0:9093->9093/tcp, [::]:9093->9093/tcp
+zakupai-billing-service   zakupai-billing-service            "sh -c 'uvicorn main…"   billing-service     5 minutes ago   Up 4 minutes                     0.0.0.0:7004->8000/tcp, [::]:7004->8000/tcp
+zakupai-blackbox          prom/blackbox-exporter:v0.24.0     "/bin/blackbox_expor…"   blackbox-exporter   5 minutes ago   Up 5 minutes                     0.0.0.0:9115->9115/tcp, [::]:9115->9115/tcp
+zakupai-bot               zakupai/bot:stage5                 "python /app/main.py"    zakupai-bot         5 minutes ago   Created                          
+zakupai-cadvisor          gcr.io/cadvisor/cadvisor:v0.47.0   "/usr/bin/cadvisor -…"   cadvisor            5 minutes ago   Up 5 minutes (healthy)           0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp
+zakupai-calc-service      zakupai/calc-service:stage5        "sh -c 'uvicorn main…"   calc-service        5 minutes ago   Up 4 minutes                     0.0.0.0:7001->8000/tcp, [::]:7001->8000/tcp
+zakupai-chromadb          chromadb/chroma:latest             "dumb-init -- chroma…"   chromadb            5 minutes ago   Up 5 minutes                     0.0.0.0:8010->8000/tcp, [::]:8010->8000/tcp
+zakupai-db                postgres:16                        "docker-entrypoint.s…"   db                  5 minutes ago   Up 5 minutes (healthy)           127.0.0.1:5432->5432/tcp
+zakupai-db-backup         zakupai-db-backup                  "/scripts/entrypoint…"   db-backup           5 minutes ago   Restarting (1) 2 seconds ago     
+zakupai-doc-service       zakupai-doc-service                "sh -c 'uvicorn main…"   doc-service         5 minutes ago   Created                          
+zakupai-embedding-api     zakupai/embedding-api:stage5       "sh -c 'uvicorn main…"   embedding-api       5 minutes ago   Up 5 minutes                     0.0.0.0:7010->8000/tcp, [::]:7010->8000/tcp
+zakupai-etl-service       zakupai/etl-service:stage5         "sh -c 'uvicorn main…"   etl-service         5 minutes ago   Up 4 minutes                     0.0.0.0:7011->8000/tcp, [::]:7011->8000/tcp
+zakupai-flowise           flowiseai/flowise                  "flowise start"          flowise             5 minutes ago   Up 5 minutes                     0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp
+zakupai-gateway           zakupai/gateway:stage5             "sh -c 'uvicorn main…"   gateway             5 minutes ago   Created                          
+zakupai-goszakup-api      zakupai-goszakup-api               "uvicorn main:app --…"   goszakup-api        5 minutes ago   Up 5 minutes                     0.0.0.0:7005->8001/tcp, [::]:7005->8001/tcp
+zakupai-grafana           grafana/grafana:10.0.0             "/run.sh"                grafana             5 minutes ago   Up 5 minutes                     0.0.0.0:3030->3000/tcp, [::]:3030->3000/tcp
+zakupai-libs-1            libs:latest                        "sleep infinity"         libs                5 minutes ago   Up 5 minutes                     
+zakupai-n8n               n8nio/n8n:1.105.4                  "tini -- /docker-ent…"   n8n                 5 minutes ago   Up 5 minutes                     0.0.0.0:5678->5678/tcp, [::]:5678->5678/tcp
+zakupai-prometheus        prom/prometheus:v2.45.0            "/bin/prometheus --c…"   prometheus          5 minutes ago   Up 5 minutes                     0.0.0.0:9095->9090/tcp, [::]:9095->9090/tcp
+zakupai-risk-engine       zakupai/risk-engine:stage5         "sh -c 'uvicorn main…"   risk-engine         5 minutes ago   Created                          
+zakupai-web-ui            zakupai/web-ui:stage5              "uvicorn main:app --…"   web-ui              5 minutes ago   Created                          
+
+## D4: Network Attachments
+---
+[OK] Network zakupai_ai-network has no reference to container
+[OK] Network zakupai_default has no reference to container
+[OK] Network zakupai_monitoring-net has no reference to container
+[WARN] Container found in network: zakupai_zakupai-network
+                "Name": "zakupai-flowise",
+                "EndpointID": "de8289e8024d5e30bec2c54c6fc1ba0a27c8c56b8512131ff9663c5dfaa744b4",
+                "MacAddress": "e2:56:3d:f9:c6:6d",
+                "IPv4Address": "172.18.0.13/16",
+                "IPv6Address": ""
+            },
+            "d239b25b60968f17e8e49993cf53eadac33d75a60b5db7c73df738cec07b2cca": {
+                "Name": "zakupai-goszakup-api",
+                "EndpointID": "809f6640c6bb1748e5fa250766b5ea98f5c848b22af62fd10134d8a7fe8bfba2",
+                "MacAddress": "0e:75:72:3b:4e:54",
+                "IPv4Address": "172.18.0.11/16",
+                "IPv6Address": ""
+            },
+            "e7c4c53d49a662be575500909e756ff4b76d733a746ddc3be1de7d76dfe08d3d": {
+                "Name": "zakupai-n8n",
+                "EndpointID": "8b9e1046beb25ac80fe9cf1dc956e8fe130d18e15317a233889ccdc6fe1c09c8",
+                "MacAddress": "0a:45:db:87:ed:2e",
+                "IPv4Address": "172.18.0.10/16",
+                "IPv6Address": ""
+            },
+            "fd6ce0c2acf0f1b5780e602086620dd2f5312c300586d369b74ab9465ca1909b": {
+
+## D5: Volume Mounts
+---
+[INFO] Found zakupai volumes: 12
+zakupai_backup_data
+zakupai_chromadb_data
+zakupai_flowise_data
+zakupai_grafana_data
+zakupai_n8n_data
+zakupai_postgres_data
+zakupai_prometheus_data
+zakupai_redis_data
+zakupai_vault-data
+zakupai_vault-logs
+zakupai_vault_logs
+zakupai_vault_tls
+
+## D6: Docker Filesystem Artifacts
+---
+[INFO] /var/lib/docker/containers/ not accessible
+
+## D7: containerd Namespace (moby)
+---
+[OK] No container in containerd moby namespace
+[OK] No container task in containerd
+
+## D8: containerd Metadata Database
+---
+[INFO] containerd metadata DB not found
+
+## D9: systemd Container Units
+---
+[INFO] Found Docker systemd units
+  sys-devices-virtual-net-docker0.device                                                                                                                    loaded    active     plugged      /sys/devices/virtual/net/docker0
+  sys-subsystem-net-devices-docker0.device                                                                                                                  loaded    active     plugged      /sys/subsystem/net/devices/docker0
+  run-docker-netns-0f31cf6d6a43.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/0f31cf6d6a43
+  run-docker-netns-26fa65863482.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/26fa65863482
+  run-docker-netns-2af3db64fb0a.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/2af3db64fb0a
+  run-docker-netns-38a40abcd918.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/38a40abcd918
+  run-docker-netns-40853dab9199.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/40853dab9199
+  run-docker-netns-42c9326307f5.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/42c9326307f5
+  run-docker-netns-512fb3acee7e.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/512fb3acee7e
+  run-docker-netns-5b474e309f4e.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/5b474e309f4e
+  run-docker-netns-5e0244fb9c0a.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/5e0244fb9c0a
+  run-docker-netns-7e79ff5e0a86.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/7e79ff5e0a86
+  run-docker-netns-80a1c0cf097d.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/80a1c0cf097d
+  run-docker-netns-9b43eceed066.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/9b43eceed066
+  run-docker-netns-cd187c83cf4b.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/cd187c83cf4b
+  run-docker-netns-cff354c1ed12.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/cff354c1ed12
+  run-docker-netns-f06e5cb2a18d.mount                                                                                                                       loaded    active     mounted      /run/docker/netns/f06e5cb2a18d
+  var-lib-docker-overlay2-0ba32ecedd35c92d18e96e10d178d3f0cf546a78bdbc4758472751cd23ea1489-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/0ba32ecedd35c92d18e96e10d178d3f0cf546a78bdbc4758472751cd23ea1489/merged
+  var-lib-docker-overlay2-149edf8bfdc3690027020e1872d2eeadb554ea78290c6f085b7080e4b495eb7d-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/149edf8bfdc3690027020e1872d2eeadb554ea78290c6f085b7080e4b495eb7d/merged
+  var-lib-docker-overlay2-34f5ae659b9a79ea5c425791c7eabeed0928e4865bc5b6f5df5fad71a8017346-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/34f5ae659b9a79ea5c425791c7eabeed0928e4865bc5b6f5df5fad71a8017346/merged
+  var-lib-docker-overlay2-367569d1e546d6de2357b0bc26ba069f629365adf49126939d5a3b16cf25e21d-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/367569d1e546d6de2357b0bc26ba069f629365adf49126939d5a3b16cf25e21d/merged
+  var-lib-docker-overlay2-3a4b3427b54456d491ec7ce1458f68b5cba0da5b03f97f0f4eec23767d73c2c8-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/3a4b3427b54456d491ec7ce1458f68b5cba0da5b03f97f0f4eec23767d73c2c8/merged
+  var-lib-docker-overlay2-43d93c584be7975be4b4d281bdc57901f7742582bba6c8818d270cf9f740cd15-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/43d93c584be7975be4b4d281bdc57901f7742582bba6c8818d270cf9f740cd15/merged
+  var-lib-docker-overlay2-523b43da6c54dc269579e3530aa3d9ec4fe84e373771587754800ceeec10fd3a-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/523b43da6c54dc269579e3530aa3d9ec4fe84e373771587754800ceeec10fd3a/merged
+  var-lib-docker-overlay2-8f4f8605c46ba417a10ef2d6da8841a289cb050ab472cbaef921cb3f25730426-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/8f4f8605c46ba417a10ef2d6da8841a289cb050ab472cbaef921cb3f25730426/merged
+  var-lib-docker-overlay2-8f5db09161edf92184e606f67218d08d15f4aacacd4e574453d14e615248cc10-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/8f5db09161edf92184e606f67218d08d15f4aacacd4e574453d14e615248cc10/merged
+  var-lib-docker-overlay2-95501b841fe7fbacfa9b4931182c6e6e9b82a90d418bc74e682a1a17aaae1b77-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/95501b841fe7fbacfa9b4931182c6e6e9b82a90d418bc74e682a1a17aaae1b77/merged
+  var-lib-docker-overlay2-97ba6e161f3c87a886ce8ac924eb7de646df3312355435090f54a5e6b7d5f693-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/97ba6e161f3c87a886ce8ac924eb7de646df3312355435090f54a5e6b7d5f693/merged
+  var-lib-docker-overlay2-d0df7dfa7c9966a50a5e5a0690dd6cde895fca1a21299691f08b0baaf81f14a9-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/d0df7dfa7c9966a50a5e5a0690dd6cde895fca1a21299691f08b0baaf81f14a9/merged
+  var-lib-docker-overlay2-dd3ba06714469e8703aaac6cb97f1b25b55f869ccfa73c24071d8ad663ec41fe-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/dd3ba06714469e8703aaac6cb97f1b25b55f869ccfa73c24071d8ad663ec41fe/merged
+  var-lib-docker-overlay2-e67adcb5bc73bcc37724019276c53d35badb2974289eb3e69767110d12638134-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/e67adcb5bc73bcc37724019276c53d35badb2974289eb3e69767110d12638134/merged
+  var-lib-docker-overlay2-ecce8ab64f54ed1d39ac67bfae76b6d9623b25ee50842dc6f3fe499947b77f28-merged.mount                                                     loaded    active     mounted      /var/lib/docker/overlay2/ecce8ab64f54ed1d39ac67bfae76b6d9623b25ee50842dc6f3fe499947b77f28/merged
+  docker-09d5324e3b6657cf1f2cc8b8eab192bc69f5ab9f230268142cf4a3d34461ec3c.scope                                                                             loaded    active     running      libcontainer container 09d5324e3b6657cf1f2cc8b8eab192bc69f5ab9f230268142cf4a3d34461ec3c
+  docker-18709614fec8b3608d439013ae82cbd2db89479a1c1ac0ac4043d4c0b2e8330c.scope                                                                             loaded    active     running      libcontainer container 18709614fec8b3608d439013ae82cbd2db89479a1c1ac0ac4043d4c0b2e8330c
+  docker-31e4d8cbe6d87c0e4429ac3aa703074ec3aaf3aa3673911ca9529ad75938ef71.scope                                                                             loaded    active     running      libcontainer container 31e4d8cbe6d87c0e4429ac3aa703074ec3aaf3aa3673911ca9529ad75938ef71
+  docker-3743f4f67f2ca1415da162d6ea1770e54d45fad04c8c3c92bc9c9d52caa8d4b9.scope                                                                             loaded    active     running      libcontainer container 3743f4f67f2ca1415da162d6ea1770e54d45fad04c8c3c92bc9c9d52caa8d4b9
+  docker-5377135d21482dca97d3adc1c8e3a5b8be8922d398425bd465ee82fb9e1668ce.scope                                                                             loaded    active     running      libcontainer container 5377135d21482dca97d3adc1c8e3a5b8be8922d398425bd465ee82fb9e1668ce
+  docker-5f3218326dd1f2ff9efe551a87a2ee9267162790d5d26e13deb2cf427de8094f.scope                                                                             loaded    active     running      libcontainer container 5f3218326dd1f2ff9efe551a87a2ee9267162790d5d26e13deb2cf427de8094f
+  docker-853e37fbf271d48ed9d6094d6afafa9eb32ea94a790b42603e93a71c24c2972f.scope                                                                             loaded    active     running      libcontainer container 853e37fbf271d48ed9d6094d6afafa9eb32ea94a790b42603e93a71c24c2972f
+  docker-9ddabdeb444cc0f855a02042bbfb0f3b367a3d8827ac1a40b5fe57941d28257e.scope                                                                             loaded    active     running      libcontainer container 9ddabdeb444cc0f855a02042bbfb0f3b367a3d8827ac1a40b5fe57941d28257e
+  docker-9fcb7876bbd7668f160f313131e0387f463cdbeb9b54e4024b86fab11814ca5e.scope                                                                             loaded    active     running      libcontainer container 9fcb7876bbd7668f160f313131e0387f463cdbeb9b54e4024b86fab11814ca5e
+  docker-cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d.scope                                                                             loaded    active     running      libcontainer container cd3feba5c83c46c908982f20ea3e17b355c8721b3d5a033dd0938e8bf560792d
+  docker-d239b25b60968f17e8e49993cf53eadac33d75a60b5db7c73df738cec07b2cca.scope                                                                             loaded    active     running      libcontainer container d239b25b60968f17e8e49993cf53eadac33d75a60b5db7c73df738cec07b2cca
+  docker-d4ba2a7b68faa1381bc83c6476545004dd2a658549eabbd3943d3616b0275237.scope                                                                             loaded    active     running      libcontainer container d4ba2a7b68faa1381bc83c6476545004dd2a658549eabbd3943d3616b0275237
+  docker-e7c4c53d49a662be575500909e756ff4b76d733a746ddc3be1de7d76dfe08d3d.scope                                                                             loaded    active     running      libcontainer container e7c4c53d49a662be575500909e756ff4b76d733a746ddc3be1de7d76dfe08d3d
+  docker-fd6ce0c2acf0f1b5780e602086620dd2f5312c300586d369b74ab9465ca1909b.scope                                                                             loaded    active     running      libcontainer container fd6ce0c2acf0f1b5780e602086620dd2f5312c300586d369b74ab9465ca1909b
+  docker-ff0b97a950ab9d345823ec10410e8e096b89ca08702bf2ec2e11ae165f42e54c.scope                                                                             loaded    active     running      libcontainer container ff0b97a950ab9d345823ec10410e8e096b89ca08702bf2ec2e11ae165f42e54c
+  docker.service                                                                                                                                            loaded    active     running      Docker Application Container Engine
+  docker.socket                                                                                                                                             loaded    active     running      Docker Socket for the API
+[OK] No systemd unit for container
+
+## D10: cgroup Directories
+---
+[OK] No stale cgroups found
+
+## D11: Runtime OCI Bundles
+---
+[INFO] /run/docker/containerd/ not found
+
+## D12: BuildKit Cache
+---
+[INFO] BuildKit directory not found
+
+## D13: Compose v2 Project Registry
+---
+[INFO] Compose state file not found
+
+## D14: Docker Context
+---
+[INFO] Active context: default
+NAME        DESCRIPTION                               DOCKER ENDPOINT               ERROR
+default *   Current DOCKER_HOST based configuration   unix:///var/run/docker.sock   
+
+## D15: Container Image
+---
+[OK] Image found: flowiseai/flowise:latest (3.07GB)
+REPOSITORY          TAG       IMAGE ID       CREATED       SIZE
+flowiseai/flowise   latest    bb7b1ebf8ce1   5 weeks ago   3.07GB
+
+## D16: Compose Configuration
+---
+[OK] Service 'flowise' defined in compose config
+n8n
+prometheus
+db
+vault
+calc-service
+embedding-api
+doc-service
+etl-service
+goszakup-api
+risk-engine
+web-ui
+alertmanager
+cadvisor
+db-backup
+chromadb
+flowise
+billing-service
+gateway
+grafana
+zakupai-bot
+blackbox-exporter
+libs
+
+## D17: Port Bindings
+---
+[WARN] Port 3000 is in use
+tcp        0      0 0.0.0.0:3000            0.0.0.0:*               LISTEN     
+tcp6       0      0 :::3000                 :::*                    LISTEN     
+
+## D18: Recent Docker Events
+---
+[INFO] Fetching last 50 Docker events...
+
+## D19: Docker Daemon Logs
+---
+[INFO] Checking Docker daemon logs for container references...
+
+## D20: Diagnostic Summary
+---
